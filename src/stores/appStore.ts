@@ -195,6 +195,28 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
   },
 
+  kanbanColumns: DEFAULT_COLUMNS,
+
+  addColumn: (label) => {
+    const id = label.toLowerCase().replace(/\s+/g, '_') + '_' + Date.now();
+    set({ kanbanColumns: [...get().kanbanColumns, { id, label }] });
+  },
+
+  removeColumn: (id) => {
+    const hasTasks = get().tasks.some(t => t.status === id && t.isStarted && t.status !== 'completed');
+    if (hasTasks) return false;
+    set({ kanbanColumns: get().kanbanColumns.filter(c => c.id !== id) });
+    return true;
+  },
+
+  renameColumn: (id, label) => {
+    set({ kanbanColumns: get().kanbanColumns.map(c => c.id === id ? { ...c, label } : c) });
+  },
+
+  reorderColumns: (columns) => {
+    set({ kanbanColumns: columns });
+  },
+
   searchQuery: '',
   setSearchQuery: (q) => set({ searchQuery: q }),
 }));
