@@ -48,6 +48,7 @@ export interface Task {
   tags: string[];
   createdAt: string;
   timeLog: Record<string, number>; // date string -> seconds
+  customFields?: Record<string, string>; // user-defined key-value metadata
 }
 
 export interface TimesheetEntry {

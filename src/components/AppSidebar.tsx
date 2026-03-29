@@ -59,8 +59,8 @@ const AppSidebar = () => {
 
         {/* User section */}
         <div className="border-t p-3 flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-lg shrink-0">
-            {currentUser.avatar}
+          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+            <span className="text-xs font-semibold text-primary">{currentUser.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}</span>
           </div>
           {!collapsed && (
             <div className="flex-1 min-w-0">
