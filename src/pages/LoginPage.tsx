@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate, Navigate } from 'react-router-dom';
 import { useAppStore } from '@/stores/appStore';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
@@ -8,12 +9,18 @@ const LoginPage = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const login = useAppStore(s => s.login);
+  const currentUser = useAppStore(s => s.currentUser);
+  const navigate = useNavigate();
+
+  // Already logged in — redirect to dashboard
+  if (currentUser) return <Navigate to="/" replace />;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const user = login(email, password);
     if (user) {
       toast.success(`Welcome back, ${user.name}!`);
+      navigate('/', { replace: true });
     } else {
       toast.error('Invalid credentials');
     }
@@ -23,7 +30,10 @@ const LoginPage = () => {
     setEmail(em);
     setPassword('demo123');
     const user = login(em, 'demo123');
-    if (user) toast.success(`Welcome back, ${user.name}!`);
+    if (user) {
+      toast.success(`Welcome back, ${user.name}!`);
+      navigate('/', { replace: true });
+    }
   };
 
   return (
