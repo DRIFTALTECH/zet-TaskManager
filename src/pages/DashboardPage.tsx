@@ -31,10 +31,10 @@ const priorityBadgeStyles: Record<Priority, string> = {
 };
 
 const priorityHoverStyles: Record<Priority, string> = {
-  Urgent: 'hover:border-red-500/50 hover:shadow-[0_8px_40px_-12px_rgba(239,68,68,0.25)]',
-  High: 'hover:border-orange-500/50 hover:shadow-[0_8px_40px_-12px_rgba(249,115,22,0.25)]',
-  Medium: 'hover:border-yellow-500/50 hover:shadow-[0_8px_40px_-12px_rgba(234,179,8,0.25)]',
-  Low: 'hover:border-green-500/50 hover:shadow-[0_8px_40px_-12px_rgba(34,197,94,0.25)]',
+  Urgent: 'hover:-translate-y-2 hover:shadow-[0_12px_50px_-8px_rgba(239,68,68,0.3)] hover:backdrop-brightness-105',
+  High: 'hover:-translate-y-2 hover:shadow-[0_12px_50px_-8px_rgba(249,115,22,0.3)] hover:backdrop-brightness-105',
+  Medium: 'hover:-translate-y-2 hover:shadow-[0_12px_50px_-8px_rgba(234,179,8,0.25)] hover:backdrop-brightness-105',
+  Low: 'hover:-translate-y-2 hover:shadow-[0_12px_50px_-8px_rgba(34,197,94,0.25)] hover:backdrop-brightness-105',
 };
 
 /* ─── Task Card ─── */
