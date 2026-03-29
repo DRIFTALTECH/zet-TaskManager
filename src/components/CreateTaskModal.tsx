@@ -52,7 +52,7 @@ const CreateTaskModal = ({ open, onOpenChange }: Props) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="glass sm:max-w-md">
+      <DialogContent className="glass sm:max-w-lg">
         <DialogHeader><DialogTitle>Create Task</DialogTitle></DialogHeader>
         <div className="space-y-3">
           <input value={title} onChange={e => setTitle(e.target.value)} className={inputCls} placeholder="Task title *" />

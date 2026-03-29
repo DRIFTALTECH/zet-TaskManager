@@ -91,7 +91,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="glass sm:max-w-lg max-h-[85vh] overflow-y-auto">
+      <DialogContent className="glass sm:max-w-xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
             <span>{project?.name}</span>
