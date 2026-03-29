@@ -114,7 +114,7 @@ function Column({ column, tasks, onTaskClick, onNewTask }: {
       </div>
 
       {/* Cards area */}
-      <div ref={setNodeRef} className="space-y-3 flex-1 min-h-[120px] px-0.5">
+      <div ref={setNodeRef} className="space-y-4 flex-1 min-h-[120px] px-0.5">
         <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
           {tasks.map(task => (
             <TaskCard key={task.id} task={task} onClick={() => onTaskClick(task)} />
