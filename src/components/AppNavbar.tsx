@@ -1,5 +1,5 @@
 import { useAppStore } from '@/stores/appStore';
-import { Sun, Moon, Bell, Search, X } from 'lucide-react';
+import { Sun, Moon, Search, X } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 

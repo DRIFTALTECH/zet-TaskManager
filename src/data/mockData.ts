@@ -1,10 +1,10 @@
 import { User, Project, Task } from '@/types';
 
 export const mockUsers: User[] = [
-  { id: 'u1', name: 'Alex Morgan', email: 'manager@demo.com', password: 'demo123', role: 'manager', avatar: '👨‍💼', projectIds: ['p1', 'p2'] },
-  { id: 'u2', name: 'Jordan Lee', email: 'jordan@demo.com', password: 'demo123', role: 'employee', avatar: '👩‍💻', projectIds: ['p1', 'p2'] },
-  { id: 'u3', name: 'Sam Patel', email: 'sam@demo.com', password: 'demo123', role: 'employee', avatar: '👨‍🔬', projectIds: ['p1'] },
-  { id: 'u4', name: 'Priya Nair', email: 'priya@demo.com', password: 'demo123', role: 'employee', avatar: '👩‍🎨', projectIds: ['p1', 'p2'] },
+  { id: 'u1', name: 'Alex Morgan', email: 'manager@demo.com', password: 'demo123', role: 'manager', avatar: 'AM', projectIds: ['p1', 'p2'] },
+  { id: 'u2', name: 'Jordan Lee', email: 'jordan@demo.com', password: 'demo123', role: 'employee', avatar: 'JL', projectIds: ['p1', 'p2'] },
+  { id: 'u3', name: 'Sam Patel', email: 'sam@demo.com', password: 'demo123', role: 'employee', avatar: 'SP', projectIds: ['p1'] },
+  { id: 'u4', name: 'Priya Nair', email: 'priya@demo.com', password: 'demo123', role: 'employee', avatar: 'PN', projectIds: ['p1', 'p2'] },
 ];
 
 export const mockProjects: Project[] = [
