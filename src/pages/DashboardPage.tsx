@@ -185,7 +185,7 @@ const DashboardPage = () => {
       </div>
 
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <div className="flex gap-5">
+        <div className="flex gap-6">
           {columns.map(col => (
             <Column
               key={col.id}
