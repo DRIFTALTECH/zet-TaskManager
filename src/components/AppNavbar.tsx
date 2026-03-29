@@ -100,16 +100,8 @@ const AppNavbar = () => {
         {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
       </button>
 
-      {/* Notification bell */}
-      <button className="p-2 rounded-xl hover:bg-muted/50 transition-colors relative">
-        <Bell className="h-4 w-4" />
-        <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-primary" />
-      </button>
-
-      {/* User avatar */}
-      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-lg">
-        {currentUser?.avatar}
-      </div>
+      {/* User name */}
+      <span className="text-sm font-medium text-foreground">{currentUser?.name}</span>
     </header>
   );
 };
