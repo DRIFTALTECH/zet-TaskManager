@@ -1,6 +1,6 @@
 import { useAppStore } from '@/stores/appStore';
 import { Task, Priority, KanbanColumn } from '@/types';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useState } from 'react';
 import {
   DndContext, closestCorners, DragEndEvent, DragOverlay, DragStartEvent, DragOverEvent,
@@ -30,11 +30,11 @@ const priorityBadgeStyles: Record<Priority, string> = {
   Low: 'bg-green-500/15 text-green-400 border-green-500/20',
 };
 
-const priorityHoverStyles: Record<Priority, string> = {
-  Urgent: 'hover:-translate-y-2 hover:shadow-[0_12px_50px_-8px_rgba(239,68,68,0.3)] hover:backdrop-brightness-105',
-  High: 'hover:-translate-y-2 hover:shadow-[0_12px_50px_-8px_rgba(249,115,22,0.3)] hover:backdrop-brightness-105',
-  Medium: 'hover:-translate-y-2 hover:shadow-[0_12px_50px_-8px_rgba(234,179,8,0.25)] hover:backdrop-brightness-105',
-  Low: 'hover:-translate-y-2 hover:shadow-[0_12px_50px_-8px_rgba(34,197,94,0.25)] hover:backdrop-brightness-105',
+const priorityGlowColor: Record<Priority, string> = {
+  Urgent: 'rgba(239,68,68,0.25)',
+  High: 'rgba(249,115,22,0.25)',
+  Medium: 'rgba(234,179,8,0.2)',
+  Low: 'rgba(34,197,94,0.2)',
 };
 
 /* ─── Task Card ─── */
@@ -48,13 +48,25 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
   const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 
   return (
-    <div
+    <motion.div
       ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.3 : 1 }}
+      style={{ transform: CSS.Transform.toString(transform), transition: transition || undefined, opacity: isDragging ? 0.3 : 1 }}
       {...attributes}
       {...listeners}
       onClick={onClick}
-      className={`group relative rounded-2xl border border-border/40 bg-card/50 backdrop-blur-sm p-6 cursor-grab active:cursor-grabbing transition-all duration-300 ease-out h-[250px] flex flex-col ${priorityHoverStyles[task.priority]}`}
+      layout
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: isDragging ? 0.3 : 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      transition={{ duration: 0.2, ease: 'easeOut' }}
+      whileHover={{
+        y: -6,
+        scale: 1.02,
+        boxShadow: `0 20px 60px -10px ${priorityGlowColor[task.priority]}`,
+        transition: { duration: 0.25, ease: 'easeOut' },
+      }}
+      whileTap={{ scale: 0.98 }}
+      className="group relative rounded-2xl border border-border/40 bg-card/50 backdrop-blur-sm p-6 cursor-grab active:cursor-grabbing h-[250px] flex flex-col will-change-transform"
     >
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
@@ -88,7 +100,7 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
           {formatDate(task.dueDate)}
         </span>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -111,13 +123,26 @@ function SortableColumn({
   };
 
   return (
-    <div ref={sortRef} style={style} className={`min-w-[380px] w-[380px] flex flex-col shrink-0 rounded-2xl transition-all duration-200 ${isDropTarget ? 'ring-2 ring-blue-500/50 bg-blue-500/5' : ''}`}>
+    <motion.div
+      ref={sortRef}
+      style={style}
+      layout
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: isDragging ? 0.4 : 1, y: 0 }}
+      transition={{ duration: 0.3, ease: 'easeOut' }}
+      className={`min-w-[380px] w-[380px] flex flex-col shrink-0 rounded-2xl transition-all duration-300 ease-out ${isDropTarget ? 'ring-2 ring-blue-500/50 bg-blue-500/5' : ''}`}
+    >
       {/* Column header */}
       <div className="flex items-center justify-between mb-4 px-1">
         <div className="flex items-center gap-2.5">
-          <button {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing p-0.5 text-muted-foreground/50 hover:text-foreground transition-colors">
+          <motion.button
+            {...attributes} {...listeners}
+            whileHover={{ scale: 1.15 }}
+            whileTap={{ scale: 0.9 }}
+            className="cursor-grab active:cursor-grabbing p-0.5 text-muted-foreground/50 hover:text-foreground transition-colors"
+          >
             <GripVertical className="h-4 w-4" />
-          </button>
+          </motion.button>
           <h3 className="text-sm font-semibold text-foreground">{column.label}</h3>
           <span className="text-[11px] text-muted-foreground bg-muted px-2.5 py-0.5 rounded-full font-medium">
             {tasks.length}
@@ -125,9 +150,13 @@ function SortableColumn({
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            >
               <Pencil className="h-3.5 w-3.5" />
-            </button>
+            </motion.button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="min-w-[140px]">
             <DropdownMenuItem onClick={onRename}>
@@ -143,20 +172,23 @@ function SortableColumn({
       {/* Cards area */}
       <div ref={dropRef} className="space-y-4 flex-1 px-0.5">
         <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
-          {tasks.map(task => (
-            <TaskCard key={task.id} task={task} onClick={() => onTaskClick(task)} />
-          ))}
+          <AnimatePresence mode="popLayout">
+            {tasks.map(task => (
+              <TaskCard key={task.id} task={task} onClick={() => onTaskClick(task)} />
+            ))}
+          </AnimatePresence>
         </SortableContext>
 
-        {/* New task — directly after last card (or as first item if empty) */}
-        <button
+        <motion.button
           onClick={onNewTask}
+          whileHover={{ scale: 1.02, y: -2 }}
+          whileTap={{ scale: 0.98 }}
           className="w-full flex items-center justify-center gap-1.5 text-xs text-muted-foreground py-2.5 rounded-xl border border-dashed border-border/50 hover:border-foreground/30 hover:text-foreground hover:bg-muted/50 transition-all duration-200"
         >
           <Plus className="h-3.5 w-3.5" /> New Task
-        </button>
+        </motion.button>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -164,14 +196,15 @@ function SortableColumn({
 function AddColumnPlaceholder({ onClick }: { onClick: () => void }) {
   return (
     <div className="min-w-[380px] w-[380px] shrink-0 flex flex-col">
-      {/* Invisible header spacer to align with column headers */}
       <div className="mb-4 px-1 h-[24px]" />
-      <button
+      <motion.button
         onClick={onClick}
+        whileHover={{ scale: 1.02, y: -2 }}
+        whileTap={{ scale: 0.98 }}
         className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground py-2.5 rounded-xl border border-dashed border-border/50 hover:border-foreground/30 hover:text-foreground hover:bg-muted/50 transition-all duration-200"
       >
         <Plus className="h-3.5 w-3.5" /> Add Column
-      </button>
+      </motion.button>
     </div>
   );
 }
@@ -203,11 +236,9 @@ const DashboardPage = () => {
     const { over } = event;
     if (!over) { setOverColumnId(null); return; }
     const overId = over.id as string;
-    // If over a column directly
     if (kanbanColumns.some(c => c.id === overId)) {
       setOverColumnId(overId);
     } else {
-      // Over a task — find which column it belongs to
       const task = tasks.find(t => t.id === overId);
       if (task) setOverColumnId(task.status);
       else setOverColumnId(null);
@@ -224,7 +255,6 @@ const DashboardPage = () => {
     const activeIdStr = active.id as string;
     const overIdStr = over.id as string;
 
-    // Column reorder
     if (kanbanColumns.some(c => c.id === activeIdStr)) {
       if (activeIdStr === overIdStr) return;
       const oldIdx = kanbanColumns.findIndex(c => c.id === activeIdStr);
@@ -237,7 +267,6 @@ const DashboardPage = () => {
       return;
     }
 
-    // Task move
     const targetColumn = kanbanColumns.find(c => c.id === overIdStr);
     if (targetColumn) {
       moveTask(activeIdStr, targetColumn.id);
@@ -304,18 +333,27 @@ const DashboardPage = () => {
 
         <DragOverlay>
           {activeTask && (
-            <div className="rounded-2xl border border-border/60 bg-card/80 backdrop-blur-sm p-6 shadow-2xl opacity-90 rotate-2 w-[380px] h-[250px]">
+            <motion.div
+              initial={{ scale: 1, rotate: 0 }}
+              animate={{ scale: 1.05, rotate: 2 }}
+              className="rounded-2xl border border-border/60 bg-card/80 backdrop-blur-sm p-6 shadow-2xl w-[380px] h-[250px]"
+              style={{ boxShadow: `0 25px 60px -10px ${priorityGlowColor[activeTask.priority]}` }}
+            >
               <div className="flex items-center justify-between mb-3">
                 <span className="text-xs font-mono text-muted-foreground/60">TF-{activeTask.id.replace(/\D/g, '').padStart(3, '0')}</span>
                 <span className={`text-[11px] px-3 py-1 rounded-full font-semibold border ${priorityBadgeStyles[activeTask.priority]}`}>{activeTask.priority}</span>
               </div>
               <h4 className="text-base font-bold text-foreground">{activeTask.title}</h4>
-            </div>
+            </motion.div>
           )}
           {activeColumn && (
-            <div className="rounded-2xl border border-border bg-card/90 backdrop-blur-sm p-4 shadow-2xl opacity-90 w-[380px]">
+            <motion.div
+              initial={{ scale: 1 }}
+              animate={{ scale: 1.03 }}
+              className="rounded-2xl border border-border bg-card/90 backdrop-blur-sm p-4 shadow-2xl w-[380px]"
+            >
               <span className="text-sm font-semibold text-foreground">{activeColumn.label}</span>
-            </div>
+            </motion.div>
           )}
         </DragOverlay>
       </DndContext>

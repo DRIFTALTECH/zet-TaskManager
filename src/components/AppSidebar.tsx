@@ -11,7 +11,7 @@ const navItems = [
   { path: '/tasks', label: 'My Tasks', icon: ListTodo },
   { path: '/timesheet', label: 'Timesheet', icon: Clock },
   { path: '/users', label: 'Users', icon: Users },
-  { path: '/manage', label: 'Manage Employees', icon: UserCog, managerOnly: true },
+  { path: '/manage', label: 'Manage', icon: UserCog, managerOnly: true },
 ];
 
 const AppSidebar = () => {
