@@ -1,6 +1,11 @@
 export type Role = 'manager' | 'employee';
 export type Priority = 'Low' | 'Medium' | 'High' | 'Urgent';
-export type TaskStatus = 'backlog' | 'in_progress' | 'in_review' | 'done' | 'completed';
+export type TaskStatus = string;
+
+export interface KanbanColumn {
+  id: string;
+  label: string;
+}
 
 export interface User {
   id: string;
