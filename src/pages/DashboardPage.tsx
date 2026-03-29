@@ -44,7 +44,7 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.4 : 1,
+    opacity: isDragging ? 0.3 : 1,
   };
 
   return (
@@ -54,37 +54,40 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
       {...attributes}
       {...listeners}
       onClick={onClick}
-      className="group rounded-xl border border-border/60 bg-card p-4 cursor-grab active:cursor-grabbing transition-all duration-200 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5 hover:-translate-y-0.5"
+      className="group relative rounded-2xl border border-border/50 bg-card p-5 cursor-grab active:cursor-grabbing transition-all duration-300 ease-out hover:border-secondary/50 hover:shadow-[0_8px_40px_-12px_hsl(var(--secondary)/0.25)] hover:-translate-y-1"
     >
+      {/* Hover glow overlay */}
+      <div className="absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none bg-gradient-to-br from-secondary/5 via-transparent to-primary/5" />
+
       {/* Header: ID + Priority */}
-      <div className="flex items-center justify-between mb-2.5">
-        <span className="text-[11px] font-mono text-muted-foreground tracking-wide">
+      <div className="relative flex items-center justify-between mb-4">
+        <span className="text-xs font-mono text-muted-foreground/70 tracking-wider">
           TF-{task.id.replace(/\D/g, '').padStart(3, '0')}
         </span>
-        <span className={`text-[11px] px-2.5 py-0.5 rounded-full font-medium border ${priorityBadgeStyles[task.priority]}`}>
+        <span className={`text-[11px] px-3 py-1 rounded-full font-semibold border ${priorityBadgeStyles[task.priority]}`}>
           {task.priority}
         </span>
       </div>
 
       {/* Title */}
-      <h4 className="text-sm font-semibold leading-snug mb-1.5 text-foreground group-hover:text-primary transition-colors line-clamp-2">
+      <h4 className="relative text-[15px] font-bold leading-snug mb-2 text-foreground group-hover:text-foreground transition-colors line-clamp-2">
         {task.title}
       </h4>
 
       {/* Description */}
-      <p className="text-xs text-muted-foreground leading-relaxed line-clamp-2 mb-4">
+      <p className="relative text-[13px] text-muted-foreground leading-relaxed line-clamp-2 mb-6">
         {task.description}
       </p>
 
       {/* Footer: Assignee + Due date */}
-      <div className="flex items-center justify-between pt-2 border-t border-border/40">
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-full bg-primary/15 flex items-center justify-center">
-            <span className="text-[10px] font-semibold text-primary">{assignee ? getInitials(assignee.name) : '??'}</span>
+      <div className="relative flex items-center justify-between pt-3 border-t border-border/30">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-full bg-secondary/15 flex items-center justify-center ring-1 ring-secondary/20">
+            <span className="text-[10px] font-bold text-secondary">{assignee ? getInitials(assignee.name) : '??'}</span>
           </div>
-          <span className="text-xs text-muted-foreground">{assignee?.name?.split(' ')[0]}</span>
+          <span className="text-[13px] text-muted-foreground font-medium">{assignee?.name?.split(' ')[0]}</span>
         </div>
-        <span className={`text-xs font-mono ${isOverdue ? 'text-red-400' : 'text-muted-foreground'}`}>
+        <span className={`text-[13px] font-mono ${isOverdue ? 'text-red-400' : 'text-muted-foreground/70'}`}>
           {formatDate(task.dueDate)}
         </span>
       </div>
@@ -101,7 +104,7 @@ function Column({ column, tasks, onTaskClick, onNewTask }: {
   const { setNodeRef } = useDroppable({ id: column.id });
 
   return (
-    <div className="flex-1 min-w-[280px] flex flex-col">
+    <div className="flex-1 min-w-[320px] flex flex-col">
       {/* Column header */}
       <div className="flex items-center gap-2.5 mb-4 px-1">
         <h3 className="text-sm font-semibold text-foreground">{column.label}</h3>
@@ -111,7 +114,7 @@ function Column({ column, tasks, onTaskClick, onNewTask }: {
       </div>
 
       {/* Cards area */}
-      <div ref={setNodeRef} className="space-y-3 flex-1 min-h-[120px] px-0.5">
+      <div ref={setNodeRef} className="space-y-4 flex-1 min-h-[120px] px-0.5">
         <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
           {tasks.map(task => (
             <TaskCard key={task.id} task={task} onClick={() => onTaskClick(task)} />
@@ -182,7 +185,7 @@ const DashboardPage = () => {
       </div>
 
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <div className="flex gap-5">
+        <div className="flex gap-6">
           {columns.map(col => (
             <Column
               key={col.id}
@@ -196,12 +199,12 @@ const DashboardPage = () => {
 
         <DragOverlay>
           {activeTask && (
-            <div className="rounded-xl border border-primary/30 bg-card p-4 shadow-2xl shadow-primary/10 opacity-90 rotate-2 w-[280px]">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[11px] font-mono text-muted-foreground">TF-{activeTask.id.replace(/\D/g, '').padStart(3, '0')}</span>
-                <span className={`text-[11px] px-2.5 py-0.5 rounded-full font-medium border ${priorityBadgeStyles[activeTask.priority]}`}>{activeTask.priority}</span>
+            <div className="rounded-2xl border border-secondary/40 bg-card p-5 shadow-2xl shadow-secondary/15 opacity-90 rotate-2 w-[320px]">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-mono text-muted-foreground/70">TF-{activeTask.id.replace(/\D/g, '').padStart(3, '0')}</span>
+                <span className={`text-[11px] px-3 py-1 rounded-full font-semibold border ${priorityBadgeStyles[activeTask.priority]}`}>{activeTask.priority}</span>
               </div>
-              <h4 className="text-sm font-semibold">{activeTask.title}</h4>
+              <h4 className="text-[15px] font-bold">{activeTask.title}</h4>
             </div>
           )}
         </DragOverlay>
