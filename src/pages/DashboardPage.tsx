@@ -199,12 +199,12 @@ const DashboardPage = () => {
 
         <DragOverlay>
           {activeTask && (
-            <div className="rounded-xl border border-primary/30 bg-card p-4 shadow-2xl shadow-primary/10 opacity-90 rotate-2 w-[280px]">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[11px] font-mono text-muted-foreground">TF-{activeTask.id.replace(/\D/g, '').padStart(3, '0')}</span>
-                <span className={`text-[11px] px-2.5 py-0.5 rounded-full font-medium border ${priorityBadgeStyles[activeTask.priority]}`}>{activeTask.priority}</span>
+            <div className="rounded-2xl border border-secondary/40 bg-card p-5 shadow-2xl shadow-secondary/15 opacity-90 rotate-2 w-[320px]">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-xs font-mono text-muted-foreground/70">TF-{activeTask.id.replace(/\D/g, '').padStart(3, '0')}</span>
+                <span className={`text-[11px] px-3 py-1 rounded-full font-semibold border ${priorityBadgeStyles[activeTask.priority]}`}>{activeTask.priority}</span>
               </div>
-              <h4 className="text-sm font-semibold">{activeTask.title}</h4>
+              <h4 className="text-[15px] font-bold">{activeTask.title}</h4>
             </div>
           )}
         </DragOverlay>
