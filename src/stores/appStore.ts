@@ -1,6 +1,13 @@
 import { create } from 'zustand';
-import { User, Project, Task, TaskStatus, Priority } from '@/types';
+import { User, Project, Task, TaskStatus, Priority, KanbanColumn } from '@/types';
 import { mockUsers, mockProjects, mockTasks } from '@/data/mockData';
+
+const DEFAULT_COLUMNS: KanbanColumn[] = [
+  { id: 'backlog', label: 'Backlog' },
+  { id: 'in_progress', label: 'In Progress' },
+  { id: 'in_review', label: 'In Review' },
+  { id: 'done', label: 'Done' },
+];
 
 interface AppState {
   // Auth
@@ -33,6 +40,13 @@ interface AppState {
   moveTask: (id: string, status: TaskStatus) => void;
   approveTask: (id: string) => void;
   logTime: (id: string, date: string, seconds: number) => void;
+
+  // Columns
+  kanbanColumns: KanbanColumn[];
+  addColumn: (label: string) => void;
+  removeColumn: (id: string) => boolean;
+  renameColumn: (id: string, label: string) => void;
+  reorderColumns: (columns: KanbanColumn[]) => void;
 
   // Search
   searchQuery: string;
