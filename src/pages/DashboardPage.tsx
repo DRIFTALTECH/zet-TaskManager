@@ -104,7 +104,7 @@ function Column({ column, tasks, onTaskClick, onNewTask }: {
   const { setNodeRef } = useDroppable({ id: column.id });
 
   return (
-    <div className="flex-1 min-w-[280px] flex flex-col">
+    <div className="flex-1 min-w-[320px] flex flex-col">
       {/* Column header */}
       <div className="flex items-center gap-2.5 mb-4 px-1">
         <h3 className="text-sm font-semibold text-foreground">{column.label}</h3>
