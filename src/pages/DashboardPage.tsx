@@ -31,10 +31,10 @@ const priorityBadgeStyles: Record<Priority, string> = {
 };
 
 const priorityHoverStyles: Record<Priority, string> = {
-  Urgent: 'hover:border-red-500/50 hover:shadow-[0_8px_40px_-12px_rgba(239,68,68,0.25)]',
-  High: 'hover:border-orange-500/50 hover:shadow-[0_8px_40px_-12px_rgba(249,115,22,0.25)]',
-  Medium: 'hover:border-yellow-500/50 hover:shadow-[0_8px_40px_-12px_rgba(234,179,8,0.25)]',
-  Low: 'hover:border-green-500/50 hover:shadow-[0_8px_40px_-12px_rgba(34,197,94,0.25)]',
+  Urgent: 'hover:-translate-y-2 hover:shadow-[0_12px_50px_-8px_rgba(239,68,68,0.3)] hover:backdrop-brightness-105',
+  High: 'hover:-translate-y-2 hover:shadow-[0_12px_50px_-8px_rgba(249,115,22,0.3)] hover:backdrop-brightness-105',
+  Medium: 'hover:-translate-y-2 hover:shadow-[0_12px_50px_-8px_rgba(234,179,8,0.25)] hover:backdrop-brightness-105',
+  Low: 'hover:-translate-y-2 hover:shadow-[0_12px_50px_-8px_rgba(34,197,94,0.25)] hover:backdrop-brightness-105',
 };
 
 /* ─── Task Card ─── */
@@ -54,7 +54,7 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
       {...attributes}
       {...listeners}
       onClick={onClick}
-      className={`group relative rounded-2xl border border-border/40 bg-card/50 backdrop-blur-sm p-6 cursor-grab active:cursor-grabbing transition-all duration-300 ease-out hover:-translate-y-1 h-[250px] flex flex-col ${priorityHoverStyles[task.priority]}`}
+      className={`group relative rounded-2xl border border-border/40 bg-card/50 backdrop-blur-sm p-6 cursor-grab active:cursor-grabbing transition-all duration-300 ease-out h-[250px] flex flex-col ${priorityHoverStyles[task.priority]}`}
     >
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
@@ -141,26 +141,21 @@ function SortableColumn({
       </div>
 
       {/* Cards area */}
-      <div ref={dropRef} className="space-y-4 flex-1 min-h-[140px] px-0.5">
+      <div ref={dropRef} className="space-y-4 flex-1 px-0.5">
         <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
           {tasks.map(task => (
             <TaskCard key={task.id} task={task} onClick={() => onTaskClick(task)} />
           ))}
         </SortableContext>
-        {tasks.length === 0 && (
-          <div className="flex items-center justify-center py-16 text-muted-foreground/30 border border-dashed border-border/40 rounded-2xl">
-            <p className="text-xs">No tasks</p>
-          </div>
-        )}
-      </div>
 
-      {/* New task — right after cards */}
-      <button
-        onClick={onNewTask}
-        className="mt-3 flex items-center justify-center gap-1.5 text-xs text-muted-foreground py-2.5 rounded-xl border border-dashed border-border/50 hover:border-foreground/30 hover:text-foreground hover:bg-muted/50 transition-all duration-200"
-      >
-        <Plus className="h-3.5 w-3.5" /> New Task
-      </button>
+        {/* New task — directly after last card (or as first item if empty) */}
+        <button
+          onClick={onNewTask}
+          className="w-full flex items-center justify-center gap-1.5 text-xs text-muted-foreground py-2.5 rounded-xl border border-dashed border-border/50 hover:border-foreground/30 hover:text-foreground hover:bg-muted/50 transition-all duration-200"
+        >
+          <Plus className="h-3.5 w-3.5" /> New Task
+        </button>
+      </div>
     </div>
   );
 }
