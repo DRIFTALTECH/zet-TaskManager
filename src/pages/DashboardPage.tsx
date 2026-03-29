@@ -141,26 +141,21 @@ function SortableColumn({
       </div>
 
       {/* Cards area */}
-      <div ref={dropRef} className="space-y-4 flex-1 min-h-[140px] px-0.5">
+      <div ref={dropRef} className="space-y-4 flex-1 px-0.5">
         <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
           {tasks.map(task => (
             <TaskCard key={task.id} task={task} onClick={() => onTaskClick(task)} />
           ))}
         </SortableContext>
-        {tasks.length === 0 && (
-          <div className="flex items-center justify-center py-16 text-muted-foreground/30 border border-dashed border-border/40 rounded-2xl">
-            <p className="text-xs">No tasks</p>
-          </div>
-        )}
-      </div>
 
-      {/* New task — right after cards */}
-      <button
-        onClick={onNewTask}
-        className="mt-3 flex items-center justify-center gap-1.5 text-xs text-muted-foreground py-2.5 rounded-xl border border-dashed border-border/50 hover:border-foreground/30 hover:text-foreground hover:bg-muted/50 transition-all duration-200"
-      >
-        <Plus className="h-3.5 w-3.5" /> New Task
-      </button>
+        {/* New task — directly after last card (or as first item if empty) */}
+        <button
+          onClick={onNewTask}
+          className="w-full flex items-center justify-center gap-1.5 text-xs text-muted-foreground py-2.5 rounded-xl border border-dashed border-border/50 hover:border-foreground/30 hover:text-foreground hover:bg-muted/50 transition-all duration-200"
+        >
+          <Plus className="h-3.5 w-3.5" /> New Task
+        </button>
+      </div>
     </div>
   );
 }
