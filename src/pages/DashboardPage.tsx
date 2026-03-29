@@ -54,7 +54,7 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
       {...attributes}
       {...listeners}
       onClick={onClick}
-      className={`group relative rounded-2xl border border-border/40 bg-card/50 backdrop-blur-sm p-6 cursor-grab active:cursor-grabbing transition-all duration-300 ease-out hover:-translate-y-1 h-[250px] flex flex-col ${priorityHoverStyles[task.priority]}`}
+      className={`group relative rounded-2xl border border-border/40 bg-card/50 backdrop-blur-sm p-6 cursor-grab active:cursor-grabbing transition-all duration-300 ease-out h-[250px] flex flex-col ${priorityHoverStyles[task.priority]}`}
     >
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
