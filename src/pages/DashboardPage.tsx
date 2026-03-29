@@ -2,25 +2,23 @@ import { useAppStore } from '@/stores/appStore';
 import { Task, Priority, KanbanColumn } from '@/types';
 import { motion } from 'framer-motion';
 import { useState } from 'react';
-import { DndContext, closestCorners, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor, useSensor, useSensors, useDroppable } from '@dnd-kit/core';
-import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
+import {
+  DndContext, closestCorners, DragEndEvent, DragOverlay, DragStartEvent,
+  PointerSensor, useSensor, useSensors, useDroppable,
+} from '@dnd-kit/core';
+import {
+  SortableContext, horizontalListSortingStrategy, verticalListSortingStrategy, useSortable,
+} from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Plus, Trash2, GripVertical, Pencil, X, Check } from 'lucide-react';
+import { Plus, Trash2, GripVertical, Pencil } from 'lucide-react';
 import TaskDetailModal from '@/components/TaskDetailModal';
 import CreateTaskModal from '@/components/CreateTaskModal';
 import { toast } from 'sonner';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,41 +30,28 @@ const priorityBadgeStyles: Record<Priority, string> = {
   Low: 'bg-green-500/15 text-green-400 border-green-500/20',
 };
 
+/* ─── Task Card ─── */
 function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
   const { users } = useAppStore();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
   const assignee = users.find(u => u.id === task.assignedTo);
   const isOverdue = new Date(task.dueDate) < new Date();
 
-  const formatDate = (dateStr: string) => {
-    const d = new Date(dateStr);
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  };
-
-  const getInitials = (name: string) =>
-    name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.3 : 1,
-  };
+  const formatDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 
   return (
     <div
       ref={setNodeRef}
-      style={style}
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.3 : 1 }}
       {...attributes}
       {...listeners}
       onClick={onClick}
-      className="group relative rounded-2xl border border-border/50 bg-card p-6 cursor-grab active:cursor-grabbing transition-all duration-300 ease-out hover:border-secondary/50 hover:shadow-[0_8px_40px_-12px_hsl(var(--secondary)/0.25)] hover:-translate-y-1 h-[220px] flex flex-col"
+      className="group relative rounded-2xl border border-border/40 bg-card/60 backdrop-blur-sm p-6 cursor-grab active:cursor-grabbing transition-all duration-300 ease-out hover:bg-card/90 hover:shadow-[0_12px_48px_-16px_hsl(var(--foreground)/0.12)] hover:-translate-y-1 h-[250px] flex flex-col"
     >
-      {/* Hover glow */}
-      <div className="absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none bg-gradient-to-br from-secondary/5 via-transparent to-primary/5" />
-
       {/* Header */}
-      <div className="relative flex items-center justify-between mb-3">
-        <span className="text-xs font-mono text-muted-foreground/70 tracking-wider">
+      <div className="flex items-center justify-between mb-4">
+        <span className="text-xs font-mono text-muted-foreground/60 tracking-wider">
           TF-{task.id.replace(/\D/g, '').padStart(3, '0')}
         </span>
         <span className={`text-[11px] px-3 py-1 rounded-full font-semibold border ${priorityBadgeStyles[task.priority]}`}>
@@ -75,24 +60,24 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
       </div>
 
       {/* Title */}
-      <h4 className="relative text-base font-bold leading-snug mb-2 text-foreground line-clamp-2">
+      <h4 className="text-base font-bold leading-snug mb-3 text-foreground line-clamp-2">
         {task.title}
       </h4>
 
-      {/* Description */}
-      <p className="relative text-sm text-muted-foreground leading-relaxed line-clamp-2 flex-1">
-        {task.description}
+      {/* Description — truncated with ellipsis */}
+      <p className="text-sm text-muted-foreground leading-relaxed flex-1 overflow-hidden text-ellipsis line-clamp-3">
+        {task.description || 'No description'}
       </p>
 
-      {/* Footer */}
-      <div className="relative flex items-center justify-between pt-3 mt-auto border-t border-border/30">
+      {/* Footer — no border/line */}
+      <div className="flex items-center justify-between pt-4 mt-auto">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-full bg-secondary/15 flex items-center justify-center ring-1 ring-secondary/20">
-            <span className="text-[11px] font-bold text-secondary">{assignee ? getInitials(assignee.name) : '??'}</span>
+          <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center">
+            <span className="text-[10px] font-bold text-muted-foreground">{assignee ? getInitials(assignee.name) : '??'}</span>
           </div>
           <span className="text-sm text-muted-foreground font-medium">{assignee?.name?.split(' ')[0]}</span>
         </div>
-        <span className={`text-sm font-mono ${isOverdue ? 'text-destructive' : 'text-muted-foreground/70'}`}>
+        <span className={`text-sm font-mono ${isOverdue ? 'text-destructive' : 'text-muted-foreground/60'}`}>
           {formatDate(task.dueDate)}
         </span>
       </div>
@@ -100,48 +85,48 @@ function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
   );
 }
 
-function Column({
-  column,
-  tasks,
-  onTaskClick,
-  onNewTask,
-  onDelete,
-  onRename,
+/* ─── Sortable Column Wrapper ─── */
+function SortableColumn({
+  column, tasks, onTaskClick, onNewTask, onDelete, onRename,
 }: {
-  column: KanbanColumn;
-  tasks: Task[];
-  onTaskClick: (t: Task) => void;
-  onNewTask: () => void;
-  onDelete: () => void;
-  onRename: () => void;
+  column: KanbanColumn; tasks: Task[];
+  onTaskClick: (t: Task) => void; onNewTask: () => void;
+  onDelete: () => void; onRename: () => void;
 }) {
-  const { setNodeRef } = useDroppable({ id: column.id });
-  const [menuOpen, setMenuOpen] = useState(false);
+  const { attributes, listeners, setNodeRef: sortRef, transform, transition, isDragging } = useSortable({ id: column.id });
+  const { setNodeRef: dropRef } = useDroppable({ id: column.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  };
 
   return (
-    <div className="min-w-[360px] w-[360px] flex flex-col shrink-0">
+    <div ref={sortRef} style={style} className="min-w-[380px] w-[380px] flex flex-col shrink-0">
       {/* Column header */}
       <div className="flex items-center justify-between mb-4 px-1">
         <div className="flex items-center gap-2.5">
+          {/* Drag handle for column */}
+          <button {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing p-0.5 text-muted-foreground/50 hover:text-foreground transition-colors">
+            <GripVertical className="h-4 w-4" />
+          </button>
           <h3 className="text-sm font-semibold text-foreground">{column.label}</h3>
           <span className="text-[11px] text-muted-foreground bg-muted px-2.5 py-0.5 rounded-full font-medium">
             {tasks.length}
           </span>
         </div>
-        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+        <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-              <GripVertical className="h-4 w-4" />
+              <Pencil className="h-3.5 w-3.5" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="min-w-[140px]">
             <DropdownMenuItem onClick={onRename}>
               <Pencil className="h-3.5 w-3.5 mr-2" /> Rename
             </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={onDelete}
-              className="text-destructive focus:text-destructive"
-            >
+            <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
               <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -149,23 +134,23 @@ function Column({
       </div>
 
       {/* Cards area */}
-      <div ref={setNodeRef} className="space-y-4 flex-1 min-h-[140px] px-0.5">
+      <div ref={dropRef} className="space-y-4 flex-1 min-h-[140px] px-0.5">
         <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
           {tasks.map(task => (
             <TaskCard key={task.id} task={task} onClick={() => onTaskClick(task)} />
           ))}
         </SortableContext>
         {tasks.length === 0 && (
-          <div className="flex items-center justify-center py-16 text-muted-foreground/40 border border-dashed border-border/40 rounded-2xl">
+          <div className="flex items-center justify-center py-16 text-muted-foreground/30 border border-dashed border-border/40 rounded-2xl">
             <p className="text-xs">No tasks</p>
           </div>
         )}
       </div>
 
-      {/* New Task button */}
+      {/* New task at bottom of each column */}
       <button
         onClick={onNewTask}
-        className="mt-4 flex items-center justify-center gap-1.5 text-xs text-muted-foreground py-3 rounded-xl border border-dashed border-border/60 hover:border-primary/40 hover:text-primary hover:bg-primary/5 transition-all duration-200"
+        className="mt-4 flex items-center justify-center gap-1.5 text-xs text-muted-foreground py-3 rounded-xl border border-dashed border-border/50 hover:border-foreground/30 hover:text-foreground hover:bg-muted/50 transition-all duration-200"
       >
         <Plus className="h-3.5 w-3.5" /> New Task
       </button>
@@ -173,39 +158,74 @@ function Column({
   );
 }
 
+/* ─── Add Column Placeholder ─── */
+function AddColumnPlaceholder({ onClick }: { onClick: () => void }) {
+  return (
+    <div className="min-w-[380px] w-[380px] shrink-0 flex flex-col">
+      <button
+        onClick={onClick}
+        className="flex-1 min-h-[200px] flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border/40 text-muted-foreground/40 hover:border-foreground/20 hover:text-muted-foreground transition-all duration-200"
+      >
+        <Plus className="h-6 w-6" />
+        <span className="text-sm font-medium">Add Column</span>
+      </button>
+    </div>
+  );
+}
+
+/* ─── Main Page ─── */
 const DashboardPage = () => {
-  const { tasks, selectedProjectId, moveTask, kanbanColumns, addColumn, removeColumn, renameColumn } = useAppStore();
+  const { tasks, selectedProjectId, moveTask, kanbanColumns, addColumn, removeColumn, renameColumn, reorderColumns } = useAppStore();
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [dragType, setDragType] = useState<'task' | 'column' | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [addColOpen, setAddColOpen] = useState(false);
   const [newColName, setNewColName] = useState('');
   const [renameTarget, setRenameTarget] = useState<KanbanColumn | null>(null);
   const [renameValue, setRenameValue] = useState('');
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
   const projectTasks = tasks.filter(t => t.projectId === selectedProjectId && t.isStarted && t.status !== 'completed');
 
-  const handleDragStart = (event: DragStartEvent) => setActiveId(event.active.id as string);
+  const handleDragStart = (event: DragStartEvent) => {
+    const id = event.active.id as string;
+    setActiveId(id);
+    setDragType(kanbanColumns.some(c => c.id === id) ? 'column' : 'task');
+  };
 
   const handleDragEnd = (event: DragEndEvent) => {
-    setActiveId(null);
     const { active, over } = event;
+    setActiveId(null);
+    setDragType(null);
     if (!over) return;
-    const taskId = active.id as string;
-    const overId = over.id as string;
 
-    const targetColumn = kanbanColumns.find(c => c.id === overId);
-    if (targetColumn) {
-      moveTask(taskId, targetColumn.id);
-      toast.info(`Task moved to ${targetColumn.label}`);
+    const activeIdStr = active.id as string;
+    const overIdStr = over.id as string;
+
+    // Column reorder
+    if (kanbanColumns.some(c => c.id === activeIdStr)) {
+      if (activeIdStr === overIdStr) return;
+      const oldIdx = kanbanColumns.findIndex(c => c.id === activeIdStr);
+      let newIdx = kanbanColumns.findIndex(c => c.id === overIdStr);
+      if (newIdx === -1) return;
+      const updated = [...kanbanColumns];
+      const [moved] = updated.splice(oldIdx, 1);
+      updated.splice(newIdx, 0, moved);
+      reorderColumns(updated);
       return;
     }
 
-    const targetTask = tasks.find(t => t.id === overId);
-    if (targetTask && targetTask.id !== taskId) {
-      moveTask(taskId, targetTask.status);
-      toast.info(`Task moved to ${kanbanColumns.find(c => c.id === targetTask.status)?.label}`);
+    // Task move
+    const targetColumn = kanbanColumns.find(c => c.id === overIdStr);
+    if (targetColumn) {
+      moveTask(activeIdStr, targetColumn.id);
+      toast.info(`Moved to ${targetColumn.label}`);
+      return;
+    }
+    const targetTask = tasks.find(t => t.id === overIdStr);
+    if (targetTask && targetTask.id !== activeIdStr) {
+      moveTask(activeIdStr, targetTask.status);
     }
   };
 
@@ -219,11 +239,8 @@ const DashboardPage = () => {
 
   const handleDeleteColumn = (col: KanbanColumn) => {
     const success = removeColumn(col.id);
-    if (success) {
-      toast.success(`Column "${col.label}" deleted`);
-    } else {
-      toast.error(`Cannot delete "${col.label}" — it still has tasks`);
-    }
+    if (success) toast.success(`Column "${col.label}" deleted`);
+    else toast.error(`Cannot delete "${col.label}" — it still has tasks`);
   };
 
   const handleRenameColumn = () => {
@@ -234,48 +251,49 @@ const DashboardPage = () => {
     setRenameValue('');
   };
 
-  const activeTask = activeId ? tasks.find(t => t.id === activeId) : null;
+  const activeTask = activeId && dragType === 'task' ? tasks.find(t => t.id === activeId) : null;
+  const activeColumn = activeId && dragType === 'column' ? kanbanColumns.find(c => c.id === activeId) : null;
 
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="p-6 h-full flex flex-col">
-      <div className="mb-6 flex items-center justify-between shrink-0">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Kanban board for active tasks</p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setAddColOpen(true)}
-          className="gap-1.5"
-        >
-          <Plus className="h-4 w-4" /> Add Column
-        </Button>
+      <div className="mb-6 shrink-0">
+        <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
+        <p className="text-sm text-muted-foreground mt-0.5">Kanban board for active tasks</p>
       </div>
 
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <div className="flex gap-6 flex-1 overflow-x-auto pb-4" style={{ scrollbarGutter: 'stable' }}>
-          {kanbanColumns.map(col => (
-            <Column
-              key={col.id}
-              column={col}
-              tasks={projectTasks.filter(t => t.status === col.id)}
-              onTaskClick={setSelectedTask}
-              onNewTask={() => setCreateOpen(true)}
-              onDelete={() => handleDeleteColumn(col)}
-              onRename={() => { setRenameTarget(col); setRenameValue(col.label); }}
-            />
-          ))}
+        <div className="flex gap-6 flex-1 overflow-x-auto pb-4">
+          <SortableContext items={kanbanColumns.map(c => c.id)} strategy={horizontalListSortingStrategy}>
+            {kanbanColumns.map(col => (
+              <SortableColumn
+                key={col.id}
+                column={col}
+                tasks={projectTasks.filter(t => t.status === col.id)}
+                onTaskClick={setSelectedTask}
+                onNewTask={() => setCreateOpen(true)}
+                onDelete={() => handleDeleteColumn(col)}
+                onRename={() => { setRenameTarget(col); setRenameValue(col.label); }}
+              />
+            ))}
+          </SortableContext>
+
+          {/* Add column placeholder as last "column" */}
+          <AddColumnPlaceholder onClick={() => setAddColOpen(true)} />
         </div>
 
         <DragOverlay>
           {activeTask && (
-            <div className="rounded-2xl border border-secondary/40 bg-card p-6 shadow-2xl shadow-secondary/15 opacity-90 rotate-2 w-[360px] h-[220px]">
+            <div className="rounded-2xl border border-border/60 bg-card/80 backdrop-blur-sm p-6 shadow-2xl opacity-90 rotate-2 w-[380px] h-[250px]">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-mono text-muted-foreground/70">TF-{activeTask.id.replace(/\D/g, '').padStart(3, '0')}</span>
+                <span className="text-xs font-mono text-muted-foreground/60">TF-{activeTask.id.replace(/\D/g, '').padStart(3, '0')}</span>
                 <span className={`text-[11px] px-3 py-1 rounded-full font-semibold border ${priorityBadgeStyles[activeTask.priority]}`}>{activeTask.priority}</span>
               </div>
               <h4 className="text-base font-bold text-foreground">{activeTask.title}</h4>
+            </div>
+          )}
+          {activeColumn && (
+            <div className="rounded-2xl border border-border bg-card/90 backdrop-blur-sm p-4 shadow-2xl opacity-90 w-[380px]">
+              <span className="text-sm font-semibold text-foreground">{activeColumn.label}</span>
             </div>
           )}
         </DragOverlay>
@@ -283,17 +301,9 @@ const DashboardPage = () => {
 
       {/* Add Column Dialog */}
       <Dialog open={addColOpen} onOpenChange={setAddColOpen}>
-        <DialogContent className="sm:max-w-[400px]">
-          <DialogHeader>
-            <DialogTitle>Add New Column</DialogTitle>
-          </DialogHeader>
-          <Input
-            placeholder="Column name..."
-            value={newColName}
-            onChange={e => setNewColName(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleAddColumn()}
-            autoFocus
-          />
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader><DialogTitle>Add New Column</DialogTitle></DialogHeader>
+          <Input placeholder="Column name..." value={newColName} onChange={e => setNewColName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddColumn()} autoFocus />
           <DialogFooter>
             <Button variant="ghost" onClick={() => setAddColOpen(false)}>Cancel</Button>
             <Button onClick={handleAddColumn} disabled={!newColName.trim()}>Add Column</Button>
@@ -303,17 +313,9 @@ const DashboardPage = () => {
 
       {/* Rename Column Dialog */}
       <Dialog open={!!renameTarget} onOpenChange={o => !o && setRenameTarget(null)}>
-        <DialogContent className="sm:max-w-[400px]">
-          <DialogHeader>
-            <DialogTitle>Rename Column</DialogTitle>
-          </DialogHeader>
-          <Input
-            placeholder="New name..."
-            value={renameValue}
-            onChange={e => setRenameValue(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleRenameColumn()}
-            autoFocus
-          />
+        <DialogContent className="sm:max-w-[480px]">
+          <DialogHeader><DialogTitle>Rename Column</DialogTitle></DialogHeader>
+          <Input placeholder="New name..." value={renameValue} onChange={e => setRenameValue(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleRenameColumn()} autoFocus />
           <DialogFooter>
             <Button variant="ghost" onClick={() => setRenameTarget(null)}>Cancel</Button>
             <Button onClick={handleRenameColumn} disabled={!renameValue.trim()}>Save</Button>
