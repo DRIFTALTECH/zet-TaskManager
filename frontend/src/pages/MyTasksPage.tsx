@@ -6,6 +6,8 @@ import { Clock, Layers, Plus, CheckCircle2 } from 'lucide-react';
 import TaskDetailModal from '@/components/TaskDetailModal';
 import CreateTaskModal from '@/components/CreateTaskModal';
 import { toast } from 'sonner';
+import { isTaskAssignedTo } from '@/lib/task-utils';
+import { snappy, snappyLayout, pageEnter, cardMotion } from '@/lib/motion';
 
 const priorityBadge: Record<Priority, string> = {
   Urgent: 'bg-red-500/15 text-red-400 border-red-500/20',
@@ -21,25 +23,32 @@ const MyTasksPage = () => {
 
   if (!currentUser) return null;
 
-  // All tasks for this user, grouped by project
-  const myTasks = tasks.filter(t => t.assignedTo === currentUser.id);
+  const isMyActiveTask = (t: Task) =>
+    t.status !== 'completed' &&
+    (isTaskAssignedTo(t, currentUser.id) || t.createdBy === currentUser.id);
+
+  const isMyCompletedTask = (t: Task) =>
+    t.status === 'completed' && isTaskAssignedTo(t, currentUser.id);
+
+  const myTasks = tasks.filter(t => isMyActiveTask(t) || isMyCompletedTask(t));
   const userProjects = projects.filter(p => myTasks.some(t => t.projectId === p.id));
 
   const formatTime = (s: number) => `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
   const formatDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="p-6">
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={pageEnter} className="p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold">My Tasks</h1>
           <p className="text-sm text-muted-foreground mt-1">{myTasks.length} total tasks across {userProjects.length} projects</p>
         </div>
         <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
+          transition={snappy}
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
           onClick={() => setCreateOpen(true)}
-          className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 transition-opacity"
+          className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 transition-opacity duration-100"
         >
           <Plus className="h-4 w-4" /> Create Task
         </motion.button>
@@ -49,15 +58,15 @@ const MyTasksPage = () => {
       <div className="space-y-8">
         {userProjects.map(project => {
           const projTasks = myTasks.filter(t => t.projectId === project.id);
-          const activeTasks = projTasks.filter(t => t.status !== 'completed');
-          const completedTasks = projTasks.filter(t => t.status === 'completed');
+          const activeTasks = projTasks.filter(t => isMyActiveTask(t));
+          const completedTasks = projTasks.filter(t => isMyCompletedTask(t));
 
           return (
             <motion.div
               key={project.id}
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3 }}
+              transition={snappyLayout}
             >
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
@@ -78,13 +87,14 @@ const MyTasksPage = () => {
                       <motion.div
                         key={task.id}
                         layout
+                        transition={cardMotion}
                         initial={{ opacity: 0, x: -8 }}
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: -8 }}
-                        whileHover={{ scale: 1.01, x: 4, boxShadow: '0 4px 20px -4px hsl(var(--foreground) / 0.08)' }}
-                        whileTap={{ scale: 0.99 }}
+                        whileHover={{ scale: 1.005, x: 2, boxShadow: '0 4px 20px -4px hsl(var(--foreground) / 0.08)' }}
+                        whileTap={{ scale: 0.995 }}
                         onClick={() => setSelectedTask(task)}
-                        className="rounded-xl border bg-card p-4 cursor-pointer transition-all duration-200"
+                        className="rounded-xl border bg-card p-4 cursor-pointer transition-shadow duration-100"
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
@@ -129,9 +139,10 @@ const MyTasksPage = () => {
                     return (
                       <motion.div
                         key={task.id}
-                        whileHover={{ scale: 1.01, x: 4 }}
+                        transition={snappy}
+                        whileHover={{ scale: 1.005, x: 2 }}
                         onClick={() => setSelectedTask(task)}
-                        className="rounded-xl border bg-card/50 p-4 cursor-pointer opacity-60 hover:opacity-80 transition-all duration-200"
+                        className="rounded-xl border bg-card/50 p-4 cursor-pointer opacity-60 hover:opacity-80 transition-opacity duration-100"
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">

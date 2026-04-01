@@ -1,6 +1,7 @@
 import { useAppStore } from '@/stores/appStore';
 import { useLocation, Link } from 'react-router-dom';
-import { LayoutDashboard, ListTodo, Clock, Users, UserCog, Settings, LogOut } from 'lucide-react';
+import { LayoutDashboard, ListTodo, Clock, Users, FolderKanban, Settings, LogOut } from 'lucide-react';
+import { TaskFlowLogo } from '@/components/brand/TaskFlowLogo';
 import { useState, useRef, useEffect } from 'react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { toast } from 'sonner';
@@ -10,8 +11,8 @@ const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/tasks', label: 'My Tasks', icon: ListTodo },
   { path: '/timesheet', label: 'Timesheet', icon: Clock },
-  { path: '/users', label: 'Users', icon: Users },
-  { path: '/manage', label: 'Manage', icon: UserCog, managerOnly: true },
+  { path: '/users', label: 'Users', icon: Users, managerOnly: true },
+  { path: '/manage', label: 'Manage projects', icon: FolderKanban, managerOnly: true },
 ];
 
 const AppSidebar = () => {
@@ -38,27 +39,24 @@ const AppSidebar = () => {
         ref={sidebarRef}
         onMouseEnter={() => setExpanded(true)}
         onMouseLeave={() => setExpanded(false)}
-        className={`${expanded ? 'w-60' : 'w-16'} transition-all duration-300 ease-in-out border-r border-border bg-card flex flex-col h-screen sticky top-0 shrink-0 z-40 overflow-hidden`}
+        className={`${expanded ? 'w-60' : 'w-16'} transition-[width] duration-150 ease-out border-r border-border bg-card flex flex-col h-screen sticky top-0 shrink-0 z-40 overflow-hidden`}
       >
         {/* Logo */}
         <div className="flex items-center gap-2 px-4 h-14 border-b border-border">
-          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-            <span className="text-sm font-bold text-primary">T</span>
-          </div>
-          <span className={`font-bold text-lg tracking-tight text-foreground whitespace-nowrap transition-opacity duration-200 ${expanded ? 'opacity-100' : 'opacity-0'}`}>TaskFlow</span>
+          <TaskFlowLogo iconOnly={!expanded} className="min-w-0" />
         </div>
 
         {/* Nav */}
         <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
           {navItems.map(item => {
-            if (item.managerOnly && currentUser.role !== 'manager') return null;
+            if ('managerOnly' in item && item.managerOnly && currentUser.role !== 'manager') return null;
             const active = location.pathname === item.path;
             return (
               <Link key={item.path} to={item.path}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${active ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'}`}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors duration-100 ${active ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'}`}
               >
                 <item.icon className="h-4 w-4 shrink-0" />
-                <span className={`whitespace-nowrap transition-opacity duration-200 ${expanded ? 'opacity-100' : 'opacity-0'}`}>{item.label}</span>
+                <span className={`whitespace-nowrap transition-opacity duration-100 ${expanded ? 'opacity-100' : 'opacity-0'}`}>{item.label}</span>
               </Link>
             );
           })}
@@ -77,18 +75,18 @@ const AppSidebar = () => {
           )}
           <Popover>
             <PopoverTrigger asChild>
-              <button className="p-1.5 rounded-lg hover:bg-muted/50 transition-colors shrink-0">
+              <button className="p-1.5 rounded-lg hover:bg-muted/50 transition-colors duration-100 shrink-0">
                 <Settings className="h-4 w-4 text-muted-foreground" />
               </button>
             </PopoverTrigger>
             <PopoverContent className="w-40 p-1" side="top" align="end">
               <button onClick={() => setSettingsOpen(true)}
-                className="flex items-center gap-2 w-full px-3 py-2 text-sm rounded-lg hover:bg-muted/50 transition-colors text-foreground"
+                className="flex items-center gap-2 w-full px-3 py-2 text-sm rounded-lg hover:bg-muted/50 transition-colors duration-100 text-foreground"
               >
                 <Settings className="h-3.5 w-3.5" /> Settings
               </button>
               <button onClick={() => { logout(); toast.info('Logged out'); }}
-                className="flex items-center gap-2 w-full px-3 py-2 text-sm rounded-lg hover:bg-destructive/10 text-destructive transition-colors"
+                className="flex items-center gap-2 w-full px-3 py-2 text-sm rounded-lg hover:bg-destructive/10 text-destructive transition-colors duration-100"
               >
                 <LogOut className="h-3.5 w-3.5" /> Logout
               </button>

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import { User, Project, Task, TaskStatus, Priority, KanbanColumn } from '@/types';
-import { mockUsers, mockProjects, mockTasks } from '@/data/mockData';
+import { User, Project, Task, TaskStatus, KanbanColumn, Role } from '@/types';
+import { api, TOKEN_KEY } from '@/lib/api';
 
 const DEFAULT_COLUMNS: KanbanColumn[] = [
   { id: 'backlog', label: 'Backlog' },
@@ -10,70 +10,188 @@ const DEFAULT_COLUMNS: KanbanColumn[] = [
 ];
 
 interface AppState {
-  // Auth
-  currentUser: User | null;
-  login: (email: string, password: string) => User | null;
-  logout: () => void;
-  updateProfile: (name: string, avatar: string) => void;
+  hydrated: boolean;
+  bootstrap: () => Promise<void>;
 
-  // Theme
+  currentUser: User | null;
+  login: (email: string, password: string) => Promise<User | null>;
+  register: (name: string, email: string, password: string, role?: Role) => Promise<User | null>;
+  logout: () => void;
+  updateProfile: (name: string, avatar: string) => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+
   theme: 'dark' | 'light';
   toggleTheme: () => void;
 
-  // Projects
   projects: Project[];
   selectedProjectId: string | null;
-  selectProject: (id: string) => void;
-  createProject: (name: string, description: string) => void;
-  addSection: (projectId: string, name: string) => void;
-  addMemberToProject: (projectId: string, userId: string) => void;
-  removeMemberFromProject: (projectId: string, userId: string) => void;
+  selectProject: (id: string | null) => void;
+  createProject: (name: string, description: string) => Promise<void>;
+  addSection: (projectId: string, name: string) => Promise<void>;
+  removeSection: (projectId: string, sectionId: string) => Promise<void>;
+  addMemberToProject: (projectId: string, userId: string) => Promise<void>;
+  removeMemberFromProject: (projectId: string, userId: string) => Promise<void>;
 
-  // Users
   users: User[];
 
-  // Tasks
   tasks: Task[];
-  createTask: (task: Omit<Task, 'id' | 'createdAt' | 'timeLog' | 'approvedByManager' | 'timeTracked' | 'isStarted' | 'status'>) => void;
-  updateTask: (id: string, updates: Partial<Task>) => void;
-  startTask: (id: string) => void;
-  moveTask: (id: string, status: TaskStatus) => void;
-  approveTask: (id: string) => void;
-  logTime: (id: string, date: string, seconds: number) => void;
+  createTask: (
+    task: Pick<Task, 'title' | 'description' | 'projectId' | 'sectionId' | 'dueDate' | 'priority' | 'tags'> & {
+      assigneeIds: string[];
+      assignedBy: string;
+      createdBy: string;
+    },
+  ) => Promise<void>;
+  updateTask: (id: string, updates: Partial<Task>) => Promise<void>;
+  startTask: (id: string) => Promise<void>;
+  moveTask: (id: string, status: TaskStatus) => Promise<void>;
+  approveTask: (id: string) => Promise<void>;
+  logTime: (id: string, date: string, seconds: number) => Promise<void>;
+  deleteTask: (id: string) => Promise<void>;
 
-  // Columns
   kanbanColumns: KanbanColumn[];
-  addColumn: (label: string) => void;
-  removeColumn: (id: string) => boolean;
-  renameColumn: (id: string, label: string) => void;
-  reorderColumns: (columns: KanbanColumn[]) => void;
+  addColumn: (label: string) => Promise<void>;
+  removeColumn: (id: string) => Promise<boolean>;
+  renameColumn: (id: string, label: string) => Promise<void>;
+  reorderColumns: (columns: KanbanColumn[]) => Promise<void>;
 
-  // Search
   searchQuery: string;
   setSearchQuery: (q: string) => void;
 }
 
+async function refetchUsersProjects(get: () => AppState, set: (p: Partial<AppState>) => void) {
+  const [users, projects] = await Promise.all([api.getUsers(), api.getProjects()]);
+  const cu = get().currentUser;
+  set({
+    users,
+    projects,
+    currentUser: cu ? users.find(u => u.id === cu.id) ?? cu : null,
+  });
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
+  hydrated: false,
+
+  bootstrap: async () => {
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token) {
+      set({
+        hydrated: true,
+        currentUser: null,
+        users: [],
+        projects: [],
+        tasks: [],
+        kanbanColumns: DEFAULT_COLUMNS,
+        selectedProjectId: null,
+      });
+      return;
+    }
+    try {
+      const me = await api.getMe();
+      const [users, projects, tasks, kanbanColumns] = await Promise.all([
+        api.getUsers(),
+        api.getProjects(),
+        api.getTasks(),
+        api.getKanbanColumns(),
+      ]);
+      set({
+        hydrated: true,
+        currentUser: me,
+        users,
+        projects,
+        tasks,
+        kanbanColumns,
+        selectedProjectId: me.projectIds[0] ?? null,
+      });
+    } catch {
+      localStorage.removeItem(TOKEN_KEY);
+      set({
+        hydrated: true,
+        currentUser: null,
+        users: [],
+        projects: [],
+        tasks: [],
+        kanbanColumns: DEFAULT_COLUMNS,
+        selectedProjectId: null,
+      });
+    }
+  },
+
   currentUser: null,
   theme: (typeof window !== 'undefined' && localStorage.getItem('theme') as 'dark' | 'light') || 'dark',
 
-  login: (email, password) => {
-    const user = get().users.find(u => u.email === email && u.password === password);
-    if (user) {
-      set({ currentUser: user, selectedProjectId: user.projectIds[0] || null });
+  login: async (email, password) => {
+    try {
+      const { access_token, user } = await api.login(email, password);
+      localStorage.setItem(TOKEN_KEY, access_token);
+      const [users, projects, tasks, kanbanColumns] = await Promise.all([
+        api.getUsers(),
+        api.getProjects(),
+        api.getTasks(),
+        api.getKanbanColumns(),
+      ]);
+      set({
+        currentUser: user,
+        users,
+        projects,
+        tasks,
+        kanbanColumns,
+        selectedProjectId: user.projectIds[0] ?? null,
+        hydrated: true,
+      });
       return user;
+    } catch {
+      return null;
     }
-    return null;
   },
-  logout: () => set({ currentUser: null }),
-  updateProfile: (name, avatar) => {
-    const user = get().currentUser;
-    if (!user) return;
-    const updated = { ...user, name, avatar };
+
+  register: async (name, email, password, role = 'employee') => {
+    try {
+      const { access_token, user } = await api.register(name, email, password, role);
+      localStorage.setItem(TOKEN_KEY, access_token);
+      const [users, projects, tasks, kanbanColumns] = await Promise.all([
+        api.getUsers(),
+        api.getProjects(),
+        api.getTasks(),
+        api.getKanbanColumns(),
+      ]);
+      set({
+        currentUser: user,
+        users,
+        projects,
+        tasks,
+        kanbanColumns,
+        selectedProjectId: user.projectIds[0] ?? null,
+        hydrated: true,
+      });
+      return user;
+    } catch {
+      return null;
+    }
+  },
+
+  logout: () => {
+    localStorage.removeItem(TOKEN_KEY);
     set({
-      currentUser: updated,
-      users: get().users.map(u => u.id === user.id ? updated : u),
+      currentUser: null,
+      users: [],
+      projects: [],
+      tasks: [],
+      kanbanColumns: DEFAULT_COLUMNS,
+      selectedProjectId: null,
     });
+  },
+
+  updateProfile: async (name, avatar) => {
+    const user = await api.patchProfile(name, avatar);
+    set({
+      currentUser: user,
+      users: get().users.map(u => (u.id === user.id ? user : u)),
+    });
+  },
+
+  changePassword: async (currentPassword, newPassword) => {
+    await api.changePassword(currentPassword, newPassword);
   },
 
   toggleTheme: () => {
@@ -82,141 +200,124 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ theme: next });
   },
 
-  projects: mockProjects,
+  projects: [],
   selectedProjectId: null,
-  selectProject: (id) => set({ selectedProjectId: id }),
+  selectProject: id => set({ selectedProjectId: id && id.length > 0 ? id : null }),
 
-  createProject: (name, description) => {
-    const user = get().currentUser;
-    if (!user) return;
-    const id = 'p' + Date.now();
-    const project: Project = {
-      id, name, description, createdBy: user.id,
-      members: [user.id], sections: [], createdAt: new Date().toISOString().split('T')[0],
-    };
+  createProject: async (name, description) => {
+    const p = await api.createProject(name, description);
+    await refetchUsersProjects(get, set);
+    set({ selectedProjectId: p.id });
+  },
+
+  addSection: async (projectId, name) => {
+    const updated = await api.addSection(projectId, name);
     set({
-      projects: [...get().projects, project],
-      users: get().users.map(u => u.id === user.id ? { ...u, projectIds: [...u.projectIds, id] } : u),
-      currentUser: { ...user, projectIds: [...user.projectIds, id] },
+      projects: get().projects.map(pr => (pr.id === projectId ? updated : pr)),
     });
   },
 
-  addSection: (projectId, name) => {
-    const sectionId = 's' + Date.now();
+  removeSection: async (projectId, sectionId) => {
+    const updated = await api.deleteProjectSection(projectId, sectionId);
     set({
-      projects: get().projects.map(p =>
-        p.id === projectId
-          ? { ...p, sections: [...p.sections, { id: sectionId, name, projectId }] }
-          : p
-      ),
+      projects: get().projects.map(pr => (pr.id === projectId ? updated : pr)),
     });
   },
 
-  addMemberToProject: (projectId, userId) => {
-    set({
-      projects: get().projects.map(p =>
-        p.id === projectId && !p.members.includes(userId)
-          ? { ...p, members: [...p.members, userId] }
-          : p
-      ),
-      users: get().users.map(u =>
-        u.id === userId && !u.projectIds.includes(projectId)
-          ? { ...u, projectIds: [...u.projectIds, projectId] }
-          : u
-      ),
+  addMemberToProject: async (projectId, userId) => {
+    await api.addProjectMember(projectId, userId);
+    await refetchUsersProjects(get, set);
+  },
+
+  removeMemberFromProject: async (projectId, userId) => {
+    await api.removeProjectMember(projectId, userId);
+    await refetchUsersProjects(get, set);
+  },
+
+  users: [],
+  tasks: [],
+
+  createTask: async taskData => {
+    const t = await api.createTask({
+      title: taskData.title,
+      description: taskData.description,
+      projectId: taskData.projectId,
+      sectionId: taskData.sectionId,
+      assigneeIds: taskData.assigneeIds,
+      assignedBy: taskData.assignedBy,
+      createdBy: taskData.createdBy,
+      dueDate: taskData.dueDate,
+      priority: taskData.priority,
+      tags: taskData.tags,
     });
+    set({ tasks: [...get().tasks, t] });
   },
 
-  removeMemberFromProject: (projectId, userId) => {
-    set({
-      projects: get().projects.map(p =>
-        p.id === projectId
-          ? { ...p, members: p.members.filter(m => m !== userId) }
-          : p
-      ),
-      users: get().users.map(u =>
-        u.id === userId
-          ? { ...u, projectIds: u.projectIds.filter(pid => pid !== projectId) }
-          : u
-      ),
-    });
+  updateTask: async (id, updates) => {
+    const patch: Parameters<typeof api.patchTask>[1] = {};
+    if (updates.title !== undefined) patch.title = updates.title;
+    if (updates.description !== undefined) patch.description = updates.description;
+    if (updates.priority !== undefined) patch.priority = updates.priority;
+    if (updates.status !== undefined) patch.status = updates.status;
+    if (updates.sectionId !== undefined) patch.sectionId = updates.sectionId;
+    if (updates.assigneeIds !== undefined) patch.assigneeIds = updates.assigneeIds;
+    if (updates.customFields !== undefined) patch.customFields = updates.customFields;
+    const t = await api.patchTask(id, patch);
+    set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
   },
 
-  users: mockUsers,
-  tasks: mockTasks,
-
-  createTask: (taskData) => {
-    const id = 't' + Date.now();
-    const task: Task = {
-      ...taskData,
-      id,
-      status: 'backlog',
-      isStarted: false,
-      approvedByManager: false,
-      timeTracked: 0,
-      createdAt: new Date().toISOString().split('T')[0],
-      timeLog: {},
-    };
-    set({ tasks: [...get().tasks, task] });
+  startTask: async id => {
+    const t = await api.startTask(id);
+    set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
   },
 
-  updateTask: (id, updates) => {
-    set({ tasks: get().tasks.map(t => t.id === id ? { ...t, ...updates } : t) });
+  moveTask: async (id, status) => {
+    const t = await api.moveTask(id, status);
+    set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
   },
 
-  startTask: (id) => {
-    set({
-      tasks: get().tasks.map(t =>
-        t.id === id ? { ...t, isStarted: true, startedAt: new Date().toISOString().split('T')[0], status: 'backlog' as TaskStatus } : t
-      ),
-    });
+  approveTask: async id => {
+    const t = await api.approveTask(id);
+    set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
   },
 
-  moveTask: (id, status) => {
-    set({ tasks: get().tasks.map(t => t.id === id ? { ...t, status } : t) });
+  logTime: async (id, date, seconds) => {
+    const t = await api.logTime(id, date, seconds);
+    set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
   },
 
-  approveTask: (id) => {
-    set({
-      tasks: get().tasks.map(t =>
-        t.id === id ? { ...t, status: 'completed' as TaskStatus, approvedByManager: true, completedAt: new Date().toISOString().split('T')[0] } : t
-      ),
-    });
-  },
-
-  logTime: (id, date, seconds) => {
-    set({
-      tasks: get().tasks.map(t => {
-        if (t.id !== id) return t;
-        const newLog = { ...t.timeLog, [date]: (t.timeLog[date] || 0) + seconds };
-        const totalTracked = Object.values(newLog).reduce((a, b) => a + b, 0);
-        return { ...t, timeLog: newLog, timeTracked: totalTracked };
-      }),
-    });
+  deleteTask: async id => {
+    await api.deleteTask(id);
+    set({ tasks: get().tasks.filter(t => t.id !== id) });
   },
 
   kanbanColumns: DEFAULT_COLUMNS,
 
-  addColumn: (label) => {
-    const id = label.toLowerCase().replace(/\s+/g, '_') + '_' + Date.now();
-    set({ kanbanColumns: [...get().kanbanColumns, { id, label }] });
+  addColumn: async label => {
+    const cols = await api.addKanbanColumn(label);
+    set({ kanbanColumns: cols });
   },
 
-  removeColumn: (id) => {
-    const hasTasks = get().tasks.some(t => t.status === id && t.isStarted && t.status !== 'completed');
-    if (hasTasks) return false;
-    set({ kanbanColumns: get().kanbanColumns.filter(c => c.id !== id) });
-    return true;
+  removeColumn: async id => {
+    try {
+      const cols = await api.deleteKanbanColumn(id);
+      set({ kanbanColumns: cols });
+      return true;
+    } catch {
+      return false;
+    }
   },
 
-  renameColumn: (id, label) => {
-    set({ kanbanColumns: get().kanbanColumns.map(c => c.id === id ? { ...c, label } : c) });
+  renameColumn: async (id, label) => {
+    const cols = await api.renameKanbanColumn(id, label);
+    set({ kanbanColumns: cols });
   },
 
-  reorderColumns: (columns) => {
-    set({ kanbanColumns: columns });
+  reorderColumns: async columns => {
+    const cols = await api.reorderKanbanColumns(columns.map(c => c.id));
+    set({ kanbanColumns: cols });
   },
 
   searchQuery: '',
-  setSearchQuery: (q) => set({ searchQuery: q }),
+  setSearchQuery: q => set({ searchQuery: q }),
 }));

@@ -1,27 +1,40 @@
 import { useAppStore } from '@/stores/appStore';
 import { Task, Priority, KanbanColumn } from '@/types';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useState } from 'react';
+import { motion } from 'framer-motion';
+import { useCallback, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
-  DndContext, closestCorners, DragEndEvent, DragOverlay, DragStartEvent, DragOverEvent,
-  PointerSensor, useSensor, useSensors, useDroppable,
+  DndContext,
+  pointerWithin,
+  rectIntersection,
+  type CollisionDetection,
+  DragEndEvent,
+  DragOverlay,
+  DragOverEvent,
+  DragStartEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  useDroppable,
 } from '@dnd-kit/core';
-import {
-  SortableContext, horizontalListSortingStrategy, verticalListSortingStrategy, useSortable,
-} from '@dnd-kit/sortable';
+import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Plus, Trash2, GripVertical, Pencil } from 'lucide-react';
+import { Plus, CheckCircle } from 'lucide-react';
 import TaskDetailModal from '@/components/TaskDetailModal';
 import CreateTaskModal from '@/components/CreateTaskModal';
 import { toast } from 'sonner';
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-} from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { snappy, pageEnter } from '@/lib/motion';
+import { isTaskAssignedTo, taskAssigneeIds } from '@/lib/task-utils';
+
+const FIXED_BOARD_IDS = ['backlog', 'in_progress', 'in_review', 'done'] as const;
+
+const FALLBACK_LABELS: Record<(typeof FIXED_BOARD_IDS)[number], string> = {
+  backlog: 'Backlog',
+  in_progress: 'In Progress',
+  in_review: 'In Review',
+  done: 'Done',
+};
 
 const priorityBadgeStyles: Record<Priority, string> = {
   Urgent: 'bg-red-500/15 text-red-400 border-red-500/20',
@@ -37,206 +50,226 @@ const priorityGlowColor: Record<Priority, string> = {
   Low: 'rgba(34,197,94,0.2)',
 };
 
-/* ─── Task Card ─── */
-function TaskCard({ task, onClick }: { task: Task; onClick: () => void }) {
+function TaskCard({
+  task,
+  onClick,
+  showApprove,
+  onApprove,
+  approving,
+  canDrag,
+}: {
+  task: Task;
+  onClick: () => void;
+  showApprove?: boolean;
+  onApprove?: () => void;
+  approving?: boolean;
+  canDrag: boolean;
+}) {
   const { users } = useAppStore();
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id });
-  const assignee = users.find(u => u.id === task.assignedTo);
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: task.id,
+    data: { type: 'task' as const },
+    animateLayoutChanges: () => false,
+    disabled: !canDrag,
+  });
+  const assigneeList = taskAssigneeIds(task).map(id => users.find(u => u.id === id)).filter(Boolean) as typeof users;
   const isOverdue = new Date(task.dueDate) < new Date();
 
   const formatDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 
   return (
-    <motion.div
+    <div
       ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition: transition || undefined, opacity: isDragging ? 0.3 : 1 }}
-      {...attributes}
-      {...listeners}
-      onClick={onClick}
-      layout
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: isDragging ? 0.3 : 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.95 }}
-      transition={{ duration: 0.2, ease: 'easeOut' }}
-      whileHover={{
-        y: -6,
-        scale: 1.02,
-        boxShadow: `0 20px 60px -10px ${priorityGlowColor[task.priority]}`,
-        transition: { duration: 0.25, ease: 'easeOut' },
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition: transition ?? undefined,
+        opacity: isDragging ? 0 : 1,
+        ...(isDragging ? { pointerEvents: 'none' as const } : {}),
       }}
-      whileTap={{ scale: 0.98 }}
-      className="group relative rounded-2xl border border-border/40 bg-card/50 backdrop-blur-sm p-6 cursor-grab active:cursor-grabbing h-[250px] flex flex-col will-change-transform"
+      {...attributes}
+      {...(canDrag ? listeners : {})}
+      onClick={onClick}
+      className={`group relative h-[250px] touch-none select-none ${canDrag ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <span className="text-xs font-mono text-muted-foreground/60 tracking-wider">
-          TF-{task.id.replace(/\D/g, '').padStart(3, '0')}
-        </span>
-        <span className={`text-[11px] px-3 py-1 rounded-full font-semibold border ${priorityBadgeStyles[task.priority]}`}>
-          {task.priority}
-        </span>
-      </div>
-
-      {/* Title */}
-      <h4 className="text-base font-bold leading-snug mb-3 text-foreground line-clamp-2">
-        {task.title}
-      </h4>
-
-      {/* Description */}
-      <p className="text-sm text-muted-foreground leading-relaxed flex-1 overflow-hidden text-ellipsis line-clamp-3">
-        {task.description || 'No description'}
-      </p>
-
-      {/* Footer */}
-      <div className="flex items-center justify-between pt-4 mt-auto">
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center">
-            <span className="text-[10px] font-bold text-muted-foreground">{assignee ? getInitials(assignee.name) : '??'}</span>
-          </div>
-          <span className="text-sm text-muted-foreground font-medium">{assignee?.name?.split(' ')[0]}</span>
-        </div>
-        <span className={`text-sm font-mono ${isOverdue ? 'text-destructive' : 'text-muted-foreground/60'}`}>
-          {formatDate(task.dueDate)}
-        </span>
-      </div>
-    </motion.div>
-  );
-}
-
-/* ─── Sortable Column Wrapper ─── */
-function SortableColumn({
-  column, tasks, onTaskClick, onNewTask, onDelete, onRename, isDropTarget,
-}: {
-  column: KanbanColumn; tasks: Task[];
-  onTaskClick: (t: Task) => void; onNewTask: () => void;
-  onDelete: () => void; onRename: () => void;
-  isDropTarget: boolean;
-}) {
-  const { attributes, listeners, setNodeRef: sortRef, transform, transition, isDragging } = useSortable({ id: column.id });
-  const { setNodeRef: dropRef } = useDroppable({ id: column.id });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.4 : 1,
-  };
-
-  return (
-    <motion.div
-      ref={sortRef}
-      style={style}
-      layout
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: isDragging ? 0.4 : 1, y: 0 }}
-      transition={{ duration: 0.3, ease: 'easeOut' }}
-      className={`min-w-[380px] w-[380px] flex flex-col shrink-0 rounded-2xl transition-all duration-300 ease-out ${isDropTarget ? 'ring-2 ring-blue-500/50 bg-blue-500/5' : ''}`}
-    >
-      {/* Column header */}
-      <div className="flex items-center justify-between mb-4 px-1">
-        <div className="flex items-center gap-2.5">
-          <motion.button
-            {...attributes} {...listeners}
-            whileHover={{ scale: 1.15 }}
-            whileTap={{ scale: 0.9 }}
-            className="cursor-grab active:cursor-grabbing p-0.5 text-muted-foreground/50 hover:text-foreground transition-colors"
-          >
-            <GripVertical className="h-4 w-4" />
-          </motion.button>
-          <h3 className="text-sm font-semibold text-foreground">{column.label}</h3>
-          <span className="text-[11px] text-muted-foreground bg-muted px-2.5 py-0.5 rounded-full font-medium">
-            {tasks.length}
+      <div
+        className="rounded-2xl border-2 border-border/70 bg-gradient-to-br from-muted/70 via-card to-muted/40 dark:from-muted/50 dark:via-card dark:to-muted/30 p-6 h-full flex flex-col transition-[transform,box-shadow] duration-200 ease-out will-change-transform group-hover:-translate-y-1.5 group-hover:scale-[1.02] shadow-md group-hover:shadow-xl group-hover:[box-shadow:0_20px_60px_-10px_var(--card-glow)]"
+        style={{ ['--card-glow' as string]: priorityGlowColor[task.priority] }}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <span className="text-xs font-mono text-muted-foreground/60 tracking-wider">
+            TF-{task.id.replace(/\D/g, '').padStart(3, '0')}
+          </span>
+          <span className={`text-[11px] px-3 py-1 rounded-full font-semibold border ${priorityBadgeStyles[task.priority]}`}>
+            {task.priority}
           </span>
         </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-              className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+
+        <h4 className="text-base font-bold leading-snug mb-3 text-foreground line-clamp-2">{task.title}</h4>
+
+        <p className="text-sm text-muted-foreground leading-relaxed flex-1 overflow-hidden text-ellipsis line-clamp-3">
+          {task.description || 'No description'}
+        </p>
+
+        <div className="flex items-center justify-between pt-4 mt-auto gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="flex -space-x-2 shrink-0">
+              {assigneeList.slice(0, 3).map(u => (
+                <div key={u.id} className="w-7 h-7 rounded-full bg-muted border-2 border-card flex items-center justify-center ring-0">
+                  <span className="text-[10px] font-bold text-muted-foreground">{getInitials(u.name)}</span>
+                </div>
+              ))}
+              {assigneeList.length === 0 && (
+                <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center">
+                  <span className="text-[10px] text-muted-foreground">?</span>
+                </div>
+              )}
+            </div>
+            <span className="text-sm text-muted-foreground font-medium truncate">
+              {assigneeList.length === 0
+                ? 'Unassigned'
+                : assigneeList.length === 1
+                  ? assigneeList[0].name.split(' ')[0]
+                  : `${assigneeList.length} people`}
+            </span>
+          </div>
+          <span className={`text-sm font-mono shrink-0 ${isOverdue ? 'text-destructive' : 'text-muted-foreground/60'}`}>
+            {formatDate(task.dueDate)}
+          </span>
+        </div>
+
+        {showApprove && (
+          <div className="pt-3 mt-1 border-t border-border/50">
+            <Button
+              type="button"
+              size="sm"
+              className="w-full rounded-xl gap-1.5 bg-green-600 text-white hover:bg-green-700 border-green-600 shadow-sm"
+              disabled={approving}
+              onClick={e => {
+                e.stopPropagation();
+                void onApprove?.();
+              }}
             >
-              <Pencil className="h-3.5 w-3.5" />
-            </motion.button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="min-w-[140px]">
-            <DropdownMenuItem onClick={onRename}>
-              <Pencil className="h-3.5 w-3.5 mr-2" /> Rename
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
-              <Trash2 className="h-3.5 w-3.5 mr-2" /> Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+              <CheckCircle className="h-3.5 w-3.5" />
+              {approving ? 'Approving…' : 'Approve completed'}
+            </Button>
+          </div>
+        )}
       </div>
-
-      {/* Cards area */}
-      <div ref={dropRef} className="space-y-4 flex-1 px-0.5">
-        <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
-          <AnimatePresence mode="popLayout">
-            {tasks.map(task => (
-              <TaskCard key={task.id} task={task} onClick={() => onTaskClick(task)} />
-            ))}
-          </AnimatePresence>
-        </SortableContext>
-
-        <motion.button
-          onClick={onNewTask}
-          whileHover={{ scale: 1.02, y: -2 }}
-          whileTap={{ scale: 0.98 }}
-          className="w-full flex items-center justify-center gap-1.5 text-xs text-muted-foreground py-2.5 rounded-xl border border-dashed border-border/50 hover:border-foreground/30 hover:text-foreground hover:bg-muted/50 transition-all duration-200"
-        >
-          <Plus className="h-3.5 w-3.5" /> New Task
-        </motion.button>
-      </div>
-    </motion.div>
-  );
-}
-
-/* ─── Add Column Placeholder ─── */
-function AddColumnPlaceholder({ onClick }: { onClick: () => void }) {
-  return (
-    <div className="min-w-[380px] w-[380px] shrink-0 flex flex-col">
-      <div className="mb-4 px-1 h-[24px]" />
-      <motion.button
-        onClick={onClick}
-        whileHover={{ scale: 1.02, y: -2 }}
-        whileTap={{ scale: 0.98 }}
-        className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground py-2.5 rounded-xl border border-dashed border-border/50 hover:border-foreground/30 hover:text-foreground hover:bg-muted/50 transition-all duration-200"
-      >
-        <Plus className="h-3.5 w-3.5" /> Add Column
-      </motion.button>
     </div>
   );
 }
 
-/* ─── Main Page ─── */
+function KanbanColumnPanel({
+  column,
+  tasks,
+  onTaskClick,
+  onNewTask,
+  isDropTarget,
+  isManager,
+  currentUserId,
+  approvingId,
+  onApprove,
+}: {
+  column: KanbanColumn;
+  tasks: Task[];
+  onTaskClick: (t: Task) => void;
+  onNewTask: () => void;
+  isDropTarget: boolean;
+  isManager: boolean;
+  currentUserId: string;
+  approvingId: string | null;
+  onApprove: (id: string) => void;
+}) {
+  const { setNodeRef } = useDroppable({ id: column.id });
+  const isDone = column.id === 'done';
+
+  return (
+    <div
+      className={`min-w-[380px] w-[380px] flex flex-col shrink-0 rounded-2xl transition-[box-shadow,background-color] duration-150 ease-out ${
+        isDropTarget ? 'ring-2 ring-blue-500/50 bg-blue-500/5' : ''
+      }`}
+    >
+      <div className="flex items-center justify-between mb-4 px-1">
+        <div className="flex items-center gap-2.5">
+          <h3 className="text-sm font-semibold text-foreground">{column.label}</h3>
+          <span className="text-[11px] text-muted-foreground bg-muted/80 px-2.5 py-0.5 rounded-full font-medium border border-border/40">
+            {tasks.length}
+          </span>
+        </div>
+      </div>
+
+      <div ref={setNodeRef} className="space-y-4 flex-1 px-0.5 min-h-[200px]">
+        <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
+          {tasks.map(task => (
+            <TaskCard
+              key={task.id}
+              task={task}
+              onClick={() => onTaskClick(task)}
+              showApprove={isManager && isDone}
+              onApprove={() => onApprove(task.id)}
+              approving={approvingId === task.id}
+              canDrag={isManager || isTaskAssignedTo(task, currentUserId)}
+            />
+          ))}
+        </SortableContext>
+
+        <motion.button
+          onClick={onNewTask}
+          transition={snappy}
+          whileHover={{ scale: 1.01, y: -1 }}
+          whileTap={{ scale: 0.99 }}
+          className="w-full flex items-center justify-center gap-1.5 text-xs text-muted-foreground py-2.5 rounded-xl border border-dashed border-border/50 hover:border-foreground/30 hover:text-foreground hover:bg-muted/50 transition-colors duration-100"
+        >
+          <Plus className="h-3.5 w-3.5" /> New Task
+        </motion.button>
+      </div>
+    </div>
+  );
+}
+
 const DashboardPage = () => {
-  const { tasks, selectedProjectId, moveTask, kanbanColumns, addColumn, removeColumn, renameColumn, reorderColumns } = useAppStore();
+  const { currentUser, projects, selectProject, tasks, selectedProjectId, moveTask, kanbanColumns, approveTask } = useAppStore();
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [dragType, setDragType] = useState<'task' | 'column' | null>(null);
   const [overColumnId, setOverColumnId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const [addColOpen, setAddColOpen] = useState(false);
-  const [newColName, setNewColName] = useState('');
-  const [renameTarget, setRenameTarget] = useState<KanbanColumn | null>(null);
-  const [renameValue, setRenameValue] = useState('');
+  const [approvingId, setApprovingId] = useState<string | null>(null);
+
+  const boardColumns = useMemo(() => {
+    return FIXED_BOARD_IDS.map(id => {
+      const c = kanbanColumns.find(x => x.id === id);
+      return c ?? { id, label: FALLBACK_LABELS[id] };
+    });
+  }, [kanbanColumns]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
-  const projectTasks = tasks.filter(t => t.projectId === selectedProjectId && t.isStarted && t.status !== 'completed');
+
+  const collisionDetection = useCallback<CollisionDetection>(args => {
+    const pointer = pointerWithin(args);
+    if (pointer.length > 0) return pointer;
+    return rectIntersection(args);
+  }, []);
+
+  const userProjects = currentUser ? projects.filter(p => currentUser.projectIds.includes(p.id)) : [];
+  const isManager = currentUser?.role === 'manager';
+  const projectSelected = !!selectedProjectId && userProjects.some(p => p.id === selectedProjectId);
+  const projectTasks = projectSelected
+    ? tasks.filter(t => t.projectId === selectedProjectId && t.status !== 'completed')
+    : [];
 
   const handleDragStart = (event: DragStartEvent) => {
-    const id = event.active.id as string;
-    setActiveId(id);
-    setDragType(kanbanColumns.some(c => c.id === id) ? 'column' : 'task');
+    setActiveId(event.active.id as string);
   };
 
   const handleDragOver = (event: DragOverEvent) => {
-    if (dragType !== 'task') return;
     const { over } = event;
-    if (!over) { setOverColumnId(null); return; }
+    if (!over) {
+      setOverColumnId(null);
+      return;
+    }
     const overId = over.id as string;
-    if (kanbanColumns.some(c => c.id === overId)) {
+    if (boardColumns.some(c => c.id === overId)) {
       setOverColumnId(overId);
     } else {
       const task = tasks.find(t => t.id === overId);
@@ -245,142 +278,149 @@ const DashboardPage = () => {
     }
   };
 
-  const handleDragEnd = (event: DragEndEvent) => {
+  const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     setActiveId(null);
-    setDragType(null);
     setOverColumnId(null);
     if (!over) return;
 
     const activeIdStr = active.id as string;
     const overIdStr = over.id as string;
 
-    if (kanbanColumns.some(c => c.id === activeIdStr)) {
-      if (activeIdStr === overIdStr) return;
-      const oldIdx = kanbanColumns.findIndex(c => c.id === activeIdStr);
-      let newIdx = kanbanColumns.findIndex(c => c.id === overIdStr);
-      if (newIdx === -1) return;
-      const updated = [...kanbanColumns];
-      const [moved] = updated.splice(oldIdx, 1);
-      updated.splice(newIdx, 0, moved);
-      reorderColumns(updated);
-      return;
-    }
-
-    const targetColumn = kanbanColumns.find(c => c.id === overIdStr);
+    const targetColumn = boardColumns.find(c => c.id === overIdStr);
     if (targetColumn) {
-      moveTask(activeIdStr, targetColumn.id);
-      toast.info(`Moved to ${targetColumn.label}`);
+      try {
+        await moveTask(activeIdStr, targetColumn.id);
+        toast.info(`Moved to ${targetColumn.label}`);
+      } catch {
+        toast.error('Could not move task');
+      }
       return;
     }
     const targetTask = tasks.find(t => t.id === overIdStr);
     if (targetTask && targetTask.id !== activeIdStr) {
-      moveTask(activeIdStr, targetTask.status);
+      try {
+        await moveTask(activeIdStr, targetTask.status);
+      } catch {
+        toast.error('Could not move task');
+      }
     }
   };
 
-  const handleAddColumn = () => {
-    if (!newColName.trim()) return;
-    addColumn(newColName.trim());
-    toast.success(`Column "${newColName.trim()}" added`);
-    setNewColName('');
-    setAddColOpen(false);
+  const handleApprove = async (id: string) => {
+    setApprovingId(id);
+    try {
+      await approveTask(id);
+      toast.success('Task approved — removed from board; still visible under completed in task lists.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not approve task');
+    } finally {
+      setApprovingId(null);
+    }
   };
 
-  const handleDeleteColumn = (col: KanbanColumn) => {
-    const success = removeColumn(col.id);
-    if (success) toast.success(`Column "${col.label}" deleted`);
-    else toast.error(`Cannot delete "${col.label}" — it still has tasks`);
-  };
+  const activeTask = activeId ? tasks.find(t => t.id === activeId) : null;
 
-  const handleRenameColumn = () => {
-    if (!renameTarget || !renameValue.trim()) return;
-    renameColumn(renameTarget.id, renameValue.trim());
-    toast.success(`Column renamed to "${renameValue.trim()}"`);
-    setRenameTarget(null);
-    setRenameValue('');
-  };
+  if (!currentUser) return null;
 
-  const activeTask = activeId && dragType === 'task' ? tasks.find(t => t.id === activeId) : null;
-  const activeColumn = activeId && dragType === 'column' ? kanbanColumns.find(c => c.id === activeId) : null;
+  if (userProjects.length === 0) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={pageEnter}
+        className="p-6 flex flex-col items-center justify-center min-h-[calc(100vh-8rem)] text-center"
+      >
+        <h1 className="text-2xl font-semibold text-foreground">No project yet</h1>
+        <p className="text-sm text-muted-foreground mt-3 max-w-md leading-relaxed">
+          {isManager
+            ? 'Create a project first, then pick it in the header to open your dashboard.'
+            : 'You are not in any project yet. Ask a manager to add you to one.'}
+        </p>
+        {isManager && (
+          <Button asChild className="mt-8 rounded-xl">
+            <Link to="/manage">Manage projects</Link>
+          </Button>
+        )}
+      </motion.div>
+    );
+  }
+
+  if (!projectSelected) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={pageEnter}
+        className="p-6 flex flex-col items-center justify-center min-h-[calc(100vh-8rem)] text-center"
+      >
+        <h1 className="text-2xl font-semibold text-foreground">Select a project</h1>
+        <p className="text-sm text-muted-foreground mt-3 max-w-md leading-relaxed">
+          Choose a project from the menu at the top, or pick one here.
+        </p>
+        <select
+          value={selectedProjectId || ''}
+          onChange={e => selectProject(e.target.value || null)}
+          className="mt-8 rounded-xl border bg-muted/50 px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/50 min-w-[240px]"
+        >
+          <option value="">Choose a project…</option>
+          {userProjects.map(p => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+      </motion.div>
+    );
+  }
 
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="p-6 h-full flex flex-col">
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={pageEnter} className="p-6 h-full flex flex-col">
       <div className="mb-6 shrink-0">
         <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Kanban board for active tasks</p>
       </div>
 
-      <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={collisionDetection}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragEnd={handleDragEnd}
+      >
         <div className="flex gap-6 flex-1 overflow-x-auto pb-4">
-          <SortableContext items={kanbanColumns.map(c => c.id)} strategy={horizontalListSortingStrategy}>
-            {kanbanColumns.map(col => (
-              <SortableColumn
-                key={col.id}
-                column={col}
-                tasks={projectTasks.filter(t => t.status === col.id)}
-                onTaskClick={setSelectedTask}
-                onNewTask={() => setCreateOpen(true)}
-                onDelete={() => handleDeleteColumn(col)}
-                onRename={() => { setRenameTarget(col); setRenameValue(col.label); }}
-                isDropTarget={overColumnId === col.id}
-              />
-            ))}
-          </SortableContext>
-
-          <AddColumnPlaceholder onClick={() => setAddColOpen(true)} />
+          {boardColumns.map(col => (
+            <KanbanColumnPanel
+              key={col.id}
+              column={col}
+              tasks={projectTasks.filter(t => t.status === col.id)}
+              onTaskClick={setSelectedTask}
+              onNewTask={() => setCreateOpen(true)}
+              isDropTarget={overColumnId === col.id}
+              isManager={!!isManager}
+              currentUserId={currentUser.id}
+              approvingId={approvingId}
+              onApprove={handleApprove}
+            />
+          ))}
         </div>
 
-        <DragOverlay>
+        <DragOverlay dropAnimation={null}>
           {activeTask && (
-            <motion.div
-              initial={{ scale: 1, rotate: 0 }}
-              animate={{ scale: 1.05, rotate: 2 }}
-              className="rounded-2xl border border-border/60 bg-card/80 backdrop-blur-sm p-6 shadow-2xl w-[380px] h-[250px]"
+            <div
+              className="rounded-2xl border-2 border-border/70 bg-card/95 backdrop-blur-sm p-6 shadow-2xl w-[380px] h-[250px] cursor-grabbing rotate-1 scale-[1.02]"
               style={{ boxShadow: `0 25px 60px -10px ${priorityGlowColor[activeTask.priority]}` }}
             >
               <div className="flex items-center justify-between mb-3">
                 <span className="text-xs font-mono text-muted-foreground/60">TF-{activeTask.id.replace(/\D/g, '').padStart(3, '0')}</span>
-                <span className={`text-[11px] px-3 py-1 rounded-full font-semibold border ${priorityBadgeStyles[activeTask.priority]}`}>{activeTask.priority}</span>
+                <span className={`text-[11px] px-3 py-1 rounded-full font-semibold border ${priorityBadgeStyles[activeTask.priority]}`}>
+                  {activeTask.priority}
+                </span>
               </div>
               <h4 className="text-base font-bold text-foreground">{activeTask.title}</h4>
-            </motion.div>
-          )}
-          {activeColumn && (
-            <motion.div
-              initial={{ scale: 1 }}
-              animate={{ scale: 1.03 }}
-              className="rounded-2xl border border-border bg-card/90 backdrop-blur-sm p-4 shadow-2xl w-[380px]"
-            >
-              <span className="text-sm font-semibold text-foreground">{activeColumn.label}</span>
-            </motion.div>
+            </div>
           )}
         </DragOverlay>
       </DndContext>
-
-      {/* Add Column Dialog */}
-      <Dialog open={addColOpen} onOpenChange={setAddColOpen}>
-        <DialogContent className="sm:max-w-[480px]">
-          <DialogHeader><DialogTitle>Add New Column</DialogTitle></DialogHeader>
-          <Input placeholder="Column name..." value={newColName} onChange={e => setNewColName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddColumn()} autoFocus />
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setAddColOpen(false)}>Cancel</Button>
-            <Button onClick={handleAddColumn} disabled={!newColName.trim()}>Add Column</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Rename Column Dialog */}
-      <Dialog open={!!renameTarget} onOpenChange={o => !o && setRenameTarget(null)}>
-        <DialogContent className="sm:max-w-[480px]">
-          <DialogHeader><DialogTitle>Rename Column</DialogTitle></DialogHeader>
-          <Input placeholder="New name..." value={renameValue} onChange={e => setRenameValue(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleRenameColumn()} autoFocus />
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setRenameTarget(null)}>Cancel</Button>
-            <Button onClick={handleRenameColumn} disabled={!renameValue.trim()}>Save</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <TaskDetailModal task={selectedTask} open={!!selectedTask} onOpenChange={o => !o && setSelectedTask(null)} />
       <CreateTaskModal open={createOpen} onOpenChange={setCreateOpen} />

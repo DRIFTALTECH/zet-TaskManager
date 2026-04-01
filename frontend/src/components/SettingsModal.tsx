@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAppStore } from '@/stores/appStore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
@@ -10,27 +10,44 @@ interface Props {
 }
 
 const SettingsModal = ({ open, onOpenChange }: Props) => {
-  const { currentUser, updateProfile, theme, toggleTheme } = useAppStore();
+  const { currentUser, updateProfile, changePassword, theme, toggleTheme } = useAppStore();
   const [name, setName] = useState(currentUser?.name || '');
   const [avatar, setAvatar] = useState(currentUser?.avatar || '');
   const [currentPw, setCurrentPw] = useState('');
   const [newPw, setNewPw] = useState('');
   const [confirmPw, setConfirmPw] = useState('');
 
-  const handleSave = () => {
-    if (name.trim()) {
-      updateProfile(name.trim(), avatar);
+  useEffect(() => {
+    if (open && currentUser) {
+      setName(currentUser.name);
+      setAvatar(currentUser.avatar);
+    }
+  }, [open, currentUser]);
+
+  const handleSave = async () => {
+    if (!name.trim()) return toast.error('Enter your name');
+    try {
+      await updateProfile(name.trim(), avatar);
       toast.success('Profile updated!');
       onOpenChange(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not update profile');
     }
   };
 
-  const handlePasswordChange = () => {
+  const handlePasswordChange = async () => {
     if (!currentPw || !newPw) return toast.error('Fill in all password fields');
     if (newPw !== confirmPw) return toast.error('Passwords do not match');
     if (newPw.length < 6) return toast.error('Password must be at least 6 characters');
-    toast.success('Password updated!');
-    setCurrentPw(''); setNewPw(''); setConfirmPw('');
+    try {
+      await changePassword(currentPw, newPw);
+      toast.success('Password updated!');
+      setCurrentPw('');
+      setNewPw('');
+      setConfirmPw('');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not update password');
+    }
   };
 
   const emojis = ['👨‍💼', '👩‍💻', '👨‍🔬', '👩‍🎨', '🧑‍🚀', '🦊', '🐱', '🌟'];

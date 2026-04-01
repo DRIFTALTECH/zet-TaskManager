@@ -2,9 +2,13 @@ import { useAppStore } from '@/stores/appStore';
 import { motion } from 'framer-motion';
 import { Mail, Briefcase, ListTodo, ChevronDown } from 'lucide-react';
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { snappy, pageEnter } from '@/lib/motion';
+import { isTaskAssignedTo } from '@/lib/task-utils';
 
 const UsersPage = () => {
   const { users, tasks, projects } = useAppStore();
+  const navigate = useNavigate();
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
 
   const filteredUsers = selectedProjectId
@@ -15,7 +19,7 @@ const UsersPage = () => {
     : users;
 
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="p-6">
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={pageEnter} className="p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold">Users</h1>
@@ -28,7 +32,7 @@ const UsersPage = () => {
           <select
             value={selectedProjectId}
             onChange={e => setSelectedProjectId(e.target.value)}
-            className="rounded-xl border bg-muted/50 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
+            className="rounded-xl border bg-muted/50 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-colors duration-100"
           >
             <option value="">All Projects</option>
             {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -38,16 +42,30 @@ const UsersPage = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
         {filteredUsers.map((user, i) => {
-          const activeTasks = tasks.filter(t => t.assignedTo === user.id && t.status !== 'completed').length;
+          const activeTasks = tasks.filter(t => isTaskAssignedTo(t, user.id) && t.status !== 'completed').length;
           const userProjects = projects.filter(p => p.members.includes(user.id));
           return (
             <motion.div
               key={user.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => navigate(`/users/${user.id}`)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  navigate(`/users/${user.id}`);
+                }
+              }}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.05 }}
-              whileHover={{ scale: 1.02, y: -4, boxShadow: '0 12px 40px -8px hsl(var(--foreground) / 0.1)' }}
-              className="rounded-2xl border bg-card p-5 transition-all duration-300"
+              transition={{ type: 'tween', duration: 0.15, ease: 'easeOut', delay: i * 0.02 }}
+              whileHover={{
+                scale: 1.01,
+                y: -2,
+                boxShadow: '0 12px 40px -8px hsl(var(--foreground) / 0.1)',
+                transition: snappy,
+              }}
+              className="rounded-2xl border bg-card p-5 transition-shadow duration-100 cursor-pointer text-left"
             >
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">

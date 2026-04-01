@@ -11,7 +11,6 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  password: string;
   role: Role;
   avatar: string;
   projectIds: string[];
@@ -39,7 +38,10 @@ export interface Task {
   description: string;
   projectId: string;
   sectionId: string;
+  /** First assignee (primary); same as assigneeIds[0] when list is non-empty */
   assignedTo: string;
+  /** Everyone assigned to this task, in order (first is primary) */
+  assigneeIds: string[];
   assignedBy: string;
   createdBy: string;
   dueDate: string;
@@ -52,12 +54,30 @@ export interface Task {
   timeTracked: number;
   tags: string[];
   createdAt: string;
-  timeLog: Record<string, number>; // date string -> seconds
+  timeLog: Record<string, number>; // date (YYYY-MM-DD) -> seconds logged by current user
   customFields?: Record<string, string>; // user-defined key-value metadata
 }
 
-export interface TimesheetEntry {
+export interface TaskFeedback {
+  id: string;
   taskId: string;
-  date: string;
+  userId: string;
+  authorName: string;
+  message: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Manual day rows on the Timesheet page (project, section, description, time range). */
+export interface TimesheetWorkEntry {
+  id: string;
+  userId: string;
+  workDate: string;
+  projectId: string;
+  sectionId: string;
+  description: string;
+  timeFrom: string;
+  timeTo: string;
   seconds: number;
+  createdAt: string;
 }

@@ -1,0 +1,145 @@
+import re
+from datetime import datetime, timezone
+
+from fastapi import HTTPException, status
+from sqlalchemy.orm import Session
+
+import crud.timesheet_entries as te_crud
+import crud.sections as sections_crud
+from database.init_db import new_id
+from database.models import TimesheetEntry
+from logic import project_logic, user_logic
+from logic.schemas import TimesheetEntryCreate, TimesheetEntryOut, TimesheetEntryPatch
+
+TIME_RE = re.compile(r"^\s*(\d{1,2}):(\d{2})\s*$")
+
+
+def normalize_time_value(s: str) -> str:
+    raw = (s or "").strip()
+    if not raw:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Time is required")
+    if re.fullmatch(r"\d{1,4}", raw):
+        padded = raw.zfill(4)
+        h, mm = int(padded[:2]), int(padded[2:])
+    else:
+        m = TIME_RE.match(raw)
+        if not m:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "Use HH:MM or 4-digit 24h time (e.g. 0930 or 930)",
+            )
+        h, mm = int(m.group(1)), int(m.group(2))
+    if h > 23 or mm < 0 or mm > 59:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid time")
+    return f"{h:02d}:{mm:02d}"
+
+
+def _hm_to_seconds(hm: str) -> int:
+    h, mm = hm.split(":")
+    return int(h) * 3600 + int(mm) * 60
+
+
+def span_seconds(time_from: str, time_to: str) -> int:
+    tf = normalize_time_value(time_from)
+    tt = normalize_time_value(time_to)
+    sf = _hm_to_seconds(tf)
+    st = _hm_to_seconds(tt)
+    if st > sf:
+        return st - sf
+    if st == sf:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "End time must be after start time")
+    return 86400 - sf + st
+
+
+def _validate_section_project(db: Session, project_id: str, section_id: str) -> None:
+    sec = sections_crud.get_by_id(db, section_id)
+    if not sec or sec.project_id != project_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Section does not belong to this project")
+
+
+def to_out(e: TimesheetEntry) -> TimesheetEntryOut:
+    return TimesheetEntryOut(
+        id=e.id,
+        userId=e.user_id,
+        workDate=e.work_date,
+        projectId=e.project_id,
+        sectionId=e.section_id,
+        description=e.description or "",
+        timeFrom=e.time_from,
+        timeTo=e.time_to,
+        seconds=e.seconds,
+        createdAt=e.created_at,
+    )
+
+
+def list_entries(db: Session, user_id: str, start: str, end: str) -> list[TimesheetEntryOut]:
+    if start > end:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "start must be <= end")
+    rows = te_crud.list_for_user_range(db, user_id, start, end)
+    return [to_out(r) for r in rows]
+
+
+def list_entries_as_manager(db: Session, manager_id: str, target_user_id: str, start: str, end: str) -> list[TimesheetEntryOut]:
+    project_logic.ensure_manager(db, manager_id)
+    user_logic.get_user_or_404(db, target_user_id)
+    return list_entries(db, target_user_id, start, end)
+
+
+def create_entry(db: Session, user_id: str, body: TimesheetEntryCreate) -> TimesheetEntryOut:
+    project_logic.ensure_project_member(db, body.projectId, user_id)
+    _validate_section_project(db, body.projectId, body.sectionId)
+    tf = normalize_time_value(body.timeFrom)
+    tt = normalize_time_value(body.timeTo)
+    sec = span_seconds(tf, tt)
+    now = datetime.now(timezone.utc).isoformat()
+    row = TimesheetEntry(
+        id=new_id("te"),
+        user_id=user_id,
+        work_date=body.workDate,
+        project_id=body.projectId,
+        section_id=body.sectionId,
+        description=body.description or "",
+        time_from=tf,
+        time_to=tt,
+        seconds=sec,
+        created_at=now,
+    )
+    te_crud.create_entry(db, row)
+    return to_out(row)
+
+
+def patch_entry(db: Session, user_id: str, entry_id: str, body: TimesheetEntryPatch) -> TimesheetEntryOut:
+    row = te_crud.get_by_id(db, entry_id)
+    if not row or row.user_id != user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Entry not found")
+    if body.workDate is not None:
+        row.work_date = body.workDate
+    if body.projectId is not None:
+        row.project_id = body.projectId
+    if body.sectionId is not None:
+        row.section_id = body.sectionId
+    if body.description is not None:
+        row.description = body.description
+    if body.timeFrom is not None:
+        row.time_from = normalize_time_value(body.timeFrom)
+    if body.timeTo is not None:
+        row.time_to = normalize_time_value(body.timeTo)
+    project_logic.ensure_project_member(db, row.project_id, user_id)
+    _validate_section_project(db, row.project_id, row.section_id)
+    row.seconds = span_seconds(row.time_from, row.time_to)
+    te_crud.update_entry(db, row)
+    return to_out(row)
+
+
+def delete_entry(db: Session, user_id: str, entry_id: str) -> None:
+    row = te_crud.get_by_id(db, entry_id)
+    if not row or row.user_id != user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Entry not found")
+    te_crud.delete_entry(db, row)
+
+
+def delete_all_entries_for_day(db: Session, user_id: str, work_date: str) -> int:
+    """Remove every timesheet row the user has on work_date (YYYY-MM-DD)."""
+    if len(work_date) != 10 or work_date[4] != "-" or work_date[7] != "-":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "workDate must be YYYY-MM-DD")
+    return te_crud.delete_all_for_user_date(db, user_id, work_date)

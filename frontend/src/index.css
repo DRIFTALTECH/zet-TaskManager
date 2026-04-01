@@ -92,7 +92,7 @@
     border-color: hsl(var(--glass-border));
   }
   .card-hover {
-    @apply transition-all duration-300 ease-out;
+    @apply transition-all duration-150 ease-out;
   }
   .card-hover:hover {
     transform: translateY(-2px);

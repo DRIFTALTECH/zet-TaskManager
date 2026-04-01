@@ -1,13 +1,16 @@
 import { useAppStore } from '@/stores/appStore';
 import { Sun, Moon, Search, X } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 const AppNavbar = () => {
   const { theme, toggleTheme, currentUser, projects, selectedProjectId, selectProject, tasks, users, searchQuery, setSearchQuery } = useAppStore();
+  const isManager = currentUser?.role === 'manager';
   const [searchOpen, setSearchOpen] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const location = useLocation();
+  const hideProjectPicker = location.pathname === '/tasks';
 
   const userProjects = projects.filter(p => currentUser?.projectIds.includes(p.id));
 
@@ -16,10 +19,10 @@ const AppNavbar = () => {
   const searchResults = q.length > 1 ? {
     tasks: tasks.filter(t => t.title.toLowerCase().includes(q) || t.description.toLowerCase().includes(q)).slice(0, 5),
     projects: projects.filter(p => p.name.toLowerCase().includes(q)).slice(0, 3),
-    people: users.filter(u => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)).slice(0, 3),
+    people: isManager ? users.filter(u => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)).slice(0, 3) : [],
   } : null;
 
-  const hasResults = searchResults && (searchResults.tasks.length || searchResults.projects.length || searchResults.people.length);
+  const hasResults = searchResults && (searchResults.tasks.length || searchResults.projects.length || searchResults.people.length > 0);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -31,16 +34,23 @@ const AppNavbar = () => {
 
   return (
     <header className="h-14 border-b bg-card/80 backdrop-blur-sm flex items-center px-4 gap-4 sticky top-0 z-40">
-      {/* Project Selector */}
-      <select
-        value={selectedProjectId || ''}
-        onChange={e => selectProject(e.target.value)}
-        className="rounded-xl border bg-muted/50 px-3 py-1.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/50 min-w-[140px]"
-      >
-        {userProjects.map(p => (
-          <option key={p.id} value={p.id}>{p.name}</option>
-        ))}
-      </select>
+      {!hideProjectPicker && (
+        <select
+          value={selectedProjectId || ''}
+          onChange={e => selectProject(e.target.value)}
+          className="rounded-xl border bg-muted/50 px-3 py-1.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/50 min-w-[140px]"
+        >
+          {userProjects.length === 0 ? (
+            <option value="">No projects</option>
+          ) : (
+            userProjects.map(p => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))
+          )}
+        </select>
+      )}
 
       <div className="flex-1" />
 
@@ -52,7 +62,7 @@ const AppNavbar = () => {
             value={searchQuery}
             onChange={e => { setSearchQuery(e.target.value); setSearchOpen(true); }}
             onFocus={() => setSearchOpen(true)}
-            placeholder="Search tasks, projects, people..."
+            placeholder={isManager ? 'Search tasks, projects, people...' : 'Search tasks, projects...'}
             className="bg-transparent text-sm focus:outline-none flex-1"
           />
           {searchQuery && (
@@ -81,13 +91,21 @@ const AppNavbar = () => {
                 ))}
               </div>
             )}
-            {searchResults!.people.length > 0 && (
+            {isManager && searchResults!.people.length > 0 && (
               <div>
                 <p className="text-xs font-semibold text-muted-foreground px-2 py-1">People</p>
                 {searchResults!.people.map(u => (
-                  <button key={u.id} onClick={() => { setSearchOpen(false); setSearchQuery(''); navigate('/users'); }}
+                  <button
+                    key={u.id}
+                    onClick={() => {
+                      setSearchOpen(false);
+                      setSearchQuery('');
+                      navigate(`/users/${u.id}`);
+                    }}
                     className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-muted/50 text-sm"
-                  >{u.avatar} {u.name}</button>
+                  >
+                    {u.avatar} {u.name}
+                  </button>
                 ))}
               </div>
             )}

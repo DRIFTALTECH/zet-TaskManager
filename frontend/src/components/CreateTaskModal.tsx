@@ -1,89 +1,303 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAppStore } from '@/stores/appStore';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
+import { DateInput } from '@/components/ui/date-input';
 import { toast } from 'sonner';
-import { Priority } from '@/types';
+import type { Priority } from '@/types';
+import { Users, Layers, Tag } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
+const priorities: Priority[] = ['Low', 'Medium', 'High', 'Urgent'];
+
+const priorityChoice: Record<Priority, string> = {
+  Urgent: 'border-red-500/30 bg-red-500/15 text-red-400',
+  High: 'border-orange-500/30 bg-orange-500/15 text-orange-400',
+  Medium: 'border-yellow-500/35 bg-yellow-500/15 text-yellow-400',
+  Low: 'border-green-500/30 bg-green-500/15 text-green-400',
+};
+
 const CreateTaskModal = ({ open, onOpenChange }: Props) => {
-  const { currentUser, projects, users, createTask } = useAppStore();
+  const { currentUser, projects, users, createTask, selectedProjectId } = useAppStore();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [projectId, setProjectId] = useState('');
+  const [manualProjectId, setManualProjectId] = useState('');
   const [sectionId, setSectionId] = useState('');
-  const [assignedTo, setAssignedTo] = useState('');
+  const [assigneeIds, setAssigneeIds] = useState<Set<string>>(new Set());
   const [dueDate, setDueDate] = useState('');
   const [priority, setPriority] = useState<Priority>('Medium');
   const [tagsStr, setTagsStr] = useState('');
 
+  const isManager = currentUser?.role === 'manager';
+  const userProjects = currentUser ? projects.filter(p => currentUser.projectIds.includes(p.id)) : [];
+
+  const implicitProject =
+    selectedProjectId && userProjects.some(p => p.id === selectedProjectId) ? selectedProjectId : null;
+  const effectiveProjectId = implicitProject ?? manualProjectId;
+  const selectedProject = projects.find(p => p.id === effectiveProjectId);
+  const showProjectPicker = !implicitProject;
+
+  const projectMembers = selectedProject
+    ? users.filter(u => selectedProject.members.includes(u.id)).sort((a, b) => a.name.localeCompare(b.name))
+    : [];
+
+  useEffect(() => {
+    if (!currentUser || isManager || !effectiveProjectId) return;
+    const p = projects.find(pr => pr.id === effectiveProjectId);
+    if (p?.members.includes(currentUser.id)) {
+      setAssigneeIds(new Set([currentUser.id]));
+    }
+  }, [currentUser, isManager, effectiveProjectId, projects]);
+
   if (!currentUser) return null;
 
-  const userProjects = projects.filter(p => currentUser.projectIds.includes(p.id));
-  const selectedProject = projects.find(p => p.id === projectId);
-  const projectMembers = selectedProject ? users.filter(u => selectedProject.members.includes(u.id)) : [];
-
-  const handleSave = () => {
-    if (!title.trim() || !projectId || !sectionId || !assignedTo || !dueDate) {
-      return toast.error('Please fill all required fields');
-    }
-    createTask({
-      title: title.trim(),
-      description: description.trim(),
-      projectId,
-      sectionId,
-      assignedTo,
-      assignedBy: currentUser.id,
-      createdBy: currentUser.id,
-      dueDate,
-      priority,
-      tags: tagsStr.split(',').map(t => t.trim()).filter(Boolean),
-    });
-    toast.success('Task created!');
-    onOpenChange(false);
-    setTitle(''); setDescription(''); setProjectId(''); setSectionId('');
-    setAssignedTo(''); setDueDate(''); setPriority('Medium'); setTagsStr('');
+  const resetForm = () => {
+    setTitle('');
+    setDescription('');
+    setManualProjectId('');
+    setSectionId('');
+    setAssigneeIds(new Set());
+    setDueDate('');
+    setPriority('Medium');
+    setTagsStr('');
   };
 
-  const inputCls = "w-full rounded-xl border bg-muted/50 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50";
+  const handleManualProjectChange = (id: string) => {
+    setManualProjectId(id);
+    setSectionId('');
+    setAssigneeIds(new Set(currentUser ? [currentUser.id] : []));
+  };
+
+  const toggleAssignee = (userId: string) => {
+    setAssigneeIds(prev => {
+      const n = new Set(prev);
+      if (n.has(userId)) n.delete(userId);
+      else n.add(userId);
+      return n;
+    });
+  };
+
+  const handleSave = async () => {
+    if (!title.trim() || !effectiveProjectId || !sectionId || !dueDate) {
+      return toast.error(
+        showProjectPicker
+          ? 'Please fill in title, project, section, and due date'
+          : 'Please fill in title, section, and due date',
+      );
+    }
+    const ids = isManager ? [...assigneeIds] : [currentUser.id];
+    if (ids.length === 0) return toast.error('Select at least one person assigned to this task');
+    try {
+      await createTask({
+        title: title.trim(),
+        description: description.trim(),
+        projectId: effectiveProjectId,
+        sectionId,
+        assigneeIds: ids,
+        assignedBy: currentUser.id,
+        createdBy: currentUser.id,
+        dueDate,
+        priority,
+        tags: tagsStr.split(',').map(t => t.trim()).filter(Boolean),
+      });
+      toast.success('Task created');
+      onOpenChange(false);
+      resetForm();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not create task');
+    }
+  };
+
+  const field =
+    'w-full rounded-xl border border-border/80 bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40';
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="glass sm:max-w-lg">
-        <DialogHeader><DialogTitle>Create Task</DialogTitle></DialogHeader>
-        <div className="space-y-3">
-          <input value={title} onChange={e => setTitle(e.target.value)} className={inputCls} placeholder="Task title *" />
-          <textarea value={description} onChange={e => setDescription(e.target.value)} className={`${inputCls} min-h-[60px]`} placeholder="Description" />
-          <select value={projectId} onChange={e => { setProjectId(e.target.value); setSectionId(''); setAssignedTo(''); }} className={inputCls}>
-            <option value="">Select Project *</option>
-            {userProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-          {selectedProject && (
-            <select value={sectionId} onChange={e => setSectionId(e.target.value)} className={inputCls}>
-              <option value="">Select Section *</option>
-              {selectedProject.sections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-          )}
-          {selectedProject && (
-            <select value={assignedTo} onChange={e => setAssignedTo(e.target.value)} className={inputCls}>
-              <option value="">Assign To *</option>
-              {projectMembers.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-            </select>
-          )}
-          <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className={inputCls} />
-          <div className="flex gap-1.5">
-            {(['Low', 'Medium', 'High', 'Urgent'] as Priority[]).map(p => (
-              <button key={p} onClick={() => setPriority(p)}
-                className={`flex-1 text-xs py-2 rounded-xl transition-colors ${priority === p ? 'bg-primary text-primary-foreground' : 'border hover:bg-muted/50'}`}
-              >{p}</button>
-            ))}
+    <Dialog
+      open={open}
+      onOpenChange={v => {
+        onOpenChange(v);
+        if (!v) resetForm();
+      }}
+    >
+      <DialogContent className="sm:max-w-lg flex max-h-[min(90dvh,92vh)] min-h-0 flex-col gap-0 overflow-hidden border-border/80 bg-card p-0">
+        <DialogHeader className="shrink-0 px-6 pb-4 pt-2 text-left border-b border-border/60">
+          <DialogTitle className="text-xl">New task</DialogTitle>
+          <DialogDescription className="text-sm text-muted-foreground">
+            Add a title and optional details. Managers can assign multiple people on the project.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5">
+          <div className="space-y-6">
+            <div className="space-y-2">
+              <Label htmlFor="ct-title">
+                Title <span className="text-destructive">*</span>
+              </Label>
+              <input
+                id="ct-title"
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                className={field}
+                placeholder="Short, actionable title"
+                autoFocus
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="ct-desc">Description</Label>
+              <textarea
+                id="ct-desc"
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                className={`${field} min-h-[100px] resize-y`}
+                placeholder="Context, acceptance criteria, links…"
+              />
+            </div>
+
+            <div className="rounded-xl border border-border/60 p-4 space-y-3">
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <Layers className="h-3.5 w-3.5" /> {showProjectPicker ? 'Project & section' : 'Section'}
+              </div>
+              {showProjectPicker && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="ct-project">Project</Label>
+                  <select
+                    id="ct-project"
+                    value={manualProjectId}
+                    onChange={e => handleManualProjectChange(e.target.value)}
+                    className={field}
+                  >
+                    <option value="">Choose project…</option>
+                    {userProjects.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {selectedProject && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="ct-section">Section</Label>
+                  <select
+                    id="ct-section"
+                    value={sectionId}
+                    onChange={e => setSectionId(e.target.value)}
+                    className={field}
+                  >
+                    <option value="">Choose section…</option>
+                    {selectedProject.sections.map(s => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            {selectedProject && (
+              <div className="rounded-xl border border-border/60 p-4 space-y-3">
+                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <Users className="h-3.5 w-3.5" /> Assigned to
+                </div>
+                {isManager ? (
+                  <div className="space-y-2">
+                    <p className="text-xs text-muted-foreground">Select everyone who should work on this task.</p>
+                    <div className="rounded-lg border border-border/50 bg-background divide-y divide-border/40 max-h-[200px] overflow-y-auto">
+                      {projectMembers.map(u => (
+                        <label
+                          key={u.id}
+                          className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-muted/40 transition-colors duration-100"
+                        >
+                          <Checkbox checked={assigneeIds.has(u.id)} onCheckedChange={() => toggleAssignee(u.id)} />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium truncate">
+                              {u.name}
+                              {u.id === currentUser.id ? ' (you)' : ''}
+                            </div>
+                            <div className="text-xs text-muted-foreground truncate">{u.email}</div>
+                          </div>
+                          <span className="text-[10px] uppercase text-muted-foreground shrink-0">{u.role}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-foreground">
+                    <span className="font-medium">You</span>
+                    <span className="text-muted-foreground">
+                      {' '}
+                      — new tasks you create are assigned only to you. A manager can add others later.
+                    </span>
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="ct-due">
+                  Due date <span className="text-destructive">*</span>
+                </Label>
+                <DateInput id="ct-due" value={dueDate} onChange={setDueDate} required />
+              </div>
+              <div className="space-y-2">
+                <Label>Priority</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {priorities.map(p => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => setPriority(p)}
+                      className={cn(
+                        'text-xs px-3 py-2 rounded-lg border font-medium transition-all',
+                        priorityChoice[p],
+                        priority === p ? 'ring-2 ring-primary/60 ring-offset-2 ring-offset-background scale-[1.02]' : 'opacity-80 hover:opacity-100',
+                      )}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="ct-tags" className="flex items-center gap-1.5">
+                <Tag className="h-3.5 w-3.5" /> Tags
+              </Label>
+              <input
+                id="ct-tags"
+                value={tagsStr}
+                onChange={e => setTagsStr(e.target.value)}
+                className={field}
+                placeholder="Comma-separated, e.g. frontend, urgent"
+              />
+            </div>
           </div>
-          <input value={tagsStr} onChange={e => setTagsStr(e.target.value)} className={inputCls} placeholder="Tags (comma-separated)" />
-          <button onClick={handleSave} className="w-full rounded-xl bg-primary py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 transition-opacity">
-            Create Task
+        </div>
+
+        <div className="shrink-0 px-6 py-4 border-t border-border/60 flex gap-2 justify-end bg-muted/10">
+          <button
+            type="button"
+            onClick={() => onOpenChange(false)}
+            className="px-4 py-2.5 text-sm rounded-xl border border-border hover:bg-muted/50 transition-colors duration-100"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSave()}
+            className="px-4 py-2.5 text-sm rounded-xl bg-primary text-primary-foreground font-medium hover:opacity-90 transition-opacity duration-100"
+          >
+            Create task
           </button>
         </div>
       </DialogContent>
