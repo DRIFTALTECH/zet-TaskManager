@@ -1,13 +1,59 @@
 import { useAppStore } from '@/stores/appStore';
 import { Task, Priority } from '@/types';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useState } from 'react';
-import { Clock, Layers, Plus, CheckCircle2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Clock, Layers, Plus, CheckCircle2, Play, Square, RotateCcw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import TaskDetailModal from '@/components/TaskDetailModal';
 import CreateTaskModal from '@/components/CreateTaskModal';
 import { toast } from 'sonner';
 import { isTaskAssignedTo } from '@/lib/task-utils';
 import { snappy, snappyLayout, pageEnter, cardMotion } from '@/lib/motion';
+
+function useElapsedTime(epochStart: number | null): string {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!epochStart) return;
+    const id = setInterval(() => setTick(n => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [epochStart]);
+  if (!epochStart) return '';
+  const secs = Math.max(0, Math.floor((Date.now() - epochStart) / 1000));
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  if (h > 0) return `${h}:${pad(m)}:${pad(s)}`;
+  return `${pad(m)}:${pad(s)}`;
+}
+
+function TaskTimerButton({ task, currentUserId }: { task: Task; currentUserId: string }) {
+  const { activeTimers, startTimer, stopTimer } = useAppStore();
+  const isActive = !!activeTimers[task.id];
+  const epochStart = activeTimers[task.id] ?? null;
+  const elapsed = useElapsedTime(epochStart);
+  const canUse = isTaskAssignedTo(task, currentUserId) && task.status !== 'completed' && task.status !== 'done';
+
+  if (!canUse) return null;
+
+  return isActive ? (
+    <button
+      onClick={e => { e.stopPropagation(); void stopTimer(task.id); }}
+      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-destructive/15 text-destructive text-xs font-semibold border border-destructive/20 hover:bg-destructive/25 transition-colors"
+    >
+      <Square className="h-3 w-3 fill-current" />
+      Stop · {elapsed}
+    </button>
+  ) : (
+    <button
+      onClick={e => { e.stopPropagation(); void startTimer(task.id); }}
+      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary/10 text-primary text-xs font-semibold border border-primary/20 hover:bg-primary/20 transition-colors"
+    >
+      <Play className="h-3 w-3 fill-current" />
+      Start
+    </button>
+  );
+}
 
 const priorityBadge: Record<Priority, string> = {
   Urgent: 'bg-red-500/15 text-red-400 border-red-500/20',
@@ -17,9 +63,10 @@ const priorityBadge: Record<Priority, string> = {
 };
 
 const MyTasksPage = () => {
-  const { currentUser, tasks, projects } = useAppStore();
+  const { currentUser, tasks, projects, reopenTaskToBacklog } = useAppStore();
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [reopeningId, setReopeningId] = useState<string | null>(null);
 
   if (!currentUser) return null;
 
@@ -29,6 +76,12 @@ const MyTasksPage = () => {
 
   const isMyCompletedTask = (t: Task) =>
     t.status === 'completed' && isTaskAssignedTo(t, currentUser.id);
+
+  const canMoveCompletedToBacklog = (t: Task) =>
+    t.status === 'completed' &&
+    (t.createdBy === currentUser.id ||
+      isTaskAssignedTo(t, currentUser.id) ||
+      currentUser.role === 'manager');
 
   const myTasks = tasks.filter(t => isMyActiveTask(t) || isMyCompletedTask(t));
   const userProjects = projects.filter(p => myTasks.some(t => t.projectId === p.id));
@@ -104,6 +157,7 @@ const MyTasksPage = () => {
                             <h4 className="text-sm font-semibold">{task.title}</h4>
                           </div>
                           <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                            <TaskTimerButton task={task} currentUserId={currentUser.id} />
                             <span className="px-2 py-0.5 rounded-lg bg-muted/50">{task.status.replace('_', ' ')}</span>
                             <span>{formatDate(task.dueDate)}</span>
                           </div>
@@ -144,12 +198,34 @@ const MyTasksPage = () => {
                         onClick={() => setSelectedTask(task)}
                         className="rounded-xl border bg-card/50 p-4 cursor-pointer opacity-60 hover:opacity-80 transition-opacity duration-100"
                       >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <CheckCircle2 className="h-4 w-4 text-green-500" />
-                            <h4 className="text-sm font-medium line-through">{task.title}</h4>
+                        <div className="flex items-center justify-between gap-3 flex-wrap">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                            <h4 className="text-sm font-medium line-through truncate">{task.title}</h4>
                           </div>
-                          <span className="text-xs text-muted-foreground">{task.completedAt ? formatDate(task.completedAt) : ''}</span>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {canMoveCompletedToBacklog(task) && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="h-8 rounded-lg gap-1.5 text-xs"
+                                disabled={reopeningId === task.id}
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  setReopeningId(task.id);
+                                  void reopenTaskToBacklog(task.id)
+                                    .then(() => { toast.success('Task moved to backlog on the dashboard'); })
+                                    .catch(err => { toast.error(err instanceof Error ? err.message : 'Could not reopen task'); })
+                                    .finally(() => { setReopeningId(null); });
+                                }}
+                              >
+                                <RotateCcw className="h-3 w-3" />
+                                {reopeningId === task.id ? '…' : 'Backlog'}
+                              </Button>
+                            )}
+                            <span className="text-xs text-muted-foreground">{task.completedAt ? formatDate(task.completedAt) : ''}</span>
+                          </div>
                         </div>
                         <div className="mt-1.5 ml-[40px] text-[11px] text-muted-foreground flex gap-3">
                           {section && <span>{section.name}</span>}

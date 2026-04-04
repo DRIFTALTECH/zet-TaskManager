@@ -2,6 +2,12 @@ import { create } from 'zustand';
 import { User, Project, Task, TaskStatus, KanbanColumn, Role } from '@/types';
 import { api, TOKEN_KEY } from '@/lib/api';
 
+const ACTIVE_TIMERS_KEY = 'tm_active_timers';
+function loadTimers(): Record<string, number> {
+  try { return JSON.parse(localStorage.getItem(ACTIVE_TIMERS_KEY) || '{}'); } catch { return {}; }
+}
+function saveTimers(t: Record<string, number>) { localStorage.setItem(ACTIVE_TIMERS_KEY, JSON.stringify(t)); }
+
 const DEFAULT_COLUMNS: KanbanColumn[] = [
   { id: 'backlog', label: 'Backlog' },
   { id: 'in_progress', label: 'In Progress' },
@@ -46,6 +52,7 @@ interface AppState {
   startTask: (id: string) => Promise<void>;
   moveTask: (id: string, status: TaskStatus) => Promise<void>;
   approveTask: (id: string) => Promise<void>;
+  reopenTaskToBacklog: (id: string) => Promise<void>;
   logTime: (id: string, date: string, seconds: number) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
 
@@ -54,6 +61,10 @@ interface AppState {
   removeColumn: (id: string) => Promise<boolean>;
   renameColumn: (id: string, label: string) => Promise<void>;
   reorderColumns: (columns: KanbanColumn[]) => Promise<void>;
+
+  activeTimers: Record<string, number>; // taskId -> epoch ms when timer started
+  startTimer: (taskId: string) => Promise<void>;
+  stopTimer: (taskId: string) => Promise<void>;
 
   searchQuery: string;
   setSearchQuery: (q: string) => void;
@@ -281,6 +292,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
   },
 
+  reopenTaskToBacklog: async id => {
+    const t = await api.reopenTaskToBacklog(id);
+    set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
+  },
+
   logTime: async (id, date, seconds) => {
     const t = await api.logTime(id, date, seconds);
     set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
@@ -289,6 +305,74 @@ export const useAppStore = create<AppState>((set, get) => ({
   deleteTask: async id => {
     await api.deleteTask(id);
     set({ tasks: get().tasks.filter(t => t.id !== id) });
+  },
+
+  activeTimers: loadTimers(),
+
+  startTimer: async taskId => {
+    const task = get().tasks.find(t => t.id === taskId);
+    if (!task) return;
+    const timers = { ...get().activeTimers, [taskId]: Date.now() };
+    saveTimers(timers);
+    set({ activeTimers: timers });
+    // Mark task as started on the backend (only if not already started)
+    if (!task.isStarted) {
+      try {
+        const updated = await api.startTask(taskId);
+        set({ tasks: get().tasks.map(x => (x.id === taskId ? updated : x)) });
+      } catch {
+        // non-critical — timer still runs
+      }
+    }
+  },
+
+  stopTimer: async taskId => {
+    const timers = get().activeTimers;
+    const startMs = timers[taskId];
+    if (!startMs) return;
+
+    const endMs = Date.now();
+    const elapsedSeconds = Math.max(1, Math.round((endMs - startMs) / 1000));
+
+    const startDate = new Date(startMs);
+    const endDate = new Date(endMs);
+    const workDate = startDate.toISOString().split('T')[0];
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const timeFrom = `${pad(startDate.getHours())}:${pad(startDate.getMinutes())}`;
+    let timeTo = `${pad(endDate.getHours())}:${pad(endDate.getMinutes())}`;
+    // Timesheet requires timeTo > timeFrom; add 1 min if same
+    if (timeTo === timeFrom) {
+      const adjusted = new Date(endMs + 60_000);
+      timeTo = `${pad(adjusted.getHours())}:${pad(adjusted.getMinutes())}`;
+    }
+
+    const task = get().tasks.find(t => t.id === taskId);
+
+    // Remove timer immediately (optimistic)
+    const newTimers = { ...timers };
+    delete newTimers[taskId];
+    saveTimers(newTimers);
+    set({ activeTimers: newTimers });
+
+    if (!task) return;
+
+    // Log time on the task
+    const updatedTask = await api.logTime(taskId, workDate, elapsedSeconds);
+    set({ tasks: get().tasks.map(x => (x.id === taskId ? updatedTask : x)) });
+
+    // Create a matching timesheet entry
+    try {
+      await api.createTimesheetWorkEntry({
+        workDate,
+        projectId: task.projectId,
+        sectionId: task.sectionId,
+        description: task.title,
+        timeFrom,
+        timeTo,
+      });
+    } catch {
+      // Timesheet entry creation is best-effort
+    }
   },
 
   kanbanColumns: DEFAULT_COLUMNS,

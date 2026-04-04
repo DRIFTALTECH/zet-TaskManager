@@ -30,10 +30,7 @@ def _is_task_creator(t: Task, user_id: str) -> bool:
 
 
 def _can_move_task_on_board(db: Session, t: Task, user_id: str) -> bool:
-    """Assignees and managers may drag tasks between columns; creator alone cannot unless assigned."""
-    actor = user_logic.get_user_or_404(db, user_id)
-    if actor.role == "manager":
-        return True
+    """Only the task's assignees may move it between columns — no exceptions."""
     return assignees_crud.is_assignee(db, t.id, user_id)
 
 
@@ -226,8 +223,8 @@ def start_task(db: Session, current_user_id: str, task_id: str) -> TaskOut:
             "Only an assignee or the creator can start this task",
         )
     t.is_started = True
-    t.started_at = date.today().isoformat()
-    t.status = "backlog"
+    if not t.started_at:
+        t.started_at = date.today().isoformat()
     tasks_crud.update_task(db, t)
     return to_task_out(db, t, current_user_id)
 
@@ -242,9 +239,43 @@ def move_task(db: Session, current_user_id: str, task_id: str, body: TaskMoveBod
     if not _can_move_task_on_board(db, t, current_user_id):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
-            "Only assignees (or a manager) can move this task between columns",
+            "Only the task's assignees can move it between columns",
         )
     t.status = body.status
+    # Moving to Done ends any active work session
+    if body.status == "done":
+        t.is_started = False
+        t.started_at = None
+    tasks_crud.update_task(db, t)
+    return to_task_out(db, t, current_user_id)
+
+
+def _can_reopen_completed_task(db: Session, t: Task, user_id: str) -> bool:
+    if _is_task_creator(t, user_id):
+        return True
+    if assignees_crud.is_assignee(db, t.id, user_id):
+        return True
+    actor = user_logic.get_user_or_404(db, user_id)
+    return actor.role == "manager"
+
+
+def reopen_completed_to_backlog(db: Session, current_user_id: str, task_id: str) -> TaskOut:
+    t = tasks_crud.get_by_id(db, task_id)
+    if not t:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Task not found")
+    project_logic.ensure_project_member(db, t.project_id, current_user_id)
+    if t.status != "completed":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Only completed tasks can be moved back to the backlog")
+    if not _can_reopen_completed_task(db, t, current_user_id):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Only the creator, an assignee, or a manager can reopen a completed task",
+        )
+    t.status = "backlog"
+    t.completed_at = None
+    t.approved_by_manager = False
+    t.is_started = False
+    t.started_at = None
     tasks_crud.update_task(db, t)
     return to_task_out(db, t, current_user_id)
 
@@ -255,11 +286,8 @@ def approve_task(db: Session, current_user_id: str, task_id: str) -> TaskOut:
     if not t:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Task not found")
     project_logic.ensure_project_member(db, t.project_id, current_user_id)
-    if t.status != "done":
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            "Move the task to Done first; then approve to complete it",
-        )
+    if t.status == "completed":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Task is already completed")
     t.status = "completed"
     t.approved_by_manager = True
     t.completed_at = date.today().isoformat()

@@ -159,6 +159,10 @@ export const api = {
     return request(`/tasks/${taskId}/approve`, { method: 'POST' });
   },
 
+  async reopenTaskToBacklog(taskId: string): Promise<Task> {
+    return request(`/tasks/${taskId}/reopen-to-backlog`, { method: 'POST' });
+  },
+
   async logTime(taskId: string, date: string, seconds: number): Promise<Task> {
     return request(`/tasks/${taskId}/log-time`, {
       method: 'POST',

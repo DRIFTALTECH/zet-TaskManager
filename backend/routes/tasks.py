@@ -71,6 +71,15 @@ def move_task(
     return task_logic.move_task(db, user_id, task_id, body)
 
 
+@router.post("/{task_id}/reopen-to-backlog", response_model=TaskOut)
+def reopen_task_to_backlog(
+    task_id: str,
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    return task_logic.reopen_completed_to_backlog(db, user_id, task_id)
+
+
 @router.post("/{task_id}/approve", response_model=TaskOut)
 def approve_task(
     task_id: str,

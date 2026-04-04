@@ -1,115 +1,101 @@
 import { useAppStore } from '@/stores/appStore';
 import { Task, Priority, TaskStatus } from '@/types';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
+import { Dialog, DialogContent, DialogDescription } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Separator } from '@/components/ui/separator';
 import { Button } from '@/components/ui/button';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import {
-  Calendar,
-  Tag,
-  User,
-  Clock,
-  AlertTriangle,
-  Plus,
-  X,
-  Trash2,
-  FolderOpen,
-  Layers,
-  Mail,
-  UserCircle,
-  CheckCircle2,
-  CircleDot,
-  MessageSquareText,
+  Calendar, Tag, Clock, AlertTriangle, Plus, X, Trash2,
+  FolderOpen, Layers, Mail, UserCircle, CircleDot,
+  MessageSquare, Send, User2, CheckCircle2, RotateCcw, ChevronRight,
 } from 'lucide-react';
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { taskAssigneeIds } from '@/lib/task-utils';
+import { taskAssigneeIds, isTaskAssignedTo } from '@/lib/task-utils';
 import { api } from '@/lib/api';
 import type { TaskFeedback } from '@/types';
+import { motion, AnimatePresence } from 'framer-motion';
 
-interface Props {
-  task: Task | null;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}
-
+interface Props { task: Task | null; open: boolean; onOpenChange: (open: boolean) => void; }
 type CustomFieldRow = { localId: string; key: string; value: string };
 
-const priorityColors: Record<Priority, string> = {
-  Urgent: 'bg-red-500/15 text-red-400 border-red-500/20',
-  High: 'bg-orange-500/15 text-orange-400 border-orange-500/20',
-  Medium: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/20',
-  Low: 'bg-green-500/15 text-green-400 border-green-500/20',
+// ── Config maps ───────────────────────────────────────────────────────────────
+const priorityConfig: Record<Priority, { style: string; dot: string; ring: string }> = {
+  Urgent: { style: 'bg-red-500/15 text-red-400 border-red-500/30', dot: 'bg-red-400', ring: 'ring-red-400/40' },
+  High:   { style: 'bg-orange-500/15 text-orange-400 border-orange-500/30', dot: 'bg-orange-400', ring: 'ring-orange-400/40' },
+  Medium: { style: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30', dot: 'bg-yellow-400', ring: 'ring-yellow-400/40' },
+  Low:    { style: 'bg-green-500/15 text-green-400 border-green-500/30', dot: 'bg-green-400', ring: 'ring-green-400/40' },
+};
+const statusConfig: Record<TaskStatus, { style: string; label: string; bar: string }> = {
+  backlog:     { style: 'bg-slate-500/15 text-slate-400 border-slate-500/30', label: 'Backlog',     bar: 'bg-slate-500' },
+  in_progress: { style: 'bg-blue-500/15 text-blue-400 border-blue-500/30',   label: 'In Progress', bar: 'bg-blue-500' },
+  in_review:   { style: 'bg-violet-500/15 text-violet-400 border-violet-500/30', label: 'In Review', bar: 'bg-violet-500' },
+  done:        { style: 'bg-green-500/15 text-green-400 border-green-500/30', label: 'Done',        bar: 'bg-green-500' },
+  completed:   { style: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30', label: 'Completed', bar: 'bg-emerald-500' },
 };
 
-const statusColors: Record<TaskStatus, string> = {
-  backlog: 'bg-muted text-muted-foreground',
-  in_progress: 'bg-blue-500/15 text-blue-400',
-  in_review: 'bg-purple-500/15 text-purple-400',
-  done: 'bg-green-500/15 text-green-400',
-  completed: 'bg-green-500/15 text-green-400',
-};
-
-const statusLabels: Record<TaskStatus, string> = {
-  backlog: 'Backlog',
-  in_progress: 'In Progress',
-  in_review: 'In Review',
-  done: 'Done',
-  completed: 'Completed',
-};
-
-function newRow(): CustomFieldRow {
-  return { localId: crypto.randomUUID(), key: '', value: '' };
+// ── Avatar helpers ────────────────────────────────────────────────────────────
+const AVATAR_PALETTES = [
+  'bg-blue-500/20 text-blue-400 ring-blue-500/20',
+  'bg-violet-500/20 text-violet-400 ring-violet-500/20',
+  'bg-emerald-500/20 text-emerald-400 ring-emerald-500/20',
+  'bg-orange-500/20 text-orange-400 ring-orange-500/20',
+  'bg-pink-500/20 text-pink-400 ring-pink-500/20',
+  'bg-teal-500/20 text-teal-400 ring-teal-500/20',
+  'bg-amber-500/20 text-amber-400 ring-amber-500/20',
+  'bg-cyan-500/20 text-cyan-400 ring-cyan-500/20',
+];
+function avatarPalette(name: string) {
+  let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
+  return AVATAR_PALETTES[h % AVATAR_PALETTES.length];
 }
-
-function rowsFromTask(customFields: Record<string, string> | undefined): CustomFieldRow[] {
-  const entries = Object.entries(customFields || {});
-  if (entries.length === 0) return [];
-  return entries.map(([key, value]) => ({
-    localId: crypto.randomUUID(),
-    key,
-    value,
-  }));
+function getInitials(name: string) { return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2); }
+function fmtDate(d: string) {
+  try { return new Date(d + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' }); }
+  catch { return d; }
 }
-
+function fmtTime(s: number) { const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); return `${h}h ${m}m`; }
+function tsShort(iso: string) { return iso.slice(0, 16).replace('T', ' '); }
+function newRow(): CustomFieldRow { return { localId: crypto.randomUUID(), key: '', value: '' }; }
+function rowsFromTask(cf?: Record<string, string>): CustomFieldRow[] {
+  return Object.entries(cf || {}).map(([key, value]) => ({ localId: crypto.randomUUID(), key, value }));
+}
 function recordFromRows(rows: CustomFieldRow[]): Record<string, string> {
   const out: Record<string, string> = {};
-  for (const r of rows) {
-    const k = r.key.trim();
-    if (k) out[k] = r.value.trim();
-  }
+  for (const r of rows) { const k = r.key.trim(); if (k) out[k] = r.value.trim(); }
   return out;
 }
-
-function sortedAssigneeKey(ids: string[]) {
-  return [...ids].sort().join('|');
+function sortedKey(ids: string[]) { return [...ids].sort().join('|'); }
+function cfSig(cf?: Record<string, string>) {
+  return JSON.stringify(Object.keys(cf || {}).sort().reduce<Record<string, string>>((a, k) => { a[k] = (cf || {})[k]; return a; }, {}));
 }
 
-function customFieldsSignature(cf: Record<string, string> | undefined): string {
-  const o = cf || {};
-  return JSON.stringify(
-    Object.keys(o)
-      .sort()
-      .reduce<Record<string, string>>((acc, k) => {
-        acc[k] = o[k];
-        return acc;
-      }, {}),
+// ── Sub-components ────────────────────────────────────────────────────────────
+function SectionLabel({ icon: Icon, label, accent = 'text-muted-foreground/60' }: { icon: React.ElementType; label: string; accent?: string }) {
+  return (
+    <div className={`flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.12em] mb-3 ${accent}`}>
+      <Icon className="h-3.5 w-3.5 shrink-0" />
+      <span>{label}</span>
+    </div>
   );
 }
 
+function Avatar({ name, size = 'md' }: { name: string; size?: 'sm' | 'md' | 'lg' }) {
+  const sizeMap = { sm: 'w-8 h-8 text-[10px]', md: 'w-9 h-9 text-xs', lg: 'w-11 h-11 text-sm' };
+  return (
+    <div className={`${sizeMap[size]} rounded-full flex items-center justify-center font-bold shrink-0 ring-1 ${avatarPalette(name)}`}>
+      {getInitials(name)}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
-  const { users, projects, updateTask, currentUser, approveTask, deleteTask } = useAppStore();
+  const { users, projects, kanbanColumns, updateTask, currentUser, deleteTask, reopenTaskToBacklog } = useAppStore();
+
   const [draftTitle, setDraftTitle] = useState('');
   const [draftDescription, setDraftDescription] = useState('');
   const [draftPriority, setDraftPriority] = useState<Priority>('Medium');
@@ -123,23 +109,22 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
   const [postingFeedback, setPostingFeedback] = useState(false);
   const [editingFeedbackId, setEditingFeedbackId] = useState<string | null>(null);
   const [editingFeedbackText, setEditingFeedbackText] = useState('');
-  const [approvingCompletion, setApprovingCompletion] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [reopening, setReopening] = useState(false);
 
   const isManager = currentUser?.role === 'manager';
   const isCompleted = task?.status === 'completed';
-  const canEditTaskFields = Boolean(
-    currentUser && task && !isCompleted && currentUser.id === task.createdBy,
+  const canReopenToBacklog = Boolean(
+    currentUser && task && isCompleted &&
+    (currentUser.id === task.createdBy || isTaskAssignedTo(task, currentUser.id) || isManager),
   );
-  const canManageAssignees = Boolean(
-    isManager && task && !isCompleted && projects.some(p => p.id === task.projectId),
-  );
+  const canEditTaskFields = Boolean(currentUser && task && !isCompleted && currentUser.id === task.createdBy);
+  const canManageAssignees = Boolean(isManager && task && !isCompleted && projects.some(p => p.id === task?.projectId));
   const canDeleteTask = Boolean(currentUser && task && currentUser.id === task.createdBy);
+  const assigneeKey = task ? sortedKey(taskAssigneeIds(task)) : '';
 
-  const assigneeKey = task ? sortedAssigneeKey(taskAssigneeIds(task)) : '';
-
-  const resetDraftFromTask = useCallback((t: Task) => {
+  const resetDraft = useCallback((t: Task) => {
     setDraftTitle(t.title);
     setDraftDescription(t.description ?? '');
     setDraftPriority(t.priority);
@@ -150,54 +135,28 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
   const loadFeedback = useCallback(async () => {
     if (!task?.id) return;
     setFeedbackLoading(true);
-    try {
-      const list = await api.listTaskFeedback(task.id);
-      setFeedbackList(list);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not load feedback');
-    } finally {
-      setFeedbackLoading(false);
-    }
+    try { setFeedbackList(await api.listTaskFeedback(task.id)); }
+    catch (e) { toast.error(e instanceof Error ? e.message : 'Could not load feedback'); }
+    finally { setFeedbackLoading(false); }
   }, [task?.id]);
 
-  useEffect(() => {
-    if (!task || !open) return;
-    resetDraftFromTask(task);
-  }, [open, task?.id, assigneeKey, resetDraftFromTask]);
-
+  useEffect(() => { if (task && open) resetDraft(task); }, [open, task?.id, assigneeKey, resetDraft]);
   useEffect(() => {
     if (!open || !task?.id) return;
     void loadFeedback();
-    setNewFeedbackText('');
-    setEditingFeedbackId(null);
-    setEditingFeedbackText('');
+    setNewFeedbackText(''); setEditingFeedbackId(null); setEditingFeedbackText('');
   }, [open, task?.id, loadFeedback]);
 
   const isDirty = useMemo(() => {
     if (!task) return false;
-    const assigneesMatch = sortedAssigneeKey(draftAssigneeIds) === sortedAssigneeKey(taskAssigneeIds(task));
-    const cfMatch =
-      customFieldsSignature(recordFromRows(draftCustomRows)) === customFieldsSignature(task.customFields);
-    const contentDirty =
-      canEditTaskFields &&
-      (draftTitle !== task.title ||
-        draftDescription !== (task.description ?? '') ||
-        draftPriority !== task.priority ||
-        !cfMatch);
-    const assigneeDirty = canManageAssignees && !assigneesMatch;
+    const cfMatch = cfSig(recordFromRows(draftCustomRows)) === cfSig(task.customFields);
+    const contentDirty = canEditTaskFields && (
+      draftTitle !== task.title || draftDescription !== (task.description ?? '') ||
+      draftPriority !== task.priority || !cfMatch
+    );
+    const assigneeDirty = canManageAssignees && sortedKey(draftAssigneeIds) !== sortedKey(taskAssigneeIds(task));
     return contentDirty || assigneeDirty;
-  }, [
-    task,
-    draftTitle,
-    draftDescription,
-    draftPriority,
-    draftAssigneeIds,
-    draftCustomRows,
-    canEditTaskFields,
-    canManageAssignees,
-  ]);
-
-  const displayPriority = canEditTaskFields ? draftPriority : task?.priority ?? 'Medium';
+  }, [task, draftTitle, draftDescription, draftPriority, draftAssigneeIds, draftCustomRows, canEditTaskFields, canManageAssignees]);
 
   if (!task) return null;
 
@@ -208,620 +167,567 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
   const projectMembers = project
     ? users.filter(u => project.members.includes(u.id)).sort((a, b) => a.name.localeCompare(b.name))
     : [];
-
   const assigneeUsers = taskAssigneeIds(task).map(id => users.find(u => u.id === id)).filter(Boolean) as typeof users;
+  const isOverdue = new Date(task.dueDate) < new Date() && task.status !== 'completed';
+  const taskRef = `TF-${task.id.replace(/\D/g, '').padStart(3, '0')}`;
+  const displayPriority = canEditTaskFields ? draftPriority : task.priority;
+  const statusCfg = statusConfig[task.status] ?? statusConfig.backlog;
+  // Resolve the display label from kanban columns so custom columns show their real name
+  const statusLabel = kanbanColumns.find(c => c.id === task.status)?.label ?? statusCfg.label;
+  const priCfg = priorityConfig[displayPriority] ?? priorityConfig.Medium;
+
+  const toggleAssignee = (uid: string) => setDraftAssigneeIds(prev =>
+    prev.includes(uid) ? prev.filter(id => id !== uid) : [...prev, uid]);
 
   const saveAll = async () => {
-    if (!task) return;
     const title = draftTitle.trim();
-    if (canEditTaskFields && !title) {
-      toast.error('Title is required');
-      return;
-    }
+    if (canEditTaskFields && !title) { toast.error('Title is required'); return; }
     const ids = [...new Set(draftAssigneeIds)];
-    if (canManageAssignees && ids.length === 0) {
-      toast.error('At least one assignee is required');
-      return;
-    }
+    if (canManageAssignees && ids.length === 0) { toast.error('At least one assignee is required'); return; }
     setSaving(true);
     try {
       const patch: Parameters<typeof updateTask>[1] = {};
-      if (canEditTaskFields) {
-        patch.title = title;
-        patch.description = draftDescription;
-        patch.priority = draftPriority;
-        patch.customFields = recordFromRows(draftCustomRows);
-      }
-      if (canManageAssignees) {
-        patch.assigneeIds = ids;
-      }
-      if (Object.keys(patch).length === 0) {
-        setSaving(false);
-        return;
-      }
+      if (canEditTaskFields) { patch.title = title; patch.description = draftDescription; patch.priority = draftPriority; patch.customFields = recordFromRows(draftCustomRows); }
+      if (canManageAssignees) patch.assigneeIds = ids;
+      if (Object.keys(patch).length === 0) { setSaving(false); return; }
       await updateTask(task.id, patch);
       toast.success('Task saved');
       onOpenChange(false);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not save task');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const discardChanges = () => {
-    resetDraftFromTask(task);
-  };
-
-  const formatTime = (s: number) => {
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    return `${h}h ${m}m`;
-  };
-
-  const formatLongDate = (d: string) => {
-    try {
-      return new Date(d + 'T12:00:00').toLocaleDateString(undefined, {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      });
-    } catch {
-      return d;
-    }
-  };
-
-  const isOverdue = new Date(task.dueDate) < new Date() && task.status !== 'completed';
-
-  const getInitials = (name: string) =>
-    name
-      .split(' ')
-      .map(n => n[0])
-      .join('')
-      .toUpperCase()
-      .slice(0, 2);
-
-  const toggleAssigneeDraft = (userId: string) => {
-    setDraftAssigneeIds(prev => {
-      const i = prev.indexOf(userId);
-      if (i >= 0) return prev.filter(id => id !== userId);
-      return [...prev, userId];
-    });
-  };
-
-  const updateCustomRow = (localId: string, field: 'key' | 'value', value: string) => {
-    setDraftCustomRows(prev => prev.map(r => (r.localId === localId ? { ...r, [field]: value } : r)));
-  };
-
-  const removeCustomRow = (localId: string) => {
-    setDraftCustomRows(prev => prev.filter(r => r.localId !== localId));
-  };
-
-  const addCustomFieldRow = () => {
-    setDraftCustomRows(prev => [...prev, newRow()]);
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not save task'); }
+    finally { setSaving(false); }
   };
 
   const postFeedback = async () => {
-    if (!task || !newFeedbackText.trim()) return;
+    if (!newFeedbackText.trim()) return;
     setPostingFeedback(true);
     try {
       const created = await api.createTaskFeedback(task.id, newFeedbackText.trim());
       setFeedbackList(prev => [...prev, created]);
       setNewFeedbackText('');
-      toast.success('Feedback posted');
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not post feedback');
-    } finally {
-      setPostingFeedback(false);
-    }
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not post feedback'); }
+    finally { setPostingFeedback(false); }
   };
 
   const saveFeedbackEdit = async () => {
-    if (!task || !editingFeedbackId || !editingFeedbackText.trim()) return;
+    if (!editingFeedbackId || !editingFeedbackText.trim()) return;
     try {
       const updated = await api.patchTaskFeedback(task.id, editingFeedbackId, editingFeedbackText.trim());
-      setFeedbackList(prev => prev.map(f => (f.id === updated.id ? updated : f)));
-      setEditingFeedbackId(null);
-      setEditingFeedbackText('');
-      toast.success('Feedback updated');
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not update feedback');
-    }
+      setFeedbackList(prev => prev.map(f => f.id === updated.id ? updated : f));
+      setEditingFeedbackId(null); setEditingFeedbackText('');
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not update feedback'); }
   };
 
   const deleteFeedback = async (id: string) => {
-    if (!task || !window.confirm('Delete this feedback?')) return;
+    if (!window.confirm('Delete this comment?')) return;
     try {
       await api.deleteTaskFeedback(task.id, id);
       setFeedbackList(prev => prev.filter(f => f.id !== id));
-      if (editingFeedbackId === id) {
-        setEditingFeedbackId(null);
-        setEditingFeedbackText('');
-      }
-      toast.success('Feedback deleted');
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not delete feedback');
-    }
+      if (editingFeedbackId === id) { setEditingFeedbackId(null); setEditingFeedbackText(''); }
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not delete feedback'); }
   };
-
-  const taskRef = `TF-${task.id.replace(/\D/g, '').padStart(3, '0')}`;
-
-  const handleOpenChange = (next: boolean) => {
-    if (!next && isDirty) {
-      const ok = window.confirm('You have unsaved changes. Close without saving?');
-      if (!ok) return;
-    }
-    onOpenChange(next);
-  };
-
-  const showTaskActionsFooter = canEditTaskFields || canManageAssignees;
 
   const handleDeleteTask = async () => {
-    if (!task) return;
     setDeleting(true);
-    try {
-      await deleteTask(task.id);
-      toast.success('Task deleted');
-      setDeleteConfirmOpen(false);
-      onOpenChange(false);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not delete task');
-    } finally {
-      setDeleting(false);
-    }
+    try { await deleteTask(task.id); toast.success('Task deleted'); setDeleteConfirmOpen(false); onOpenChange(false); }
+    catch (e) { toast.error(e instanceof Error ? e.message : 'Could not delete task'); }
+    finally { setDeleting(false); }
   };
 
-  const handleApproveCompletion = async () => {
+  const handleReopenToBacklog = async () => {
     if (!task) return;
-    setApprovingCompletion(true);
+    setReopening(true);
     try {
-      await approveTask(task.id);
-      toast.success('Task approved');
+      await reopenTaskToBacklog(task.id);
+      toast.success('Task moved back to backlog on the dashboard');
       onOpenChange(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not approve');
-    } finally {
-      setApprovingCompletion(false);
-    }
+      toast.error(e instanceof Error ? e.message : 'Could not move task to backlog');
+    } finally { setReopening(false); }
+  };
+
+  const handleOpenChange = (next: boolean) => {
+    if (!next && isDirty && !window.confirm('You have unsaved changes. Close without saving?')) return;
+    onOpenChange(next);
   };
 
   return (
     <>
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-2xl flex max-h-[min(90dvh,92vh)] min-h-0 flex-col gap-0 overflow-hidden border-border/80 bg-card p-0">
-        <DialogHeader className="shrink-0 px-6 pt-2 pb-4 border-b border-border/60 text-left space-y-2">
-          <div className="flex items-center flex-wrap gap-2 text-xs text-muted-foreground">
-            <span className="inline-flex items-center gap-1">
-              <FolderOpen className="h-3.5 w-3.5" />
-              {project?.name ?? 'Unknown project'}
-            </span>
-            <span className="text-border">/</span>
-            <span className="inline-flex items-center gap-1">
-              <Layers className="h-3.5 w-3.5" />
-              {section?.name ?? 'Section'}
-            </span>
-            <span className="text-border">/</span>
-            <span className="font-mono text-foreground/80">{taskRef}</span>
-          </div>
-          <div className="flex items-start justify-between gap-3 pr-10">
-            <DialogTitle className="text-xl font-semibold leading-tight flex-1 min-w-0">
-              {canEditTaskFields ? (
-                <input
-                  value={draftTitle}
-                  onChange={e => setDraftTitle(e.target.value)}
-                  className="w-full bg-muted/50 rounded-lg px-3 py-2 text-xl font-semibold focus:outline-none focus:ring-2 focus:ring-primary/40"
-                  placeholder="Task title"
-                />
-              ) : (
-                <span className="block px-1">{task.title}</span>
-              )}
-            </DialogTitle>
-            {canDeleteTask && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="shrink-0 text-destructive border-destructive/30 hover:bg-destructive/10"
-                onClick={() => setDeleteConfirmOpen(true)}
-              >
-                <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete
-              </Button>
-            )}
-          </div>
-          {canEditTaskFields ? (
-            <DialogDescription className="text-sm text-muted-foreground">
-              Edit below; changes apply in this window. Click <strong className="text-foreground font-medium">Save changes</strong> to persist, then the dialog closes.
-            </DialogDescription>
-          ) : (
-            <DialogDescription className="sr-only">Task details</DialogDescription>
-          )}
-          <div className="flex flex-wrap gap-2 pt-1">
-            <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${statusColors[task.status] ?? 'bg-muted'}`}>
-              {statusLabels[task.status] ?? task.status}
-            </span>
-            <span className={`text-xs px-2.5 py-1 rounded-full font-medium border ${priorityColors[displayPriority]}`}>
-              {displayPriority} priority
-            </span>
-            {task.isStarted && (
-              <span className="text-xs px-2.5 py-1 rounded-full font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20 inline-flex items-center gap-1">
-                <CircleDot className="h-3 w-3" /> Work started
-              </span>
-            )}
-            {task.approvedByManager && (
-              <span className="text-xs px-2.5 py-1 rounded-full font-medium bg-green-500/10 text-green-400 border border-green-500/20 inline-flex items-center gap-1">
-                <CheckCircle2 className="h-3 w-3" /> Manager approved
-              </span>
-            )}
-            {isOverdue && (
-              <span className="text-xs px-2.5 py-1 rounded-full font-medium bg-red-500/15 text-red-400 flex items-center gap-1">
-                <AlertTriangle className="h-3 w-3" /> Overdue
-              </span>
-            )}
-          </div>
-        </DialogHeader>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent className="sm:max-w-[1060px] flex max-h-[min(92dvh,92vh)] min-h-0 flex-col gap-0 overflow-hidden border-border/30 bg-card p-0 rounded-2xl shadow-2xl">
+          <DialogDescription className="sr-only">Task details for {task.title}</DialogDescription>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5 space-y-6">
-          <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Description</h3>
-            {canEditTaskFields ? (
-              <textarea
-                value={draftDescription}
-                onChange={e => setDraftDescription(e.target.value)}
-                placeholder="Add a description…"
-                className="w-full min-h-[120px] rounded-xl border border-border/80 bg-muted/20 px-3 py-3 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-primary/40"
-              />
-            ) : (
-              <div className="rounded-xl border border-border/60 bg-muted/10 px-4 py-3 text-sm leading-relaxed text-foreground min-h-[80px] whitespace-pre-wrap">
-                {task.description?.trim() ? task.description : <span className="text-muted-foreground italic">No description</span>}
-              </div>
-            )}
-          </section>
+          {/* ── Header ────────────────────────────────────────────── */}
+          <div className="shrink-0 px-7 pt-5 pb-4 border-b border-border/30 bg-gradient-to-b from-muted/30 to-transparent">
 
-          <Separator />
-
-          <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Task details</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="rounded-xl border border-border/60 p-4 space-y-1">
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Calendar className="h-3.5 w-3.5" /> Due date
-                </div>
-                <p className={`text-sm font-medium ${isOverdue ? 'text-red-400' : 'text-foreground'}`}>{formatLongDate(task.dueDate)}</p>
-                <p className="text-xs text-muted-foreground font-mono">{task.dueDate}</p>
-              </div>
-              <div className="rounded-xl border border-border/60 p-4 space-y-1">
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Clock className="h-3.5 w-3.5" /> Time tracked (task total)
-                </div>
-                <p className="text-sm font-medium">{formatTime(task.timeTracked)}</p>
-                <p className="text-xs text-muted-foreground">Sum of all assignees&apos; logged time</p>
-              </div>
-              <div className="rounded-xl border border-border/60 p-4 space-y-1">
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <UserCircle className="h-3.5 w-3.5" /> Assigned by
-                </div>
-                <p className="text-sm font-medium">{assigner?.name ?? task.assignedBy}</p>
-                {assigner?.email && <p className="text-xs text-muted-foreground flex items-center gap-1"><Mail className="h-3 w-3 shrink-0" />{assigner.email}</p>}
-              </div>
-              <div className="rounded-xl border border-border/60 p-4 space-y-1">
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <User className="h-3.5 w-3.5" /> Created by
-                </div>
-                <p className="text-sm font-medium">{creator?.name ?? task.createdBy}</p>
-                {creator?.email && <p className="text-xs text-muted-foreground flex items-center gap-1"><Mail className="h-3 w-3 shrink-0" />{creator.email}</p>}
-              </div>
+            {/* Breadcrumb */}
+            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/50 mb-4 flex-wrap pr-10">
+              <FolderOpen className="h-3 w-3 shrink-0" />
+              <span className="hover:text-foreground/70 transition-colors cursor-default">{project?.name ?? '—'}</span>
+              <ChevronRight className="h-3 w-3 shrink-0 opacity-30" />
+              <Layers className="h-3 w-3 shrink-0" />
+              <span className="hover:text-foreground/70 transition-colors cursor-default">{section?.name ?? '—'}</span>
+              <ChevronRight className="h-3 w-3 shrink-0 opacity-30" />
+              <span className="font-mono text-foreground/40 font-semibold tracking-wide">{taskRef}</span>
             </div>
-          </section>
 
-          <Separator />
-
-          <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Assigned to</h3>
-            {!canManageAssignees && (
-              <div className="flex flex-wrap gap-2 mb-3">
-                {assigneeUsers.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No assignees</p>
+            {/* Title + actions */}
+            <div className="flex items-start gap-3 justify-between">
+              <div className="flex-1 min-w-0">
+                {canEditTaskFields ? (
+                  <input
+                    value={draftTitle}
+                    onChange={e => setDraftTitle(e.target.value)}
+                    className="w-full text-[22px] font-bold bg-muted/40 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:bg-muted/60 placeholder:text-muted-foreground/30 border border-transparent focus:border-primary/20 transition-all leading-snug"
+                    placeholder="Task title"
+                  />
                 ) : (
-                  assigneeUsers.map(u => (
-                    <div
-                      key={u.id}
-                      className="flex items-center gap-2 rounded-xl border border-border/60 bg-muted/10 px-3 py-2"
-                    >
-                      <div className="w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center text-xs font-bold text-primary">
-                        {getInitials(u.name)}
-                      </div>
-                      <div>
-                        <div className="text-sm font-medium">{u.name}</div>
-                        <div className="text-xs text-muted-foreground">{u.email}</div>
-                      </div>
-                    </div>
-                  ))
+                  <h2 className="text-[22px] font-bold text-foreground leading-snug">{task.title}</h2>
                 )}
               </div>
-            )}
-            {canManageAssignees && project && (
-              <div className="space-y-3">
-                <p className="text-xs text-muted-foreground">Choose everyone responsible for this task. They must be project members.</p>
-                <div className="rounded-xl border border-border/60 divide-y divide-border/50 max-h-[220px] overflow-y-auto bg-muted/5">
-                  {projectMembers.map(u => (
-                    <label
-                      key={u.id}
-                      className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-muted/30 transition-colors duration-100"
-                    >
-                      <Checkbox
-                        checked={draftAssigneeIds.includes(u.id)}
-                        onCheckedChange={() => toggleAssigneeDraft(u.id)}
-                      />
-                      <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold shrink-0">
-                        {getInitials(u.name)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium truncate">{u.name}</div>
-                        <div className="text-xs text-muted-foreground truncate">{u.email}</div>
-                      </div>
-                    </label>
-                  ))}
-                </div>
+              <div className="flex items-center gap-1.5 mt-1 shrink-0">
+                {canReopenToBacklog && (
+                  <button
+                    onClick={() => void handleReopenToBacklog()}
+                    disabled={reopening}
+                    className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl border border-border/50 hover:border-primary/50 hover:bg-primary/8 hover:text-primary text-muted-foreground/70 transition-all duration-150 font-medium"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    {reopening ? 'Moving…' : 'Reopen'}
+                  </button>
+                )}
+                {canDeleteTask && (
+                  <button
+                    onClick={() => setDeleteConfirmOpen(true)}
+                    className="p-2.5 rounded-xl hover:bg-red-500/10 text-muted-foreground/30 hover:text-red-400 transition-all duration-150 group"
+                    title="Delete task"
+                  >
+                    <Trash2 className="h-4 w-4 group-hover:scale-110 transition-transform" />
+                  </button>
+                )}
               </div>
-            )}
-          </section>
-
-          {task.tags.length > 0 && (
-            <>
-              <Separator />
-              <section>
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2 flex items-center gap-1.5">
-                  <Tag className="h-3.5 w-3.5" /> Tags
-                </h3>
-                <div className="flex gap-1.5 flex-wrap">
-                  {task.tags.map(tag => (
-                    <span key={tag} className="text-xs px-2.5 py-1 rounded-full border bg-muted/40">
-                      {tag}
-                    </span>
-                  ))}
-                </div>
-              </section>
-            </>
-          )}
-
-          <Separator />
-
-          <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Timeline</h3>
-            <ul className="text-sm text-muted-foreground space-y-1.5">
-              <li>Created <span className="text-foreground font-mono text-xs">{task.createdAt}</span></li>
-              {task.startedAt && <li>Started <span className="text-foreground font-mono text-xs">{task.startedAt}</span></li>}
-              {task.completedAt && <li>Completed <span className="text-foreground font-mono text-xs">{task.completedAt}</span></li>}
-            </ul>
-          </section>
-
-          <Separator />
-
-          <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2 flex items-center gap-1.5">
-              <MessageSquareText className="h-3.5 w-3.5" /> Feedback
-            </h3>
-            {feedbackLoading ? (
-              <p className="text-sm text-muted-foreground py-2">Loading feedback…</p>
-            ) : (
-              <div className="space-y-3 mb-4">
-                {feedbackList.length === 0 && <p className="text-sm text-muted-foreground">No feedback yet.</p>}
-                {feedbackList.map(fb => (
-                  <div key={fb.id} className="rounded-xl border border-border/60 bg-muted/5 p-3 space-y-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="text-sm font-medium text-foreground">{fb.authorName || 'Unknown'}</span>
-                      <span className="text-[10px] text-muted-foreground font-mono shrink-0">
-                        {fb.createdAt.slice(0, 16).replace('T', ' ')}
-                      </span>
-                    </div>
-                    {editingFeedbackId === fb.id ? (
-                      <div className="space-y-2">
-                        <textarea
-                          value={editingFeedbackText}
-                          onChange={e => setEditingFeedbackText(e.target.value)}
-                          rows={3}
-                          className="w-full rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-                        />
-                        <div className="flex gap-2">
-                          <Button type="button" size="sm" onClick={() => void saveFeedbackEdit()} disabled={!editingFeedbackText.trim()}>
-                            Save
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              setEditingFeedbackId(null);
-                              setEditingFeedbackText('');
-                            }}
-                          >
-                            Cancel
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <p className="text-sm text-foreground whitespace-pre-wrap">{fb.message}</p>
-                        {currentUser?.id === fb.userId && (
-                          <div className="flex gap-2 pt-1">
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                setEditingFeedbackId(fb.id);
-                                setEditingFeedbackText(fb.message);
-                              }}
-                            >
-                              Edit
-                            </Button>
-                            <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => void deleteFeedback(fb.id)}>
-                              Delete
-                            </Button>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Add feedback</Label>
-              <textarea
-                value={newFeedbackText}
-                onChange={e => setNewFeedbackText(e.target.value)}
-                placeholder="Share an update or note for the project…"
-                rows={2}
-                className="w-full rounded-xl border border-border/80 bg-muted/20 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
-              />
-              <Button type="button" size="sm" onClick={() => void postFeedback()} disabled={postingFeedback || !newFeedbackText.trim()}>
-                {postingFeedback ? 'Posting…' : 'Post feedback'}
-              </Button>
             </div>
-          </section>
 
-          <Separator />
+            {/* Badges */}
+            <div className="flex flex-wrap gap-2 mt-4">
+              <span className={`text-[11px] px-3 py-1 rounded-full font-semibold border ${statusCfg.style}`}>
+                {statusLabel}
+              </span>
+              <span className={`text-[11px] px-3 py-1 rounded-full font-semibold border flex items-center gap-1.5 ${priCfg.style}`}>
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${priCfg.dot}`} />
+                {displayPriority}
+              </span>
+              {task.isStarted && (
+                <span className="text-[11px] px-3 py-1 rounded-full font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20 inline-flex items-center gap-1.5">
+                  <CircleDot className="h-3 w-3" /> Started
+                </span>
+              )}
+              {task.approvedByManager && (
+                <span className="text-[11px] px-3 py-1 rounded-full font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 inline-flex items-center gap-1.5">
+                  <CheckCircle2 className="h-3 w-3" /> Approved
+                </span>
+              )}
+              {isOverdue && (
+                <span className="text-[11px] px-3 py-1 rounded-full font-semibold bg-red-500/15 text-red-400 border border-red-500/20 flex items-center gap-1.5">
+                  <AlertTriangle className="h-3 w-3" /> Overdue
+                </span>
+              )}
+            </div>
+          </div>
 
-          <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Custom fields</h3>
-            {canEditTaskFields ? (
-              <div className="space-y-2">
-                {draftCustomRows.map(row => (
-                  <div key={row.localId} className="flex flex-wrap items-center gap-2 text-sm rounded-lg border border-border/60 px-3 py-2.5 bg-muted/5">
-                    <input
-                      value={row.key}
-                      onChange={e => updateCustomRow(row.localId, 'key', e.target.value)}
-                      placeholder="Field name"
-                      className="min-w-[100px] flex-1 bg-muted/30 rounded-lg px-2 py-1.5 text-sm border border-border/40 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                    />
-                    <input
-                      value={row.value}
-                      onChange={e => updateCustomRow(row.localId, 'value', e.target.value)}
-                      placeholder="Value"
-                      className="min-w-[120px] flex-[2] bg-muted/30 rounded-lg px-2 py-1.5 text-sm border border-border/40 focus:outline-none focus:ring-2 focus:ring-primary/40"
+          {/* ── Body ──────────────────────────────────────────────── */}
+          <div className="flex flex-1 min-h-0 divide-x divide-border/20">
+
+            {/* ── LEFT pane ─────────────────────────────────────── */}
+            <div className="flex-1 min-w-0 overflow-y-auto overscroll-contain p-7 space-y-7">
+
+              {/* Description */}
+              <section>
+                <SectionLabel icon={MessageSquare} label="Description" accent="text-blue-400/70" />
+                {canEditTaskFields ? (
+                  <textarea
+                    value={draftDescription}
+                    onChange={e => setDraftDescription(e.target.value)}
+                    placeholder="Add a description…"
+                    rows={5}
+                    className="w-full rounded-xl border border-border/50 bg-muted/20 px-4 py-3.5 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 resize-none transition-all placeholder:text-muted-foreground/35"
+                  />
+                ) : (
+                  <div className="rounded-xl border border-border/30 bg-muted/10 px-4 py-4 text-sm leading-relaxed text-foreground min-h-[88px] whitespace-pre-wrap">
+                    {task.description?.trim()
+                      ? task.description
+                      : <span className="text-muted-foreground/40 italic">No description provided.</span>
+                    }
+                  </div>
+                )}
+              </section>
+
+              {/* Manage Assignees (manager only) */}
+              {canManageAssignees && (
+                <section>
+                  <SectionLabel icon={User2} label="Manage Assignees" accent="text-violet-400/70" />
+                  <div className="rounded-xl border border-border/40 overflow-hidden divide-y divide-border/25 bg-card">
+                    {projectMembers.map(u => (
+                      <label
+                        key={u.id}
+                        className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-primary/5 transition-colors group"
+                      >
+                        <Checkbox checked={draftAssigneeIds.includes(u.id)} onCheckedChange={() => toggleAssignee(u.id)} />
+                        <Avatar name={u.name} size="sm" />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-semibold truncate group-hover:text-primary transition-colors">{u.name}</div>
+                          <div className="text-xs text-muted-foreground truncate">{u.email}</div>
+                        </div>
+                        {u.role === 'manager' && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-bold shrink-0">Mgr</span>
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* Custom Fields */}
+              {(canEditTaskFields || Object.keys(task.customFields || {}).length > 0) && (
+                <section>
+                  <SectionLabel icon={Plus} label="Custom Fields" accent="text-amber-400/70" />
+                  {canEditTaskFields ? (
+                    <div className="space-y-2.5">
+                      {draftCustomRows.map(row => (
+                        <div key={row.localId} className="flex items-center gap-2">
+                          <input
+                            value={row.key}
+                            onChange={e => setDraftCustomRows(prev => prev.map(r => r.localId === row.localId ? { ...r, key: e.target.value } : r))}
+                            placeholder="Field name"
+                            className="flex-1 min-w-0 rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 transition-all placeholder:text-muted-foreground/35"
+                          />
+                          <input
+                            value={row.value}
+                            onChange={e => setDraftCustomRows(prev => prev.map(r => r.localId === row.localId ? { ...r, value: e.target.value } : r))}
+                            placeholder="Value"
+                            className="flex-[2] min-w-0 rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 transition-all placeholder:text-muted-foreground/35"
+                          />
+                          <button
+                            onClick={() => setDraftCustomRows(prev => prev.filter(r => r.localId !== row.localId))}
+                            className="p-2 rounded-lg hover:bg-red-500/10 text-muted-foreground/50 hover:text-red-400 transition-colors"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        onClick={() => setDraftCustomRows(prev => [...prev, newRow()])}
+                        className="mt-1 text-sm text-primary/60 hover:text-primary flex items-center gap-1.5 px-3 py-2 rounded-lg hover:bg-primary/8 transition-colors font-medium"
+                      >
+                        <Plus className="h-3.5 w-3.5" /> Add field
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {Object.entries(task.customFields || {}).map(([key, value]) => (
+                        <div key={key} className="flex items-center gap-3 text-sm rounded-xl border border-border/30 px-4 py-2.5 bg-muted/10 hover:bg-muted/20 transition-colors">
+                          <span className="font-semibold text-muted-foreground shrink-0 w-28 truncate">{key}</span>
+                          <span className="w-px h-3.5 bg-border/40 shrink-0" />
+                          <span className="text-foreground flex-1 break-words">{value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {/* Comments */}
+              <section>
+                <SectionLabel
+                  icon={MessageSquare}
+                  label={feedbackList.length > 0 ? `Comments (${feedbackList.length})` : 'Comments'}
+                  accent="text-emerald-400/70"
+                />
+
+                {feedbackLoading ? (
+                  <div className="flex items-center justify-center py-10 gap-2 text-sm text-muted-foreground">
+                    <div className="w-4 h-4 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+                    Loading comments…
+                  </div>
+                ) : (
+                  <div className="space-y-3 mb-5">
+                    {feedbackList.length === 0 && (
+                      <div className="text-center py-8 px-4 rounded-xl border border-dashed border-border/30 bg-muted/5">
+                        <MessageSquare className="h-7 w-7 text-muted-foreground/20 mx-auto mb-2" />
+                        <p className="text-sm text-muted-foreground/40 italic">No comments yet. Start the conversation!</p>
+                      </div>
+                    )}
+                    <AnimatePresence initial={false}>
+                      {feedbackList.map(fb => {
+                        const isOwn = currentUser?.id === fb.userId;
+                        return (
+                          <motion.div
+                            key={fb.id}
+                            initial={{ opacity: 0, y: 6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.96 }}
+                            transition={{ duration: 0.15 }}
+                            className={`flex gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}
+                          >
+                            <Avatar name={fb.authorName || '?'} size="sm" />
+                            <div className={`flex-1 min-w-0 flex flex-col gap-1 ${isOwn ? 'items-end' : 'items-start'}`}>
+                              <div className={`flex items-center gap-2 ${isOwn ? 'flex-row-reverse' : ''}`}>
+                                <span className="text-xs font-semibold text-foreground">{fb.authorName}</span>
+                                <span className="text-[10px] text-muted-foreground/40 font-mono">{tsShort(fb.createdAt)}</span>
+                              </div>
+                              {editingFeedbackId === fb.id ? (
+                                <div className="w-full space-y-2">
+                                  <textarea
+                                    value={editingFeedbackText}
+                                    onChange={e => setEditingFeedbackText(e.target.value)}
+                                    rows={3}
+                                    className="w-full rounded-xl border border-border/50 bg-muted/20 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none"
+                                  />
+                                  <div className="flex gap-2">
+                                    <Button size="sm" onClick={() => void saveFeedbackEdit()} disabled={!editingFeedbackText.trim()}>Save</Button>
+                                    <Button size="sm" variant="ghost" onClick={() => { setEditingFeedbackId(null); setEditingFeedbackText(''); }}>Cancel</Button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <>
+                                  <div className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed max-w-[88%] whitespace-pre-wrap shadow-sm ${
+                                    isOwn
+                                      ? 'bg-primary/12 text-foreground rounded-tr-md border border-primary/15'
+                                      : 'bg-muted/50 text-foreground rounded-tl-md border border-border/30'
+                                  }`}>
+                                    {fb.message}
+                                  </div>
+                                  {isOwn && (
+                                    <div className="flex gap-1 mt-0.5">
+                                      <button
+                                        onClick={() => { setEditingFeedbackId(fb.id); setEditingFeedbackText(fb.message); }}
+                                        className="text-[11px] text-muted-foreground/50 hover:text-primary px-2 py-0.5 rounded-md hover:bg-primary/10 transition-colors"
+                                      >Edit</button>
+                                      <button
+                                        onClick={() => void deleteFeedback(fb.id)}
+                                        className="text-[11px] text-muted-foreground/50 hover:text-red-400 px-2 py-0.5 rounded-md hover:bg-red-500/10 transition-colors"
+                                      >Delete</button>
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          </motion.div>
+                        );
+                      })}
+                    </AnimatePresence>
+                  </div>
+                )}
+
+                {/* Comment input */}
+                <div className="flex gap-3 items-end">
+                  {currentUser && <Avatar name={currentUser.name} size="sm" />}
+                  <div className="flex-1 relative">
+                    <textarea
+                      value={newFeedbackText}
+                      onChange={e => setNewFeedbackText(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void postFeedback(); } }}
+                      placeholder="Add a comment… (Enter to send, Shift+Enter for newline)"
+                      rows={2}
+                      className="w-full rounded-xl border border-border/40 bg-muted/20 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 resize-none pr-14 transition-all placeholder:text-muted-foreground/35 leading-relaxed"
                     />
                     <button
-                      type="button"
-                      onClick={() => removeCustomRow(row.localId)}
-                      className="text-muted-foreground hover:text-red-400 transition-colors shrink-0 p-1"
-                      aria-label="Remove row"
+                      onClick={() => void postFeedback()}
+                      disabled={postingFeedback || !newFeedbackText.trim()}
+                      className="absolute right-2.5 bottom-2.5 p-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-25 transition-all hover:scale-105 active:scale-95 shadow-sm"
                     >
-                      <X className="h-4 w-4" />
+                      <Send className="h-3.5 w-3.5" />
                     </button>
                   </div>
-                ))}
+                </div>
+              </section>
+            </div>
+
+            {/* ── RIGHT sidebar ─────────────────────────────────── */}
+            <div className="w-[255px] shrink-0 overflow-y-auto overscroll-contain p-6 space-y-6 bg-muted/5">
+
+              {/* Priority */}
+              <section>
+                <SectionLabel icon={AlertTriangle} label="Priority" accent="text-orange-400/70" />
+                {canEditTaskFields ? (
+                  <div className="space-y-1.5">
+                    {(['Low', 'Medium', 'High', 'Urgent'] as Priority[]).map(p => (
+                      <button
+                        key={p}
+                        onClick={() => setDraftPriority(p)}
+                        className={`w-full text-xs px-3 py-2 rounded-xl border font-semibold transition-all text-left flex items-center gap-2.5 ${priorityConfig[p].style} ${
+                          draftPriority === p
+                            ? `ring-2 ring-offset-1 ring-offset-card ${priorityConfig[p].ring} opacity-100 shadow-sm`
+                            : 'opacity-45 hover:opacity-70'
+                        }`}
+                      >
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${priorityConfig[p].dot}`} />
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <span className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl font-semibold border ${priorityConfig[task.priority].style}`}>
+                    <span className={`w-2 h-2 rounded-full ${priorityConfig[task.priority].dot}`} />
+                    {task.priority}
+                  </span>
+                )}
+              </section>
+
+              {/* Due Date */}
+              <section>
+                <SectionLabel icon={Calendar} label="Due Date" accent="text-cyan-400/70" />
+                <div className={`text-sm font-bold ${isOverdue ? 'text-red-400' : 'text-foreground'}`}>
+                  {fmtDate(task.dueDate)}
+                </div>
+                <div className="text-[11px] text-muted-foreground font-mono mt-0.5">{task.dueDate}</div>
+                {isOverdue && (
+                  <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-red-400/80 bg-red-500/8 px-2 py-0.5 rounded-md border border-red-500/15">
+                    <AlertTriangle className="h-3 w-3" /> Past due
+                  </div>
+                )}
+              </section>
+
+              {/* Assignees (read-only) */}
+              {!canManageAssignees && (
+                <section>
+                  <SectionLabel icon={User2} label="Assignees" accent="text-violet-400/70" />
+                  {assigneeUsers.length === 0 ? (
+                    <p className="text-xs text-muted-foreground/40 italic">Unassigned</p>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {assigneeUsers.map(u => (
+                        <div key={u.id} className="flex items-center gap-2.5 group">
+                          <Avatar name={u.name} size="sm" />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-semibold truncate group-hover:text-primary transition-colors">{u.name}</div>
+                            <div className="text-[10px] text-muted-foreground/60 truncate">{u.email}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {/* Time Tracked */}
+              <section>
+                <SectionLabel icon={Clock} label="Time Tracked" accent="text-teal-400/70" />
+                <div className="text-xl font-bold text-foreground tracking-tight">{fmtTime(task.timeTracked)}</div>
+                <div className="text-[10px] text-muted-foreground/50 mt-0.5">Total across all assignees</div>
+              </section>
+
+              {/* Tags */}
+              {task.tags.length > 0 && (
+                <section>
+                  <SectionLabel icon={Tag} label="Tags" accent="text-pink-400/70" />
+                  <div className="flex flex-wrap gap-1.5">
+                    {task.tags.map(tag => (
+                      <span key={tag} className="text-[11px] px-2.5 py-1 rounded-full border border-border/40 bg-muted/30 text-muted-foreground hover:bg-muted/60 hover:text-foreground hover:border-border/70 transition-colors cursor-default">{tag}</span>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* People */}
+              <section>
+                <SectionLabel icon={UserCircle} label="People" accent="text-indigo-400/70" />
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2.5 group">
+                    <Avatar name={creator?.name ?? '?'} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-semibold">Created by</div>
+                      <div className="text-xs font-semibold truncate group-hover:text-primary transition-colors">{creator?.name ?? task.createdBy}</div>
+                      {creator?.email && (
+                        <div className="text-[10px] text-muted-foreground/50 flex items-center gap-1 truncate mt-0.5">
+                          <Mail className="h-2.5 w-2.5 shrink-0" />{creator.email}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2.5 group">
+                    <Avatar name={assigner?.name ?? '?'} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-semibold">Assigned by</div>
+                      <div className="text-xs font-semibold truncate group-hover:text-primary transition-colors">{assigner?.name ?? task.assignedBy}</div>
+                      {assigner?.email && (
+                        <div className="text-[10px] text-muted-foreground/50 flex items-center gap-1 truncate mt-0.5">
+                          <Mail className="h-2.5 w-2.5 shrink-0" />{assigner.email}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              {/* Timeline */}
+              <section>
+                <SectionLabel icon={Clock} label="Timeline" accent="text-slate-400/70" />
+                <div className="space-y-2.5">
+                  <div>
+                    <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-semibold mb-0.5">Created</div>
+                    <div className="text-[11px] font-mono text-foreground/60">{task.createdAt}</div>
+                  </div>
+                  {task.startedAt && (
+                    <div>
+                      <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-semibold mb-0.5">Started</div>
+                      <div className="text-[11px] font-mono text-blue-400/70">{task.startedAt}</div>
+                    </div>
+                  )}
+                  {task.completedAt && (
+                    <div>
+                      <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-semibold mb-0.5">Completed</div>
+                      <div className="text-[11px] font-mono text-emerald-400/70">{task.completedAt}</div>
+                    </div>
+                  )}
+                </div>
+              </section>
+            </div>
+          </div>
+
+          {/* ── Footer ──────────────────────────────────────────── */}
+          {(canEditTaskFields || canManageAssignees) && (
+            <div className="shrink-0 border-t border-border/25 px-7 py-4 flex items-center gap-3 bg-gradient-to-t from-muted/20 to-transparent">
+              <div className="flex items-center gap-2.5 ml-auto">
+                {isDirty && (
+                  <button
+                    onClick={() => resetDraft(task)}
+                    disabled={saving}
+                    className="text-sm px-4 py-2 rounded-xl border border-border/50 hover:bg-muted/60 hover:border-border/80 transition-all text-muted-foreground hover:text-foreground font-medium"
+                  >
+                    Discard
+                  </button>
+                )}
                 <button
-                  type="button"
-                  onClick={addCustomFieldRow}
-                  className="mt-1 px-3 py-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors inline-flex items-center gap-1 text-sm"
+                  onClick={() => void saveAll()}
+                  disabled={!isDirty || saving}
+                  className="text-sm px-5 py-2 rounded-xl bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-35 transition-all font-semibold shadow-sm hover:shadow-md hover:scale-[1.02] active:scale-[0.98]"
                 >
-                  <Plus className="h-4 w-4" /> Add field
+                  {saving ? 'Saving…' : 'Save changes'}
                 </button>
               </div>
-            ) : (
-              <div className="space-y-2">
-                {Object.keys(task.customFields || {}).length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No custom fields</p>
-                ) : (
-                  Object.entries(task.customFields || {}).map(([key, value]) => (
-                    <div key={key} className="flex items-center gap-2 text-sm rounded-lg border border-border/60 px-3 py-2.5 bg-muted/5">
-                      <span className="font-medium text-muted-foreground min-w-[100px] shrink-0">{key}</span>
-                      <span className="text-foreground flex-1 break-words">{value}</span>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-          </section>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
-          <Separator />
-
-          <section>
-            <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2 block">Priority</Label>
-            {canEditTaskFields ? (
-              <div className="flex flex-wrap gap-1.5">
-                {(['Low', 'Medium', 'High', 'Urgent'] as Priority[]).map(p => (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => setDraftPriority(p)}
-                    className={`text-xs px-3 py-2 rounded-lg border font-medium transition-all ${
-                      priorityColors[p]
-                    } ${
-                      draftPriority === p
-                        ? 'ring-2 ring-primary/60 ring-offset-2 ring-offset-background scale-[1.02]'
-                        : 'opacity-75 hover:opacity-100'
-                    }`}
-                  >
-                    {p}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <span className={`inline-flex text-xs px-3 py-2 rounded-lg font-medium border ${priorityColors[task.priority]}`}>{task.priority}</span>
-            )}
-          </section>
-        </div>
-
-        {isManager && task.status === 'done' && (
-          <div className="shrink-0 border-t border-border/60 px-6 py-3 flex flex-wrap items-center justify-end gap-2 bg-amber-500/5">
-            <span className="text-xs text-muted-foreground mr-auto max-w-[min(100%,280px)]">
-              In Done — approve to mark completed and remove from the dashboard (still listed under completed elsewhere).
-            </span>
-            <Button
-              type="button"
-              className="bg-green-600 text-white hover:bg-green-700 border-green-600 shadow-sm"
-              onClick={() => void handleApproveCompletion()}
-              disabled={approvingCompletion}
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this task?</AlertDialogTitle>
+            <AlertDialogDescription>This cannot be undone. All comments and time logs will be permanently lost.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleting}
+              onClick={e => { e.preventDefault(); void handleDeleteTask(); }}
             >
-              {approvingCompletion ? 'Approving…' : 'Approve completion'}
-            </Button>
-          </div>
-        )}
-
-        {showTaskActionsFooter && (
-          <div className="shrink-0 border-t border-border/60 px-6 py-4 flex flex-wrap items-center justify-end gap-2 bg-card">
-            {canEditTaskFields && (
-              <Button type="button" variant="outline" onClick={discardChanges} disabled={!isDirty || saving}>
-                Discard changes
-              </Button>
-            )}
-            {!canEditTaskFields && canManageAssignees && (
-              <span className="text-xs text-muted-foreground mr-auto">Assignee changes only</span>
-            )}
-            <Button type="button" onClick={() => void saveAll()} disabled={!isDirty || saving}>
-              {saving ? 'Saving…' : 'Save changes'}
-            </Button>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
-
-    <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Delete this task?</AlertDialogTitle>
-          <AlertDialogDescription>
-            This cannot be undone. Only you can delete tasks you created.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            disabled={deleting}
-            onClick={e => {
-              e.preventDefault();
-              void handleDeleteTask();
-            }}
-          >
-            {deleting ? 'Deleting…' : 'Delete task'}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+              {deleting ? 'Deleting…' : 'Delete task'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 };
