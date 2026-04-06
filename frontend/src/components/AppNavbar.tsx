@@ -1,4 +1,5 @@
 import { useAppStore } from '@/stores/appStore';
+import { projectPickerLabel } from '@/lib/project-utils';
 import { Sun, Moon, Search, X } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -43,11 +44,14 @@ const AppNavbar = () => {
           {userProjects.length === 0 ? (
             <option value="">No projects</option>
           ) : (
-            userProjects.map(p => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))
+            <>
+              <option value="all">All Projects</option>
+              {userProjects.map(p => (
+                <option key={p.id} value={p.id}>
+                  {projectPickerLabel(p)}
+                </option>
+              ))}
+            </>
           )}
         </select>
       )}

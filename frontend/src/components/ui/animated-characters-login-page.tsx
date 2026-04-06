@@ -9,13 +9,14 @@ import { TaskFlowLogo } from "@/components/brand/TaskFlowLogo";
 import { AuthAnimatedCharactersPanel } from "@/components/auth/AuthAnimatedCharactersPanel";
 
 export interface AnimatedCharactersLoginPageProps {
-  onLogin: (email: string, password: string) => Promise<boolean>;
+  onLogin: (email: string, password: string, rememberMe: boolean) => Promise<boolean>;
 }
 
 export function AnimatedCharactersLoginPage({ onLogin }: AnimatedCharactersLoginPageProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
@@ -25,8 +26,10 @@ export function AnimatedCharactersLoginPage({ onLogin }: AnimatedCharactersLogin
     setError("");
     setIsLoading(true);
     try {
-      const ok = await onLogin(email, password);
+      const ok = await onLogin(email, password, rememberMe);
       if (!ok) setError("Invalid email or password. Please try again.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not sign in.");
     } finally {
       setIsLoading(false);
     }
@@ -98,7 +101,11 @@ export function AnimatedCharactersLoginPage({ onLogin }: AnimatedCharactersLogin
 
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
-                <Checkbox id="remember" />
+                <Checkbox
+                  id="remember"
+                  checked={rememberMe}
+                  onCheckedChange={(v) => setRememberMe(v === true)}
+                />
                 <Label htmlFor="remember" className="text-sm font-normal cursor-pointer">
                   Remember for 30 days
                 </Label>

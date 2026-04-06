@@ -52,10 +52,10 @@ export function clearStoredToken(): void {
 }
 
 export const api = {
-  async login(email: string, password: string): Promise<{ access_token: string; user: User }> {
+  async login(email: string, password: string, rememberMe = false): Promise<{ access_token: string; user: User }> {
     return request('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, remember_me: rememberMe }),
     });
   },
 

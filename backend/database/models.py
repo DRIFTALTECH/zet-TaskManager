@@ -23,6 +23,8 @@ class Project(Base):
     description = Column(String, nullable=False, default="")
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)
+    # True = private workspace: only created_by sees it; no extra members allowed
+    is_personal = Column(Boolean, nullable=False, default=False)
 
     sections = relationship("Section", back_populates="project", cascade="all, delete-orphan")
     members = relationship("ProjectMember", back_populates="project", cascade="all, delete-orphan")

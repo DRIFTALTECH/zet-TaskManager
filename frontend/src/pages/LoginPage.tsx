@@ -12,8 +12,8 @@ const LoginPage = () => {
 
   return (
     <AnimatedCharactersLoginPage
-      onLogin={async (email, password) => {
-        const user = await login(email, password);
+      onLogin={async (email, password, rememberMe) => {
+        const user = await login(email, password, rememberMe);
         if (user) {
           toast.success(`Welcome back, ${user.name}!`);
           navigate('/', { replace: true });

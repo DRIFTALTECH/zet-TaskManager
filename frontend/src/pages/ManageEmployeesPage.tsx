@@ -1,9 +1,10 @@
 import { useAppStore } from '@/stores/appStore';
+import { projectPickerLabel } from '@/lib/project-utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useMemo, useState } from 'react';
 import {
   Plus, Search, X, UserPlus, ChevronRight, FolderOpen,
-  Trash2, Users, LayoutGrid, ListTodo, Sparkles,
+  Trash2, Users, LayoutGrid, ListTodo, Sparkles, Lock,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
@@ -228,6 +229,7 @@ const ManageEmployeesPage = () => {
               const isSelected = selectedProjectId === project.id;
               const accent = projectAccent(project.id);
               const projTasks = tasks.filter(t => t.projectId === project.id);
+              const isPersonal = !!project.isPersonal;
               return (
                 <motion.button
                   key={project.id}
@@ -245,11 +247,15 @@ const ManageEmployeesPage = () => {
                     <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-all ${
                       isSelected ? `${accent.light}` : 'bg-muted/60 group-hover:bg-muted'
                     }`}>
-                      <FolderOpen className={`h-4 w-4 transition-colors ${isSelected ? accent.text : 'text-muted-foreground/50 group-hover:text-muted-foreground'}`} />
+                      {isPersonal ? (
+                        <Lock className={`h-4 w-4 transition-colors ${isSelected ? accent.text : 'text-muted-foreground/50 group-hover:text-muted-foreground'}`} />
+                      ) : (
+                        <FolderOpen className={`h-4 w-4 transition-colors ${isSelected ? accent.text : 'text-muted-foreground/50 group-hover:text-muted-foreground'}`} />
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className={`text-sm font-semibold truncate transition-colors ${isSelected ? 'text-foreground' : 'text-foreground/80 group-hover:text-foreground'}`}>
-                        {project.name}
+                        {projectPickerLabel(project)}
                       </div>
                       {project.description && (
                         <div className="text-[11px] text-muted-foreground/50 truncate mt-0.5">{project.description}</div>
@@ -291,10 +297,14 @@ const ManageEmployeesPage = () => {
                 <div className="px-6 py-5 bg-gradient-to-r from-muted/20 to-transparent">
                   <div className="flex items-center gap-3">
                     <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${selectedAccent.light}`}>
-                      <FolderOpen className={`h-5 w-5 ${selectedAccent.text}`} />
+                      {selectedProject.isPersonal ? (
+                        <Lock className={`h-5 w-5 ${selectedAccent.text}`} />
+                      ) : (
+                        <FolderOpen className={`h-5 w-5 ${selectedAccent.text}`} />
+                      )}
                     </div>
                     <div>
-                      <h2 className="text-lg font-bold text-foreground">{selectedProject.name}</h2>
+                      <h2 className="text-lg font-bold text-foreground">{projectPickerLabel(selectedProject)}</h2>
                       {selectedProject.description && (
                         <p className="text-sm text-muted-foreground/60 mt-0.5">{selectedProject.description}</p>
                       )}
@@ -305,6 +315,11 @@ const ManageEmployeesPage = () => {
 
               {/* ── Members section ─────────────────────────────────────── */}
               <section>
+                {selectedProject.isPersonal && (
+                  <p className="text-xs text-muted-foreground/70 mb-4 rounded-xl border border-border/30 bg-muted/20 px-3 py-2.5 leading-relaxed">
+                    This workspace is private. Only you can see its tasks; teammates and managers are not added here.
+                  </p>
+                )}
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
                     <Users className={`h-4 w-4 ${selectedAccent.text}`} />
@@ -313,20 +328,22 @@ const ManageEmployeesPage = () => {
                       <span className="ml-2 text-xs font-normal text-muted-foreground/60">({filtered.length})</span>
                     </h3>
                   </div>
-                  <div className="flex items-center gap-2 bg-muted/40 border border-border/40 rounded-xl px-3 py-1.5 w-52">
-                    <Search className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
-                    <input
-                      value={searchTerm}
-                      onChange={e => setSearchTerm(e.target.value)}
-                      placeholder="Search members…"
-                      className="bg-transparent text-sm focus:outline-none flex-1 placeholder:text-muted-foreground/40"
-                    />
-                    {searchTerm && (
-                      <button onClick={() => setSearchTerm('')} className="text-muted-foreground/50 hover:text-foreground transition-colors">
-                        <X className="h-3 w-3" />
-                      </button>
-                    )}
-                  </div>
+                  {!selectedProject.isPersonal && (
+                    <div className="flex items-center gap-2 bg-muted/40 border border-border/40 rounded-xl px-3 py-1.5 w-52">
+                      <Search className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
+                      <input
+                        value={searchTerm}
+                        onChange={e => setSearchTerm(e.target.value)}
+                        placeholder="Search members…"
+                        className="bg-transparent text-sm focus:outline-none flex-1 placeholder:text-muted-foreground/40"
+                      />
+                      {searchTerm && (
+                        <button onClick={() => setSearchTerm('')} className="text-muted-foreground/50 hover:text-foreground transition-colors">
+                          <X className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -356,16 +373,18 @@ const ManageEmployeesPage = () => {
                               </div>
                               <p className="text-xs text-muted-foreground/60 truncate mt-0.5">{user.email}</p>
                             </div>
-                            <motion.button
-                              transition={snappy}
-                              whileHover={{ scale: 1.1 }}
-                              whileTap={{ scale: 0.9 }}
-                              onClick={() => setMemberToRemove({ id: user.id, name: user.name })}
-                              className="p-2 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-500/10 text-muted-foreground/40 hover:text-red-400 transition-all shrink-0"
-                              aria-label={`Remove ${user.name}`}
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </motion.button>
+                            {!selectedProject.isPersonal && (
+                              <motion.button
+                                transition={snappy}
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
+                                onClick={() => setMemberToRemove({ id: user.id, name: user.name })}
+                                className="p-2 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-500/10 text-muted-foreground/40 hover:text-red-400 transition-all shrink-0"
+                                aria-label={`Remove ${user.name}`}
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </motion.button>
+                            )}
                           </div>
                           <div className="mt-2.5 ml-13 flex items-center gap-3 text-[11px] text-muted-foreground/50" style={{ marginLeft: '52px' }}>
                             <span>{user.projectIds.length} {user.projectIds.length === 1 ? 'project' : 'projects'}</span>
@@ -381,7 +400,7 @@ const ManageEmployeesPage = () => {
                       No members match "{searchTerm}"
                     </div>
                   )}
-                  {projectMembers.length === 0 && (
+                  {projectMembers.length === 0 && !selectedProject.isPersonal && (
                     <div className="col-span-2 text-center py-8 text-sm text-muted-foreground/40 italic border border-dashed border-border/30 rounded-xl">
                       No members yet. Add someone below.
                     </div>
@@ -389,7 +408,7 @@ const ManageEmployeesPage = () => {
                 </div>
 
                 {/* Add members */}
-                {users.filter(u => !selectedProject.members.includes(u.id)).length > 0 && (
+                {!selectedProject.isPersonal && users.filter(u => !selectedProject.members.includes(u.id)).length > 0 && (
                   <div className="mt-5 pt-5 border-t border-border/25">
                     <p className="text-[11px] font-bold text-muted-foreground/50 uppercase tracking-widest mb-3">Add to project</p>
                     <div className="flex flex-wrap gap-2">

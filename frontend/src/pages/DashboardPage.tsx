@@ -1,4 +1,5 @@
 import { useAppStore } from '@/stores/appStore';
+import { projectPickerLabel } from '@/lib/project-utils';
 import { Task, Priority, KanbanColumn } from '@/types';
 import { motion } from 'framer-motion';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -44,6 +45,23 @@ import { snappy, pageEnter } from '@/lib/motion';
 import { isTaskAssignedTo, taskAssigneeIds } from '@/lib/task-utils';
 
 const PROTECTED_IDS = new Set(['backlog', 'in_progress', 'in_review', 'done']);
+
+const ID_PILL_PALETTES = [
+  'bg-blue-500/15 text-blue-400 border-blue-500/25',
+  'bg-violet-500/15 text-violet-400 border-violet-500/25',
+  'bg-emerald-500/15 text-emerald-400 border-emerald-500/25',
+  'bg-orange-500/15 text-orange-400 border-orange-500/25',
+  'bg-pink-500/15 text-pink-400 border-pink-500/25',
+  'bg-teal-500/15 text-teal-400 border-teal-500/25',
+  'bg-amber-500/15 text-amber-400 border-amber-500/25',
+  'bg-cyan-500/15 text-cyan-400 border-cyan-500/25',
+  'bg-indigo-500/15 text-indigo-400 border-indigo-500/25',
+  'bg-rose-500/15 text-rose-400 border-rose-500/25',
+];
+function idPillColor(id: string): string {
+  let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
+  return ID_PILL_PALETTES[h % ID_PILL_PALETTES.length];
+}
 const DONE_COL_KEY = 'tm_done_col';
 
 const priorityBadgeStyles: Record<Priority, string> = {
@@ -80,14 +98,18 @@ function useElapsedTime(epochStart: number | null): string {
 function TaskCard({
   task, onClick, showApprove, onApprove, approving, canDrag,
   isTimerActive, timerEpochStart, canStartTimer, onStartTimer, onStopTimer,
+  showProjectPill,
 }: {
   task: Task; onClick: () => void;
   showApprove?: boolean; onApprove?: () => void; approving?: boolean;
   canDrag: boolean;
   isTimerActive: boolean; timerEpochStart: number | null;
   canStartTimer: boolean; onStartTimer: () => void; onStopTimer: () => void;
+  showProjectPill?: boolean;
 }) {
-  const { users } = useAppStore();
+  const { users, projects } = useAppStore();
+  const taskProject = projects.find(p => p.id === task.projectId);
+  const taskSection = taskProject?.sections.find(s => s.id === task.sectionId);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: task.id, data: { type: 'task' as const }, animateLayoutChanges: () => false, disabled: !canDrag,
   });
@@ -114,8 +136,22 @@ function TaskCard({
           <span className="text-xs font-mono text-muted-foreground/60 tracking-wider">TF-{task.id.replace(/\D/g, '').padStart(3, '0')}</span>
           <span className={`text-[11px] px-3 py-1 rounded-full font-semibold border ${priorityBadgeStyles[task.priority]}`}>{task.priority}</span>
         </div>
-        <h4 className="text-base font-bold leading-snug mb-3 text-foreground line-clamp-2">{task.title}</h4>
-        <p className="text-sm text-muted-foreground leading-relaxed flex-1 overflow-hidden text-ellipsis line-clamp-3">{task.description || 'No description'}</p>
+        <h4 className="text-base font-bold leading-snug mb-2 text-foreground line-clamp-2">{task.title}</h4>
+        {(showProjectPill || taskSection) && (
+          <div className="flex items-center gap-1.5 flex-wrap mb-2">
+            {showProjectPill && taskProject && (
+              <span className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold truncate max-w-[120px] ${idPillColor(taskProject.id)}`}>
+                {taskProject.name}
+              </span>
+            )}
+            {taskSection && (
+              <span className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold truncate max-w-[120px] ${idPillColor(taskSection.id)}`}>
+                {taskSection.name}
+              </span>
+            )}
+          </div>
+        )}
+        <p className="text-sm text-muted-foreground leading-relaxed flex-1 overflow-hidden text-ellipsis line-clamp-2">{task.description || 'No description'}</p>
         <div className="flex items-center justify-between pt-4 mt-auto gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <div className="flex -space-x-2 shrink-0">
@@ -171,7 +207,7 @@ function TaskCard({
 function KanbanColumnPanel({
   column, tasks, onTaskClick, onNewTask, isDropTarget, isManager, currentUserId,
   approvingId, onApprove, activeTimers, onStartTimer, onStopTimer,
-  isDoneColumn, onSetDoneColumn, onRenameColumn, onDeleteColumn,
+  isDoneColumn, onSetDoneColumn, onRenameColumn, onDeleteColumn, showProjectPill,
 }: {
   column: KanbanColumn; tasks: Task[];
   onTaskClick: (t: Task) => void; onNewTask: () => void;
@@ -180,6 +216,7 @@ function KanbanColumnPanel({
   activeTimers: Record<string, number>; onStartTimer: (id: string) => void; onStopTimer: (id: string) => void;
   isDoneColumn: boolean; onSetDoneColumn: () => void;
   onRenameColumn: () => void; onDeleteColumn: () => void;
+  showProjectPill?: boolean;
 }) {
   const { setNodeRef, transform, transition, attributes, listeners, isDragging } = useSortable({
     id: column.id, data: { type: 'column' as const },
@@ -248,6 +285,7 @@ function KanbanColumnPanel({
               canStartTimer={isTaskAssignedTo(task, currentUserId)}
               onStartTimer={() => onStartTimer(task.id)}
               onStopTimer={() => onStopTimer(task.id)}
+              showProjectPill={showProjectPill}
             />
           ))}
         </SortableContext>
@@ -303,8 +341,11 @@ const DashboardPage = () => {
 
   const userProjects = currentUser ? projects.filter(p => currentUser.projectIds.includes(p.id)) : [];
   const isManager = currentUser?.role === 'manager';
-  const projectSelected = !!selectedProjectId && userProjects.some(p => p.id === selectedProjectId);
-  const projectTasks = projectSelected ? tasks.filter(t => t.projectId === selectedProjectId && t.status !== 'completed') : [];
+  const isAllProjects = selectedProjectId === 'all';
+  const projectSelected = isAllProjects || (!!selectedProjectId && userProjects.some(p => p.id === selectedProjectId));
+  const projectTasks = isAllProjects
+    ? tasks.filter(t => userProjects.some(p => p.id === t.projectId) && t.status !== 'completed')
+    : (projectSelected ? tasks.filter(t => t.projectId === selectedProjectId && t.status !== 'completed') : []);
 
   const handleSetDoneColumn = (colId: string) => {
     const next = doneColumnId === colId ? 'done' : colId;
@@ -442,16 +483,27 @@ const DashboardPage = () => {
         <select value={selectedProjectId || ''} onChange={e => selectProject(e.target.value || null)}
           className="mt-8 rounded-xl border bg-muted/50 px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/50 min-w-[240px]">
           <option value="">Choose a project…</option>
-          {userProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          <option value="all">All Projects</option>
+          {userProjects.map(p => <option key={p.id} value={p.id}>{projectPickerLabel(p)}</option>)}
         </select>
       </motion.div>
     );
   }
 
+  const selectedProjectName = isAllProjects
+    ? 'All Projects'
+    : (() => {
+        const p = userProjects.find(pr => pr.id === selectedProjectId);
+        return p ? projectPickerLabel(p) : 'Dashboard';
+      })();
+
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={pageEnter} className="p-6 h-full flex flex-col">
       <div className="mb-6 shrink-0">
-        <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
+        <h1 className="text-2xl font-bold text-foreground">{selectedProjectName}</h1>
+        {isAllProjects && (
+          <p className="text-sm text-muted-foreground mt-1">Tasks across all your projects</p>
+        )}
       </div>
 
       <DndContext sensors={sensors} collisionDetection={collisionDetection}
@@ -476,6 +528,7 @@ const DashboardPage = () => {
                 onSetDoneColumn={() => handleSetDoneColumn(col.id)}
                 onRenameColumn={() => openRename(col)}
                 onDeleteColumn={() => { void handleDeleteColumn(col.id); }}
+                showProjectPill={isAllProjects}
               />
             ))}
 

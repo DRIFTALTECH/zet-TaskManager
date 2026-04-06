@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 class LoginBody(BaseModel):
     email: str
     password: str
+    remember_me: bool = False
 
 
 class RegisterBody(BaseModel):
@@ -59,6 +60,7 @@ class ProjectOut(BaseModel):
     members: list[str]
     sections: list[SectionOut]
     createdAt: str
+    isPersonal: bool = False
 
 
 class ProjectCreate(BaseModel):

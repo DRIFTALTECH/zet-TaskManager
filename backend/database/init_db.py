@@ -6,7 +6,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from database.database import Base, SessionLocal, engine
-from database.models import KanbanColumn, Task, TaskAssignee
+from database.models import KanbanColumn, Task, TaskAssignee, User
 
 
 def migrate_timelogs_if_needed() -> None:
@@ -65,6 +65,17 @@ def backfill_task_assignees(db: Session) -> None:
     db.commit()
 
 
+def migrate_projects_personal_column() -> None:
+    insp = inspect(engine)
+    if not insp.has_table("projects"):
+        return
+    cols = {c["name"] for c in insp.get_columns("projects")}
+    if "is_personal" in cols:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE projects ADD COLUMN is_personal BOOLEAN NOT NULL DEFAULT 0"))
+
+
 def ensure_default_kanban(db: Session) -> None:
     if db.query(KanbanColumn).first() is not None:
         return
@@ -82,10 +93,15 @@ def ensure_default_kanban(db: Session) -> None:
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     migrate_timelogs_if_needed()
+    migrate_projects_personal_column()
     db = SessionLocal()
     try:
         backfill_task_assignees(db)
         ensure_default_kanban(db)
+        from logic import project_logic
+
+        for u in db.query(User).all():
+            project_logic.ensure_personal_project(db, u.id)
     finally:
         db.close()
 

@@ -2,10 +2,9 @@ import { useAppStore } from '@/stores/appStore';
 import { useLocation, Link } from 'react-router-dom';
 import { LayoutDashboard, ListTodo, Clock, Users, FolderKanban, Settings, LogOut } from 'lucide-react';
 import { TaskFlowLogo } from '@/components/brand/TaskFlowLogo';
-import { useState, useRef, useEffect } from 'react';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { useState } from 'react';
 import { toast } from 'sonner';
-import SettingsModal from '@/components/SettingsModal';
+import UserAvatar from '@/components/UserAvatar';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -17,32 +16,27 @@ const navItems = [
 
 const AppSidebar = () => {
   const [expanded, setExpanded] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const currentUser = useAppStore(s => s.currentUser);
   const logout = useAppStore(s => s.logout);
   const location = useLocation();
-  const sidebarRef = useRef<HTMLDivElement>(null);
-  const hoverZoneRef = useRef<HTMLDivElement>(null);
 
   if (!currentUser) return null;
 
   return (
     <>
-      {/* Invisible hover zone to detect mouse near left edge */}
+      {/* Invisible hover zone near left edge */}
       <div
-        ref={hoverZoneRef}
         className="fixed left-0 top-0 h-full w-5 z-50"
         onMouseEnter={() => setExpanded(true)}
       />
 
       <aside
-        ref={sidebarRef}
         onMouseEnter={() => setExpanded(true)}
         onMouseLeave={() => setExpanded(false)}
         className={`${expanded ? 'w-60' : 'w-16'} transition-[width] duration-150 ease-out border-r border-border bg-card flex flex-col h-screen sticky top-0 shrink-0 z-40 overflow-hidden`}
       >
         {/* Logo */}
-        <div className="flex items-center gap-2 px-4 h-14 border-b border-border">
+        <div className="flex items-center gap-2 px-4 h-14 border-b border-border shrink-0">
           <TaskFlowLogo iconOnly={!expanded} className="min-w-0" />
         </div>
 
@@ -53,48 +47,50 @@ const AppSidebar = () => {
             const active = location.pathname === item.path;
             return (
               <Link key={item.path} to={item.path}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors duration-100 ${active ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'}`}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors duration-100 ${
+                  active ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+                }`}
               >
                 <item.icon className="h-4 w-4 shrink-0" />
-                <span className={`whitespace-nowrap transition-opacity duration-100 ${expanded ? 'opacity-100' : 'opacity-0'}`}>{item.label}</span>
+                <span className={`whitespace-nowrap transition-opacity duration-100 ${expanded ? 'opacity-100' : 'opacity-0'}`}>
+                  {item.label}
+                </span>
               </Link>
             );
           })}
         </nav>
 
         {/* User section */}
-        <div className="border-t border-border p-3 flex items-center gap-2">
-          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-            <span className="text-xs font-semibold text-primary">{currentUser.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)}</span>
-          </div>
-          {expanded && (
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate text-foreground">{currentUser.name}</p>
-              <p className="text-xs text-muted-foreground capitalize">{currentUser.role}</p>
-            </div>
-          )}
-          <Popover>
-            <PopoverTrigger asChild>
-              <button className="p-1.5 rounded-lg hover:bg-muted/50 transition-colors duration-100 shrink-0">
-                <Settings className="h-4 w-4 text-muted-foreground" />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent className="w-40 p-1" side="top" align="end">
-              <button onClick={() => setSettingsOpen(true)}
-                className="flex items-center gap-2 w-full px-3 py-2 text-sm rounded-lg hover:bg-muted/50 transition-colors duration-100 text-foreground"
-              >
-                <Settings className="h-3.5 w-3.5" /> Settings
-              </button>
+        <div className="border-t border-border p-3 shrink-0">
+          <div className="flex items-center gap-2">
+            <Link to="/settings" className="shrink-0">
+              <UserAvatar name={currentUser.name} avatar={currentUser.avatar} size="sm" />
+            </Link>
+
+            {expanded && (
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium truncate text-foreground">{currentUser.name}</p>
+                <p className="text-xs text-muted-foreground capitalize">{currentUser.role}</p>
+              </div>
+            )}
+
+            <div className={`flex items-center gap-1 shrink-0 ${expanded ? '' : 'flex-col ml-auto'}`}>
+              <Link to="/settings"
+                className={`p-1.5 rounded-lg hover:bg-muted/50 transition-colors duration-100 ${
+                  location.pathname === '/settings' ? 'text-primary bg-primary/10' : 'text-muted-foreground'
+                }`}
+                title="Settings">
+                <Settings className="h-4 w-4" />
+              </Link>
               <button onClick={() => { logout(); toast.info('Logged out'); }}
-                className="flex items-center gap-2 w-full px-3 py-2 text-sm rounded-lg hover:bg-destructive/10 text-destructive transition-colors duration-100"
-              >
-                <LogOut className="h-3.5 w-3.5" /> Logout
+                className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors duration-100"
+                title="Logout">
+                <LogOut className="h-4 w-4" />
               </button>
-            </PopoverContent>
-          </Popover>
+            </div>
+          </div>
         </div>
       </aside>
-      <SettingsModal open={settingsOpen} onOpenChange={setSettingsOpen} />
     </>
   );
 };

@@ -8,12 +8,13 @@ from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
 import crud.users as users_crud
-from logic import user_logic
+from logic import project_logic, user_logic
 from logic.schemas import LoginBody, LoginResponse, RegisterBody
 
 JWT_SECRET = os.environ.get("TASKMANAGER_JWT_SECRET", "dev-secret-change-me")
 JWT_ALGO = "HS256"
-JWT_EXPIRE_HOURS = 168
+JWT_EXPIRE_HOURS_DEFAULT = 24         # 1 day when "remember me" is off
+JWT_EXPIRE_HOURS_REMEMBER = 24 * 30   # 30 days when "remember me" is on
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -26,8 +27,9 @@ def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
 
-def create_access_token(user_id: str) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRE_HOURS)
+def create_access_token(user_id: str, remember_me: bool = False) -> str:
+    hours = JWT_EXPIRE_HOURS_REMEMBER if remember_me else JWT_EXPIRE_HOURS_DEFAULT
+    expire = datetime.now(timezone.utc) + timedelta(hours=hours)
     return jwt.encode(
         {"sub": user_id, "exp": expire},
         JWT_SECRET,
@@ -52,7 +54,8 @@ def login(db: Session, body: LoginBody) -> LoginResponse:
     user = users_crud.get_by_email(db, body.email)
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
-    token = create_access_token(user.id)
+    token = create_access_token(user.id, remember_me=body.remember_me)
+    project_logic.ensure_personal_project(db, user.id)
     return LoginResponse(access_token=token, user=user_logic.to_user_out(db, user))
 
 
@@ -72,4 +75,5 @@ def register(db: Session, body: RegisterBody) -> LoginResponse:
         role=body.role,
     )
     token = create_access_token(user.id)
+    project_logic.ensure_personal_project(db, user.id)
     return LoginResponse(access_token=token, user=user_logic.to_user_out(db, user))

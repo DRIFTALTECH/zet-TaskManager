@@ -30,6 +30,8 @@ export interface Project {
   members: string[];
   sections: Section[];
   createdAt: string;
+  /** Server-managed private workspace; only visible to the owner */
+  isPersonal?: boolean;
 }
 
 export interface Task {

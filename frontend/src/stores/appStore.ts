@@ -20,7 +20,7 @@ interface AppState {
   bootstrap: () => Promise<void>;
 
   currentUser: User | null;
-  login: (email: string, password: string) => Promise<User | null>;
+  login: (email: string, password: string, rememberMe?: boolean) => Promise<User | null>;
   register: (name: string, email: string, password: string, role?: Role) => Promise<User | null>;
   logout: () => void;
   updateProfile: (name: string, avatar: string) => Promise<void>;
@@ -131,9 +131,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   currentUser: null,
   theme: (typeof window !== 'undefined' && localStorage.getItem('theme') as 'dark' | 'light') || 'dark',
 
-  login: async (email, password) => {
+  login: async (email, password, rememberMe = false) => {
     try {
-      const { access_token, user } = await api.login(email, password);
+      const { access_token, user } = await api.login(email, password, rememberMe);
       localStorage.setItem(TOKEN_KEY, access_token);
       const [users, projects, tasks, kanbanColumns] = await Promise.all([
         api.getUsers(),
@@ -157,9 +157,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   register: async (name, email, password, role = 'employee') => {
+    // Let registration errors (e.g. duplicate email) propagate to the caller
+    const { access_token, user } = await api.register(name, email, password, role);
+    localStorage.setItem(TOKEN_KEY, access_token);
     try {
-      const { access_token, user } = await api.register(name, email, password, role);
-      localStorage.setItem(TOKEN_KEY, access_token);
       const [users, projects, tasks, kanbanColumns] = await Promise.all([
         api.getUsers(),
         api.getProjects(),
@@ -175,10 +176,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         selectedProjectId: user.projectIds[0] ?? null,
         hydrated: true,
       });
-      return user;
     } catch {
-      return null;
+      // Data loading failed but account was created — set minimal state
+      set({ currentUser: user, hydrated: true });
     }
+    return user;
   },
 
   logout: () => {

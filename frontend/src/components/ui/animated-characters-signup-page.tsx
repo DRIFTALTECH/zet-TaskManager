@@ -44,7 +44,9 @@ export function AnimatedCharactersSignupPage({ onRegister }: AnimatedCharactersS
     setIsLoading(true);
     try {
       const ok = await onRegister(name.trim(), email.trim(), password, role);
-      if (!ok) setError("Could not create account. The email may already be in use.");
+      if (!ok) setError("Could not create account. Please try again.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create account.");
     } finally {
       setIsLoading(false);
     }

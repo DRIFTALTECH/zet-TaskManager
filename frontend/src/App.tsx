@@ -12,6 +12,7 @@ import TimesheetPage from "./pages/TimesheetPage";
 import UsersPage from "./pages/UsersPage";
 import UserDetailPage from "./pages/UserDetailPage";
 import ManageEmployeesPage from "./pages/ManageEmployeesPage";
+import SettingsPage from "./pages/SettingsPage";
 import AppSidebar from "./components/AppSidebar";
 import AppNavbar from "./components/AppNavbar";
 
@@ -76,6 +77,7 @@ const App = () => (
           <Route path="/users" element={<ProtectedRoute managerOnly><UsersPage /></ProtectedRoute>} />
           <Route path="/users/:userId" element={<ProtectedRoute managerOnly><UserDetailPage /></ProtectedRoute>} />
           <Route path="/manage" element={<ProtectedRoute managerOnly><ManageEmployeesPage /></ProtectedRoute>} />
+          <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </BrowserRouter>

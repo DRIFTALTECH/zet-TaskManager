@@ -31,7 +31,13 @@ def _is_task_creator(t: Task, user_id: str) -> bool:
 
 def _can_move_task_on_board(db: Session, t: Task, user_id: str) -> bool:
     """Only the task's assignees may move it between columns — no exceptions."""
-    return assignees_crud.is_assignee(db, t.id, user_id)
+    if assignees_crud.is_assignee(db, t.id, user_id):
+        return True
+    # Fallback: tasks created before multi-assignee support store only assigned_to
+    assignee_ids = assignees_crud.list_user_ids_ordered(db, t.id)
+    if not assignee_ids:
+        return t.assigned_to == user_id
+    return False
 
 
 def to_task_out(db: Session, t: Task, viewer_user_id: str) -> TaskOut:
@@ -70,6 +76,9 @@ def list_tasks(db: Session, current_user_id: str) -> list[TaskOut]:
     all_t = tasks_crud.list_all(db)
     visible = []
     for t in all_t:
+        p = projects_crud.get_by_id(db, t.project_id)
+        if p and p.is_personal and p.created_by != current_user_id:
+            continue
         mids = projects_crud.member_ids(db, t.project_id)
         if current_user_id in mids:
             visible.append(t)
@@ -217,7 +226,7 @@ def start_task(db: Session, current_user_id: str, task_id: str) -> TaskOut:
     project_logic.ensure_project_member(db, t.project_id, current_user_id)
     if t.status == "completed":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot change a completed task")
-    if not (assignees_crud.is_assignee(db, t.id, current_user_id) or _is_task_creator(t, current_user_id)):
+    if not (_can_move_task_on_board(db, t, current_user_id) or _is_task_creator(t, current_user_id)):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             "Only an assignee or the creator can start this task",
@@ -301,7 +310,7 @@ def log_time(db: Session, current_user_id: str, task_id: str, body: LogTimeBody)
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Task not found")
     if t.status == "completed":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot log time on a completed task")
-    if not assignees_crud.is_assignee(db, task_id, current_user_id):
+    if not _can_move_task_on_board(db, t, current_user_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only assigned team members can log time on this task")
     if body.seconds <= 0:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "seconds must be positive")
