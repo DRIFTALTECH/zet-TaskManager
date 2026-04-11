@@ -26,8 +26,9 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
-  Plus, CheckCircle, Play, Square, GripVertical,
+  Plus, CheckCircle, GripVertical,
   MoreHorizontal, Pencil, Trash2, Flag, Check,
+  ListFilter,
 } from 'lucide-react';
 import TaskDetailModal from '@/components/TaskDetailModal';
 import CreateTaskModal from '@/components/CreateTaskModal';
@@ -43,6 +44,15 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { snappy, pageEnter } from '@/lib/motion';
 import { isTaskAssignedTo, taskAssigneeIds } from '@/lib/task-utils';
+import {
+  dueBucketDateTextClass,
+  getDueBucket,
+  taskMatchesDashboardDueFilter,
+  taskMatchesPriorityFilter,
+  type DashboardDueFilter,
+} from '@/lib/due-date-utils';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Checkbox } from '@/components/ui/checkbox';
 
 const PROTECTED_IDS = new Set(['backlog', 'in_progress', 'in_review', 'done']);
 
@@ -115,11 +125,12 @@ function TaskCard({
   });
   const assigneeList = taskAssigneeIds(task).map(id => users.find(u => u.id === id)).filter(Boolean) as typeof users;
   const elapsed = useElapsedTime(timerEpochStart);
-  const isOverdue = new Date(task.dueDate) < new Date();
+  const isDoneLane = task.status === 'completed' || task.status === 'done';
+  const dueBucket = getDueBucket(task.dueDate);
+  const isOverdue = dueBucket === 'overdue' && !isDoneLane;
   const showTimer = (canStartTimer || isTimerActive) && task.status !== 'completed' && task.status !== 'done';
   const formatDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
-
   return (
     <div
       ref={setNodeRef}
@@ -136,58 +147,70 @@ function TaskCard({
           <span className="text-xs font-mono text-muted-foreground/60 tracking-wider">TF-{task.id.replace(/\D/g, '').padStart(3, '0')}</span>
           <span className={`text-[11px] px-3 py-1 rounded-full font-semibold border ${priorityBadgeStyles[task.priority]}`}>{task.priority}</span>
         </div>
-        <h4 className="text-base font-bold leading-snug mb-2 text-foreground line-clamp-2">{task.title}</h4>
-        {(showProjectPill || taskSection) && (
-          <div className="flex items-center gap-1.5 flex-wrap mb-2">
-            {showProjectPill && taskProject && (
-              <span className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold truncate max-w-[120px] ${idPillColor(taskProject.id)}`}>
-                {taskProject.name}
-              </span>
-            )}
-            {taskSection && (
-              <span className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold truncate max-w-[120px] ${idPillColor(taskSection.id)}`}>
-                {taskSection.name}
-              </span>
-            )}
-          </div>
-        )}
-        <p className="text-sm text-muted-foreground leading-relaxed flex-1 overflow-hidden text-ellipsis line-clamp-2">{task.description || 'No description'}</p>
-        <div className="flex items-center justify-between pt-4 mt-auto gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="flex -space-x-2 shrink-0">
-              {assigneeList.slice(0, 3).map(u => (
-                <div key={u.id} className="w-7 h-7 rounded-full bg-muted border-2 border-card flex items-center justify-center">
-                  <span className="text-[10px] font-bold text-muted-foreground">{getInitials(u.name)}</span>
-                </div>
-              ))}
-              {assigneeList.length === 0 && <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center"><span className="text-[10px] text-muted-foreground">?</span></div>}
+        <h4 className="text-base font-bold leading-snug mb-2 text-foreground line-clamp-2 shrink-0">{task.title}</h4>
+        <div className="flex-1 min-h-0 min-w-0" aria-hidden />
+        <div className="pt-2 mt-auto space-y-2 shrink-0">
+          {((showProjectPill && taskProject) || taskSection || showTimer) && (
+            <div className="flex items-center justify-between gap-2 min-h-10">
+              <div className="flex items-center gap-1.5 flex-wrap min-w-0 pr-2 flex-1">
+                {showProjectPill && taskProject && (
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold truncate max-w-[120px] ${idPillColor(taskProject.id)}`}>
+                    {taskProject.name}
+                  </span>
+                )}
+                {taskSection && (
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold truncate max-w-[120px] ${idPillColor(taskSection.id)}`}>
+                    {taskSection.name}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center justify-end shrink-0">
+                {showTimer && (
+                  isTimerActive ? (
+                    <div className="flex items-center gap-1.5 justify-end">
+                      <button
+                        type="button"
+                        className="text-sm font-semibold px-4 py-2 min-h-10 rounded-lg bg-destructive/90 text-destructive-foreground hover:bg-destructive transition-colors"
+                        onClick={e => { e.stopPropagation(); onStopTimer(); }}
+                      >
+                        Stop
+                      </button>
+                      {elapsed ? (
+                        <span className="text-xs font-mono text-muted-foreground tabular-nums">{elapsed}</span>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="text-sm font-semibold px-4 py-2 min-h-10 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                      onClick={e => { e.stopPropagation(); onStartTimer(); }}
+                    >
+                      Start
+                    </button>
+                  )
+                )}
+              </div>
             </div>
-            <span className="text-sm text-muted-foreground font-medium truncate">
-              {assigneeList.length === 0 ? 'Unassigned' : assigneeList.length === 1 ? assigneeList[0].name.split(' ')[0] : `${assigneeList.length} people`}
+          )}
+          <div className="flex items-end justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="flex -space-x-2 shrink-0">
+                {assigneeList.slice(0, 3).map(u => (
+                  <div key={u.id} className="w-7 h-7 rounded-full bg-muted border-2 border-card flex items-center justify-center">
+                    <span className="text-[10px] font-bold text-muted-foreground">{getInitials(u.name)}</span>
+                  </div>
+                ))}
+                {assigneeList.length === 0 && <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center"><span className="text-[10px] text-muted-foreground">?</span></div>}
+              </div>
+              <span className="text-sm text-muted-foreground font-medium truncate">
+                {assigneeList.length === 0 ? 'Unassigned' : assigneeList.length === 1 ? assigneeList[0].name.split(' ')[0] : `${assigneeList.length} people`}
+              </span>
+            </div>
+            <span className={`text-sm font-mono shrink-0 ${dueBucketDateTextClass(dueBucket, isDoneLane)}`}>
+              {formatDate(task.dueDate)}
             </span>
           </div>
-          <span className={`text-sm font-mono shrink-0 ${isOverdue ? 'text-destructive' : 'text-muted-foreground/60'}`}>{formatDate(task.dueDate)}</span>
         </div>
-        {/* Start/Stop timer — bottom of card, assignees only, hidden in done/completed */}
-        {showTimer && (
-          <div className="pt-3 mt-1 border-t border-border/50" onClick={e => e.stopPropagation()}>
-            {isTimerActive ? (
-              <Button type="button" size="sm" variant="destructive"
-                className="w-full rounded-xl gap-2 h-8 text-xs font-semibold"
-                onClick={e => { e.stopPropagation(); onStopTimer(); }}>
-                <Square className="h-3.5 w-3.5 fill-current" />
-                Stop · {elapsed}
-              </Button>
-            ) : (
-              <Button type="button" size="sm"
-                className="w-full rounded-xl gap-2 h-8 text-xs font-semibold bg-primary/90 hover:bg-primary"
-                onClick={e => { e.stopPropagation(); onStartTimer(); }}>
-                <Play className="h-3.5 w-3.5 fill-current" />
-                Start
-              </Button>
-            )}
-          </div>
-        )}
         {showApprove && (
           <div className="pt-3 mt-1 border-t border-border/50">
             <Button type="button" size="sm"
@@ -339,13 +362,40 @@ const DashboardPage = () => {
     return rectIntersection(args);
   }, []);
 
-  const userProjects = currentUser ? projects.filter(p => currentUser.projectIds.includes(p.id)) : [];
+  const userProjects = useMemo(
+    () => (currentUser ? projects.filter(p => currentUser.projectIds.includes(p.id)) : []),
+    [currentUser, projects],
+  );
   const isManager = currentUser?.role === 'manager';
   const isAllProjects = selectedProjectId === 'all';
   const projectSelected = isAllProjects || (!!selectedProjectId && userProjects.some(p => p.id === selectedProjectId));
-  const projectTasks = isAllProjects
-    ? tasks.filter(t => userProjects.some(p => p.id === t.projectId) && t.status !== 'completed')
-    : (projectSelected ? tasks.filter(t => t.projectId === selectedProjectId && t.status !== 'completed') : []);
+  const projectTasks = useMemo(() => {
+    if (!projectSelected) return [];
+    if (isAllProjects) {
+      return tasks.filter(t => userProjects.some(p => p.id === t.projectId) && t.status !== 'completed');
+    }
+    return tasks.filter(t => t.projectId === selectedProjectId && t.status !== 'completed');
+  }, [projectSelected, isAllProjects, tasks, userProjects, selectedProjectId]);
+
+  const [dashPriorityFilter, setDashPriorityFilter] = useState<Set<Priority>>(() => new Set());
+  const [dashDueFilter, setDashDueFilter] = useState<DashboardDueFilter>('all');
+
+  const toggleDashPriority = useCallback((p: Priority) => {
+    setDashPriorityFilter(prev => {
+      const n = new Set(prev);
+      if (n.has(p)) n.delete(p);
+      else n.add(p);
+      return n;
+    });
+  }, []);
+
+  const filteredProjectTasks = useMemo(
+    () =>
+      projectTasks.filter(
+        t => taskMatchesPriorityFilter(t, dashPriorityFilter) && taskMatchesDashboardDueFilter(t, dashDueFilter),
+      ),
+    [projectTasks, dashPriorityFilter, dashDueFilter],
+  );
 
   const handleSetDoneColumn = (colId: string) => {
     const next = doneColumnId === colId ? 'done' : colId;
@@ -483,7 +533,7 @@ const DashboardPage = () => {
         <select value={selectedProjectId || ''} onChange={e => selectProject(e.target.value || null)}
           className="mt-8 rounded-xl border bg-muted/50 px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/50 min-w-[240px]">
           <option value="">Choose a project…</option>
-          <option value="all">All Projects</option>
+          <option value="all">All projects</option>
           {userProjects.map(p => <option key={p.id} value={p.id}>{projectPickerLabel(p)}</option>)}
         </select>
       </motion.div>
@@ -491,19 +541,77 @@ const DashboardPage = () => {
   }
 
   const selectedProjectName = isAllProjects
-    ? 'All Projects'
+    ? 'All projects'
     : (() => {
         const p = userProjects.find(pr => pr.id === selectedProjectId);
         return p ? projectPickerLabel(p) : 'Dashboard';
       })();
 
+  const dashPriorityOptions: Priority[] = ['Urgent', 'High', 'Medium', 'Low'];
+
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={pageEnter} className="p-6 h-full flex flex-col">
-      <div className="mb-6 shrink-0">
-        <h1 className="text-2xl font-bold text-foreground">{selectedProjectName}</h1>
-        {isAllProjects && (
-          <p className="text-sm text-muted-foreground mt-1">Tasks across all your projects</p>
-        )}
+      <div className="mb-6 shrink-0 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold text-foreground">{selectedProjectName}</h1>
+          {isAllProjects && (
+            <p className="text-sm text-muted-foreground mt-1">Tasks across every project you belong to</p>
+          )}
+        </div>
+        <div className="flex flex-wrap items-end gap-3 sm:justify-end">
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button type="button" variant="outline" size="sm" className="rounded-xl gap-2 h-9 border-border/80">
+                <ListFilter className="h-4 w-4 shrink-0" />
+                Priority
+                {dashPriorityFilter.size > 0 && (
+                  <span className="text-[10px] font-semibold tabular-nums px-1.5 py-0.5 rounded-md bg-primary/15 text-primary">
+                    {dashPriorityFilter.size}
+                  </span>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-64">
+              <p className="text-xs font-semibold text-foreground mb-1">Filter by priority</p>
+              <p className="text-[10px] text-muted-foreground mb-3">Check one or more. Leave all off to show every priority.</p>
+              <div className="space-y-1">
+                {dashPriorityOptions.map(p => (
+                  <label key={p} className="flex items-center gap-2.5 py-1 cursor-pointer rounded-lg hover:bg-muted/50 px-1 -mx-1">
+                    <Checkbox
+                      checked={dashPriorityFilter.has(p)}
+                      onCheckedChange={() => toggleDashPriority(p)}
+                    />
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded-md border ${priorityBadgeStyles[p]}`}>{p}</span>
+                  </label>
+                ))}
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="w-full mt-3 rounded-lg text-xs"
+                onClick={() => setDashPriorityFilter(new Set())}
+              >
+                Clear priority filter
+              </Button>
+            </PopoverContent>
+          </Popover>
+          <div className="flex flex-col gap-1 min-w-[11rem]">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Due date</span>
+            <select
+              value={dashDueFilter}
+              onChange={e => setDashDueFilter(e.target.value as DashboardDueFilter)}
+              className="rounded-xl border border-border/80 bg-muted/40 px-3 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/40"
+            >
+              <option value="all">All due dates</option>
+              <option value="overdue">Overdue</option>
+              <option value="today">Due today</option>
+              <option value="tomorrow">Due tomorrow</option>
+              <option value="this_week">Due this week</option>
+              <option value="later">Due in 7+ days</option>
+            </select>
+          </div>
+        </div>
       </div>
 
       <DndContext sensors={sensors} collisionDetection={collisionDetection}
@@ -513,7 +621,7 @@ const DashboardPage = () => {
             {boardColumns.map(col => (
               <KanbanColumnPanel
                 key={col.id} column={col}
-                tasks={projectTasks.filter(t => t.status === col.id)}
+                tasks={filteredProjectTasks.filter(t => t.status === col.id)}
                 onTaskClick={setSelectedTask}
                 onNewTask={() => setCreateOpen(true)}
                 isDropTarget={overColumnId === col.id}
@@ -545,8 +653,10 @@ const DashboardPage = () => {
 
         <DragOverlay dropAnimation={null}>
           {activeTask && (
-            <div className="rounded-2xl border-2 border-border/70 bg-card/95 backdrop-blur-sm p-6 shadow-2xl w-[380px] h-[250px] cursor-grabbing rotate-1 scale-[1.02]"
-              style={{ boxShadow: `0 25px 60px -10px ${priorityGlowColor[activeTask.priority]}` }}>
+            <div
+              className="rounded-2xl border-2 border-border/70 bg-card/95 backdrop-blur-sm p-6 shadow-2xl w-[380px] h-[250px] cursor-grabbing rotate-1 scale-[1.02]"
+              style={{ boxShadow: `0 25px 60px -10px ${priorityGlowColor[activeTask.priority]}` }}
+            >
               <div className="flex items-center justify-between mb-3">
                 <span className="text-xs font-mono text-muted-foreground/60">TF-{activeTask.id.replace(/\D/g, '').padStart(3, '0')}</span>
                 <span className={`text-[11px] px-3 py-1 rounded-full font-semibold border ${priorityBadgeStyles[activeTask.priority]}`}>{activeTask.priority}</span>

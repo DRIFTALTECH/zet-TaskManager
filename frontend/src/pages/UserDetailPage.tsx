@@ -1,17 +1,18 @@
 /**
  * UserDetailPage — analytics-first profile for a team member.
- * Layout: KPI row → (bar chart | donut) → (priority list | project list)
- *         → task table → timesheet
+ * Weekly work (nav + charts + day drill-down) → KPIs → status / priority
+ * → tasks by project → completed work → all tasks; separate timesheet tab.
  */
 
 import { useAppStore } from '@/stores/appStore';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   ArrowLeft, Mail, Briefcase, ChevronLeft, ChevronRight,
   Clock, AlertTriangle, CheckCircle2, Circle, BarChart2,
-  CalendarDays, ListChecks, Flame,
+  CalendarDays, ListChecks, Flame, FolderKanban, Trophy,
+  Sparkles,
 } from 'lucide-react';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip,
@@ -22,6 +23,14 @@ import { isTaskAssignedTo } from '@/lib/task-utils';
 import type { TimesheetWorkEntry, Priority, Task, Project } from '@/types';
 import { api } from '@/lib/api';
 import { toast } from 'sonner';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { cn } from '@/lib/utils';
 
 // ─── colour helpers ───────────────────────────────────────────────────────────
 
@@ -83,6 +92,81 @@ function fmtSecs(s: number): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
+/** Minutes from midnight; accepts "HH:MM" or "H:MM". */
+function timeToMinutes(hm: string): number {
+  const [h, m] = hm.split(':').map(x => parseInt(x, 10));
+  if (Number.isNaN(h) || Number.isNaN(m)) return 0;
+  return h * 60 + m;
+}
+
+function projectHoursForDay(
+  entries: TimesheetWorkEntry[],
+  iso: string,
+  projectList: Project[],
+): { projectId: string; name: string; seconds: number }[] {
+  const m = new Map<string, number>();
+  for (const e of entries) {
+    if (e.workDate !== iso) continue;
+    m.set(e.projectId, (m.get(e.projectId) ?? 0) + e.seconds);
+  }
+  return [...m.entries()]
+    .map(([projectId, seconds]) => ({
+      projectId,
+      name: projectList.find(p => p.id === projectId)?.name ?? 'Project',
+      seconds,
+    }))
+    .sort((a, b) => b.seconds - a.seconds);
+}
+
+function projectHoursForWeek(
+  entries: TimesheetWorkEntry[],
+  weekIsos: string[],
+  projectList: Project[],
+): { projectId: string; name: string; seconds: number }[] {
+  const set = new Set(weekIsos);
+  const m = new Map<string, number>();
+  for (const e of entries) {
+    if (!set.has(e.workDate)) continue;
+    m.set(e.projectId, (m.get(e.projectId) ?? 0) + e.seconds);
+  }
+  return [...m.entries()]
+    .map(([projectId, seconds]) => ({
+      projectId,
+      name: projectList.find(p => p.id === projectId)?.name ?? 'Project',
+      seconds,
+    }))
+    .sort((a, b) => b.seconds - a.seconds);
+}
+
+type DayBlock = {
+  entry: TimesheetWorkEntry;
+  startMin: number;
+  endMin: number;
+  lane: number;
+};
+
+function buildDayTimeline(entries: TimesheetWorkEntry[]): DayBlock[] {
+  const sorted = [...entries].sort(
+    (a, b) => timeToMinutes(a.timeFrom) - timeToMinutes(b.timeFrom),
+  );
+  const laneEnds: number[] = [];
+  const out: DayBlock[] = [];
+  for (const entry of sorted) {
+    const start = Math.max(0, Math.min(24 * 60, timeToMinutes(entry.timeFrom)));
+    const durMin = Math.max(1, Math.ceil(entry.seconds / 60));
+    const end = Math.min(24 * 60, start + durMin);
+    let lane = laneEnds.findIndex(le => le <= start);
+    if (lane < 0) {
+      lane = laneEnds.length;
+      laneEnds.push(end);
+    } else {
+      laneEnds[lane] = end;
+    }
+    out.push({ entry, startMin: start, endMin: end, lane });
+  }
+  return out;
+}
+
 // ─── CountUp ─────────────────────────────────────────────────────────────────
 
 function CountUp({ to, suffix = '' }: { to: number; suffix?: string }) {
@@ -104,15 +188,203 @@ function CountUp({ to, suffix = '' }: { to: number; suffix?: string }) {
 
 // ─── Custom Recharts tooltip ──────────────────────────────────────────────────
 
-function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: {value:number;name:string}[]; label?: string }) {
-  if (!active || !payload?.length) return null;
+function WeeklyBarTooltip({
+  active,
+  payload,
+  projects,
+  entries,
+}: {
+  active?: boolean;
+  payload?: { payload?: { isoDate: string; day: string; seconds: number } }[];
+  projects: Project[];
+  entries: TimesheetWorkEntry[];
+}) {
+  if (!active || !payload?.[0]?.payload) return null;
+  const { isoDate, day, seconds } = payload[0].payload;
+  const byProj = projectHoursForDay(entries, isoDate, projects);
+  const dayEntries = entries.filter(e => e.workDate === isoDate);
   return (
-    <div className="bg-card border border-border/60 rounded-xl shadow-xl px-3.5 py-2.5 text-xs">
-      {label && <p className="font-semibold text-foreground/70 mb-1">{label}</p>}
-      {payload.map((p, i) => (
-        <p key={i} className="font-bold text-foreground">{p.name}: {fmtSecs(p.value)}</p>
-      ))}
+    <div className="bg-popover border border-border/60 rounded-xl shadow-xl px-3.5 py-3 text-xs min-w-[200px] max-w-[280px]">
+      <p className="font-semibold text-foreground mb-0.5">{day}</p>
+      <p className="text-[10px] font-mono text-muted-foreground/50 mb-2">{fmtISO(isoDate)}</p>
+      <p className="text-sm font-bold text-primary tabular-nums mb-2">{fmtSecs(seconds)} logged</p>
+      {byProj.length === 0 ? (
+        <p className="text-muted-foreground/40 italic">No entries</p>
+      ) : (
+        <div className="space-y-1.5">
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/45">By project</p>
+          {byProj.map(row => {
+            const col = projColor(row.projectId);
+            return (
+              <div key={row.projectId} className="flex items-center justify-between gap-2">
+                <span className={cn('truncate text-[11px] font-medium border rounded-md px-1.5 py-0.5', col.bg, col.text, col.border)}>
+                  {row.name}
+                </span>
+                <span className="tabular-nums font-semibold shrink-0">{fmtSecs(row.seconds)}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {dayEntries.length > 1 && (
+        <p className="text-[10px] text-muted-foreground/40 mt-2">{dayEntries.length} blocks · click bar for timeline</p>
+      )}
     </div>
+  );
+}
+
+function DayTimelineDialog({
+  open,
+  onOpenChange,
+  isoDate,
+  entries,
+  projects,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  isoDate: string | null;
+  entries: TimesheetWorkEntry[];
+  projects: Project[];
+}) {
+  const dayEntries = useMemo(
+    () => (isoDate ? entries.filter(e => e.workDate === isoDate) : []),
+    [entries, isoDate],
+  );
+  const blocks = useMemo(() => buildDayTimeline(dayEntries), [dayEntries]);
+  const maxLane = blocks.reduce((m, b) => Math.max(m, b.lane), -1);
+  const laneCount = Math.max(1, maxLane + 1);
+  const rowH = 36;
+  const axisH = 28;
+  const totalH = axisH + laneCount * rowH + 8;
+  const dow = isoDate ? new Date(`${isoDate}T12:00:00`).getDay() : 0;
+  const monIdx = dow === 0 ? 6 : dow - 1;
+  const dayLong = isoDate ? DAY_LONG[monIdx] : '';
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl border-border/60 bg-card sm:rounded-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-xl">
+            <CalendarDays className="h-5 w-5 text-primary" />
+            {isoDate ? `${dayLong}` : 'Day'}
+          </DialogTitle>
+          <DialogDescription className="font-mono text-xs">
+            {isoDate ? fmtISO(isoDate) : ''} · 24-hour timeline (timesheet blocks)
+          </DialogDescription>
+        </DialogHeader>
+
+        {dayEntries.length === 0 ? (
+          <p className="text-sm text-muted-foreground/50 py-8 text-center italic">No work logged this day.</p>
+        ) : (
+          <div className="space-y-4">
+            <div
+              className="relative rounded-xl border border-border/40 bg-muted/10 overflow-hidden"
+              style={{ height: totalH }}
+            >
+              <div
+                className="absolute left-0 right-0 top-0 flex border-b border-border/30 bg-muted/20"
+                style={{ height: axisH }}
+              >
+                {[6, 12, 18, 24].map(hour => (
+                  <div
+                    key={hour}
+                    className="flex-1 border-r border-border/20 last:border-r-0 flex items-end justify-center pb-1"
+                  >
+                    <span className="text-[10px] font-mono text-muted-foreground/45">
+                      {String(hour).padStart(2, '0')}:00
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div
+                className="absolute left-0 right-0 px-1 pointer-events-none z-0"
+                style={{ top: axisH, height: laneCount * rowH }}
+              >
+                {[25, 50, 75].map(pct => (
+                  <div
+                    key={pct}
+                    className="absolute top-0 bottom-0 w-px bg-border/25"
+                    style={{ left: `${pct}%` }}
+                  />
+                ))}
+              </div>
+              <div
+                className="absolute left-0 right-0 px-1 z-10"
+                style={{ top: axisH, height: laneCount * rowH }}
+              >
+                {blocks.map((b, i) => {
+                  const col = projColor(b.entry.projectId);
+                  const left = (b.startMin / (24 * 60)) * 100;
+                  const width = Math.max(0.35, ((b.endMin - b.startMin) / (24 * 60)) * 100);
+                  const top = b.lane * rowH + 4;
+                  return (
+                    <motion.div
+                      key={b.entry.id + i}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ delay: i * 0.04, ...pageEnter }}
+                      className={cn(
+                        'absolute h-[28px] rounded-lg border text-[10px] px-2 flex flex-col justify-center overflow-hidden shadow-sm',
+                        col.bg, col.border, col.text,
+                      )}
+                      style={{
+                        left: `calc(${left}% + 2px)`,
+                        width: `calc(${width}% - 4px)`,
+                        top,
+                        maxWidth: 'calc(100% - 4px)',
+                      }}
+                      title={`${b.entry.timeFrom}–${b.entry.timeTo} · ${fmtSecs(b.entry.seconds)}`}
+                    >
+                      <span className="truncate font-semibold leading-tight">
+                        {projects.find(p => p.id === b.entry.projectId)?.name ?? 'Project'}
+                      </span>
+                      <span className="truncate opacity-80 text-[9px] font-mono">
+                        {b.entry.timeFrom}–{b.entry.timeTo}
+                      </span>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <ul className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+              {dayEntries.map(e => {
+                const col = projColor(e.projectId);
+                const proj = projects.find(p => p.id === e.projectId);
+                const sec = proj?.sections.find(s => s.id === e.sectionId);
+                return (
+                  <li
+                    key={e.id}
+                    className="rounded-xl border border-border/35 bg-muted/5 px-3 py-2.5 flex gap-3 items-start"
+                  >
+                    <div className="w-1 self-stretch rounded-full shrink-0" style={{ background: col.hex }} />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-foreground break-words">
+                        {e.description?.trim() || <span className="italic text-muted-foreground/35">No description</span>}
+                      </p>
+                      <div className="flex flex-wrap gap-1.5 mt-1.5">
+                        {proj && (
+                          <span className={cn('text-[10px] px-2 py-0.5 rounded-md font-semibold border', col.bg, col.text, col.border)}>
+                            {proj.name}
+                          </span>
+                        )}
+                        {sec && (
+                          <span className="text-[10px] text-muted-foreground/55">{sec.name}</span>
+                        )}
+                        <span className="text-[10px] font-mono text-muted-foreground/45">
+                          {e.timeFrom} – {e.timeTo}
+                        </span>
+                        <span className="text-[10px] font-bold tabular-nums">{fmtSecs(e.seconds)}</span>
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -126,15 +398,16 @@ export default function UserDetailPage() {
 
   const [view, setView]             = useState<View>('analytics');
   const [wkOff, setWkOff]           = useState(0);
-  const [entries, setEntries]       = useState<TimesheetWorkEntry[]>([]);
-  const [loadingTS, setLoadingTS]   = useState(false);
-  const [barData, setBarData]       = useState<{ day: string; seconds: number }[]>(
-    DAY_SHORT.map(d => ({ day: d, seconds: 0 }))
-  );
+  const [weekEntries, setWeekEntries] = useState<TimesheetWorkEntry[]>([]);
+  const [loadingWeek, setLoadingWeek] = useState(false);
+  const [dayDetailDate, setDayDetailDate] = useState<string | null>(null);
 
   const TODAY = isoToday();
-  const WD    = weekOf(wkOff);
-  const visWD = WD.filter(d => d <= TODAY);
+  const WD    = useMemo(() => weekOf(wkOff), [wkOff]);
+  const visWD = useMemo(() => {
+    if (wkOff < 0) return WD;
+    return WD.filter(d => d <= TODAY);
+  }, [wkOff, WD, TODAY]);
 
   const user = users.find(u => u.id === userId);
 
@@ -189,49 +462,87 @@ export default function UserDetailPage() {
     }),
   [userProjects, userTasks]);
 
-  // ── fetch this-week hours ─────────────────────────────────────────────────
+  const tasksByProject = useMemo(
+    () =>
+      userProjects
+        .map(p => ({
+          project: p,
+          tasks: userTasks.filter(t => t.projectId === p.id),
+        }))
+        .filter(x => x.tasks.length > 0)
+        .sort((a, b) => b.tasks.length - a.tasks.length),
+    [userProjects, userTasks],
+  );
+
+  const barData = useMemo(
+    () =>
+      WD.map((iso, i) => ({
+        day: DAY_SHORT[i],
+        isoDate: iso,
+        seconds: weekEntries.filter(e => e.workDate === iso).reduce((a, e) => a + e.seconds, 0),
+      })),
+    [WD, weekEntries],
+  );
+
+  const weekHrs = useMemo(
+    () =>
+      (wkOff < 0 ? WD : WD.filter(d => d <= TODAY)).reduce(
+        (sum, iso) => sum + weekEntries.filter(e => e.workDate === iso).reduce((a, e) => a + e.seconds, 0),
+        0,
+      ),
+    [WD, weekEntries, wkOff, TODAY],
+  );
+
+  const weekProjectHours = useMemo(
+    () => projectHoursForWeek(weekEntries, WD, projects),
+    [weekEntries, WD, projects],
+  );
+
+  const daysWithLogs = useMemo(
+    () => WD.filter(iso => weekEntries.some(e => e.workDate === iso)).length,
+    [WD, weekEntries],
+  );
+
+  useEffect(() => {
+    setDayDetailDate(null);
+  }, [wkOff]);
 
   useEffect(() => {
     if (!userId) return;
     let cancel = false;
-    const wd0 = weekOf(0);
+    setLoadingWeek(true);
     void (async () => {
       try {
-        const list = await api.getTimesheetWorkEntriesForUser(userId, wd0[0], wd0[6]);
+        const list = await api.getTimesheetWorkEntriesForUser(userId, WD[0], WD[6]);
         if (cancel) return;
-        setBarData(wd0.map((d, i) => ({
-          day: DAY_SHORT[i],
-          seconds: list.filter(e => e.workDate === d && d <= TODAY).reduce((a, e) => a + e.seconds, 0),
-        })));
-      } catch { /* keep zeroes */ }
+        setWeekEntries(list);
+      } catch (e) {
+        if (!cancel) {
+          setWeekEntries([]);
+          toast.error(e instanceof Error ? e.message : 'Could not load timesheet');
+        }
+      } finally {
+        if (!cancel) setLoadingWeek(false);
+      }
     })();
-    return () => { cancel = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
-
-  const weekHrs = barData.reduce((a, d) => a + d.seconds, 0);
-
-  // ── timesheet fetch ───────────────────────────────────────────────────────
-
-  const fetchTS = useCallback(async () => {
-    if (!userId) return;
-    setLoadingTS(true);
-    try { setEntries(await api.getTimesheetWorkEntriesForUser(userId, WD[0], WD[6])); }
-    catch (e) { toast.error(e instanceof Error ? e.message : 'Could not load timesheet'); }
-    finally { setLoadingTS(false); }
-  }, [userId, WD[0], WD[6]]);
-
-  useEffect(() => { if (view === 'timesheet') void fetchTS(); }, [view, fetchTS]);
+    return () => {
+      cancel = true;
+    };
+  }, [userId, WD]);
 
   const dayView = visWD
     .map(date => {
       const idx = WD.indexOf(date);
-      const es  = entries.filter(e => e.workDate === date);
+      const es  = weekEntries.filter(e => e.workDate === date);
       return { date, day: DAY_LONG[idx], es, total: es.reduce((a, e) => a + e.seconds, 0) };
     })
     .sort((a, b) => b.date.localeCompare(a.date));
 
-  const wkTotal  = entries.filter(e => e.workDate <= TODAY).reduce((a, e) => a + e.seconds, 0);
+  const wkTotal = useMemo(() => {
+    if (wkOff < 0) return weekEntries.reduce((a, e) => a + e.seconds, 0);
+    return weekEntries.filter(e => e.workDate <= TODAY).reduce((a, e) => a + e.seconds, 0);
+  }, [weekEntries, wkOff, TODAY]);
+
   const wkLabel  = visWD.length
     ? `${fmtISO(visWD[0])} — ${fmtISO(visWD[visWD.length-1])}`
     : `${fmtISO(WD[0])} — ${fmtISO(WD[6])}`;
@@ -317,6 +628,177 @@ export default function UserDetailPage() {
               className="space-y-5"
             >
 
+              {/* ── Weekly work (hero) ─────────────────────────────────── */}
+              <motion.div
+                initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+                transition={pageEnter}
+                className="rounded-3xl border border-border/50 bg-gradient-to-br from-card via-card to-primary/[0.03] p-1 shadow-[0_20px_60px_-24px_rgba(0,0,0,0.45)]"
+              >
+                <div className="rounded-[1.35rem] border border-border/40 bg-card/80 backdrop-blur-sm p-6 sm:p-8 space-y-6">
+                  <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-5">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 text-primary">
+                        <Sparkles className="h-5 w-5" />
+                        <span className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground/60">Workload</span>
+                      </div>
+                      <h2 className="text-2xl font-bold tracking-tight text-foreground">Week at a glance</h2>
+                      <p className="text-sm text-muted-foreground/55 max-w-xl">
+                        Navigate weeks, hover a day for project breakdown, click a bar to open a 24-hour timeline of timesheet blocks.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row flex-wrap items-stretch gap-3">
+                      <div className="flex items-center rounded-2xl border border-border/45 bg-muted/15 px-1.5 py-1.5 gap-0.5 shadow-inner">
+                        <motion.button type="button" transition={snappy} whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}
+                          onClick={() => setWkOff(w => w - 1)}
+                          className="p-2.5 rounded-xl hover:bg-background/80 transition-colors"
+                          aria-label="Previous week">
+                          <ChevronLeft className="h-4 w-4 text-muted-foreground" />
+                        </motion.button>
+                        <span className="min-w-[200px] sm:min-w-[240px] text-center px-2">
+                          <span className="text-sm font-semibold text-foreground/90">{wkLabel}</span>
+                          {loadingWeek && (
+                            <span className="block text-[10px] text-muted-foreground/35 mt-0.5">Loading…</span>
+                          )}
+                        </span>
+                        <motion.button type="button" transition={snappy} whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}
+                          onClick={() => setWkOff(w => Math.min(0, w + 1))}
+                          disabled={wkOff >= 0}
+                          className="p-2.5 rounded-xl hover:bg-background/80 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+                          aria-label="Next week">
+                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        </motion.button>
+                      </div>
+                      {wkOff !== 0 && (
+                        <button type="button" onClick={() => setWkOff(0)}
+                          className="rounded-2xl border border-primary/25 bg-primary/10 px-4 py-2.5 text-xs font-semibold text-primary hover:bg-primary/15 transition-colors">
+                          Jump to this week
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {[0, -1, -2, -3, -4].map(off => (
+                      <button
+                        key={off}
+                        type="button"
+                        onClick={() => setWkOff(off)}
+                        className={cn(
+                          'rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-all',
+                          wkOff === off
+                            ? 'border-primary/40 bg-primary/15 text-primary shadow-sm'
+                            : 'border-border/50 bg-muted/20 text-muted-foreground hover:text-foreground hover:border-border',
+                        )}
+                      >
+                        {off === 0 ? 'This week' : `${Math.abs(off)} week${Math.abs(off) === 1 ? '' : 's'} ago`}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div className="lg:col-span-2 space-y-3">
+                      <div className="h-56 sm:h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart
+                            data={barData}
+                            barCategoryGap="32%"
+                            margin={{ top: 8, right: 8, bottom: 4, left: -18 }}
+                            onClick={state => {
+                              const p = state?.activePayload?.[0]?.payload as
+                                | { isoDate?: string; seconds?: number }
+                                | undefined;
+                              if (!p?.isoDate || !(p.seconds > 0)) return;
+                              if (wkOff === 0 && p.isoDate > TODAY) return;
+                              setDayDetailDate(p.isoDate);
+                            }}
+                          >
+                            <XAxis
+                              dataKey="day"
+                              axisLine={false}
+                              tickLine={false}
+                              tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))', opacity: 0.55 }}
+                            />
+                            <YAxis
+                              tickFormatter={v => (v > 0 ? `${Math.floor(v / 3600)}h` : '')}
+                              axisLine={false}
+                              tickLine={false}
+                              tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))', opacity: 0.4 }}
+                            />
+                            <RTooltip
+                              content={<WeeklyBarTooltip projects={projects} entries={weekEntries} />}
+                              cursor={{ fill: 'hsl(var(--muted))', opacity: 0.22, radius: 8 }}
+                            />
+                            <Bar dataKey="seconds" name="Logged" radius={[8, 8, 0, 0]} cursor="pointer">
+                              {barData.map((d, i) => {
+                                const isFuture = wkOff === 0 && d.isoDate > TODAY;
+                                const isTodayCell = d.isoDate === TODAY;
+                                let fill = 'hsl(var(--muted) / 0.38)';
+                                if (isFuture) fill = 'hsl(var(--muted) / 0.12)';
+                                else if (d.seconds > 0)
+                                  fill = isTodayCell ? 'hsl(var(--primary))' : 'hsl(var(--primary) / 0.42)';
+                                return <Cell key={i} fill={fill} className={isFuture ? 'opacity-60' : undefined} />;
+                              })}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground/40 text-center">
+                        Tip: Click any bar with logged time to see that day on a 24h axis.
+                      </p>
+                    </div>
+
+                    <div className="space-y-5">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="rounded-2xl border border-border/40 bg-muted/10 p-4">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/45">Week total</p>
+                          <p className="text-xl font-bold tabular-nums text-foreground mt-1">{fmtSecs(weekHrs)}</p>
+                        </div>
+                        <div className="rounded-2xl border border-border/40 bg-muted/10 p-4">
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/45">Days w/ logs</p>
+                          <p className="text-xl font-bold tabular-nums text-foreground mt-1">{daysWithLogs}<span className="text-muted-foreground/35 text-sm font-medium"> / {wkOff < 0 ? 7 : visWD.length}</span></p>
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-foreground mb-3 flex items-center gap-2">
+                          <Clock className="h-3.5 w-3.5 text-primary/70" />
+                          Hours by project
+                        </p>
+                        {weekProjectHours.length === 0 ? (
+                          <p className="text-xs text-muted-foreground/35 italic py-4">No time logged this range.</p>
+                        ) : (
+                          <ul className="space-y-3 max-h-[220px] overflow-y-auto pr-1">
+                            {weekProjectHours.map(row => {
+                              const col = projColor(row.projectId);
+                              const pct = weekHrs > 0 ? Math.round((row.seconds / weekHrs) * 100) : 0;
+                              return (
+                                <li key={row.projectId}>
+                                  <div className="flex items-center justify-between gap-2 mb-1">
+                                    <span className={cn('truncate text-[11px] font-semibold px-2 py-0.5 rounded-lg border max-w-[70%]', col.bg, col.text, col.border)}>
+                                      {row.name}
+                                    </span>
+                                    <span className="text-[11px] font-bold tabular-nums shrink-0">{fmtSecs(row.seconds)}</span>
+                                  </div>
+                                  <div className="h-1.5 rounded-full bg-muted/30 overflow-hidden">
+                                    <motion.div
+                                      initial={{ width: 0 }}
+                                      animate={{ width: `${pct}%` }}
+                                      transition={{ duration: 0.65, ease: [0.34, 1.56, 0.64, 1] }}
+                                      className="h-full rounded-full"
+                                      style={{ background: col.hex }}
+                                    />
+                                  </div>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+
               {/* ── Row 1 : 4 KPI cards ───────────────────────────────── */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 {[
@@ -373,65 +855,13 @@ export default function UserDetailPage() {
                 ))}
               </div>
 
-              {/* ── Row 2 : bar chart (2/3) + donut (1/3) ────────────── */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-
-                {/* Weekly activity bar chart */}
-                <motion.div
-                  initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }}
-                  transition={{ ...pageEnter, delay: 0.18 }}
-                  className="lg:col-span-2 rounded-2xl border border-border/60 bg-card p-6"
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <div>
-                      <h2 className="text-sm font-semibold text-foreground">Hours logged this week</h2>
-                      <p className="text-xs text-muted-foreground/50 mt-0.5">
-                        {weekHrs > 0 ? `${fmtSecs(weekHrs)} total` : 'No hours logged yet'}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground/50">
-                      <Clock className="h-3.5 w-3.5" />
-                      Current week
-                    </div>
-                  </div>
-
-                  <div className="mt-4 h-52">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={barData} barCategoryGap="35%" margin={{ top: 4, right: 0, bottom: 0, left: -20 }}>
-                        <XAxis
-                          dataKey="day"
-                          axisLine={false} tickLine={false}
-                          tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))', opacity: 0.5 }}
-                        />
-                        <YAxis
-                          tickFormatter={v => v > 0 ? `${Math.floor(v/3600)}h` : ''}
-                          axisLine={false} tickLine={false}
-                          tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))', opacity: 0.4 }}
-                        />
-                        <RTooltip
-                          content={<ChartTooltip />}
-                          formatter={(v: number) => [fmtSecs(v), 'Logged']}
-                          cursor={{ fill: 'hsl(var(--muted))', opacity: 0.3, radius: 6 }}
-                        />
-                        <Bar dataKey="seconds" name="Logged" radius={[6, 6, 0, 0]}>
-                          {barData.map((d, i) => {
-                            const isToday = weekOf(0)[i] === TODAY;
-                            return (
-                              <Cell key={i}
-                                fill={isToday ? 'hsl(var(--primary))' : d.seconds > 0 ? 'hsl(var(--primary) / 0.35)' : 'hsl(var(--muted) / 0.4)'}
-                              />
-                            );
-                          })}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </motion.div>
+              {/* ── Task status + week snapshot ───────────────────────── */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
                 {/* Status donut */}
                 <motion.div
-                  initial={{ opacity: 0, x: 16 }} animate={{ opacity: 1, x: 0 }}
-                  transition={{ ...pageEnter, delay: 0.22 }}
+                  initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
+                  transition={{ ...pageEnter, delay: 0.12 }}
                   className="rounded-2xl border border-border/60 bg-card p-6 flex flex-col"
                 >
                   <div className="mb-1">
@@ -484,6 +914,29 @@ export default function UserDetailPage() {
                       </div>
                     </>
                   )}
+                </motion.div>
+
+                <motion.div
+                  initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }}
+                  transition={{ ...pageEnter, delay: 0.16 }}
+                  className="rounded-2xl border border-border/60 bg-card p-6 flex flex-col justify-center"
+                >
+                  <h2 className="text-sm font-semibold text-foreground mb-1">Timesheet snapshot</h2>
+                  <p className="text-xs text-muted-foreground/50 mb-6">For the week shown in Workload above</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="rounded-xl border border-border/35 bg-muted/10 p-4">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/45">Entries</p>
+                      <p className="text-2xl font-bold text-foreground mt-1 tabular-nums">{weekEntries.length}</p>
+                      <p className="text-[11px] text-muted-foreground/40 mt-1">logged blocks</p>
+                    </div>
+                    <div className="rounded-xl border border-border/35 bg-muted/10 p-4">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/45">Avg / active day</p>
+                      <p className="text-2xl font-bold text-foreground mt-1 tabular-nums">
+                        {daysWithLogs ? fmtSecs(Math.round(weekHrs / daysWithLogs)) : '—'}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground/40 mt-1">when days have logs</p>
+                    </div>
+                  </div>
                 </motion.div>
               </div>
 
@@ -572,10 +1025,171 @@ export default function UserDetailPage() {
                 </motion.div>
               </div>
 
+              {/* ── Tasks by project ───────────────────────────────────── */}
+              <motion.div
+                initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}
+                transition={{ ...pageEnter, delay: 0.32 }}
+                className="rounded-2xl border border-border/60 bg-card p-6 sm:p-7"
+              >
+                <div className="flex items-start justify-between gap-4 flex-wrap mb-5">
+                  <div>
+                    <div className="flex items-center gap-2 text-primary mb-1">
+                      <FolderKanban className="h-4 w-4" />
+                      <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/50">Portfolio</span>
+                    </div>
+                    <h2 className="text-lg font-semibold text-foreground">Tasks by project</h2>
+                    <p className="text-xs text-muted-foreground/50 mt-1 max-w-lg">
+                      Every task assigned to or raised by this person, grouped under the project it belongs to.
+                    </p>
+                  </div>
+                  <span className="text-xs font-semibold tabular-nums text-muted-foreground/45 border border-border/40 rounded-full px-3 py-1">
+                    {tasksByProject.length} project{tasksByProject.length !== 1 ? 's' : ''}
+                  </span>
+                </div>
+
+                {tasksByProject.length === 0 ? (
+                  <p className="text-sm text-muted-foreground/35 italic py-6 text-center">No project tasks yet.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {tasksByProject.map(({ project: p, tasks: pt }, gi) => {
+                      const col = projColor(p.id);
+                      const open = pt.filter(t => t.status !== 'completed').length;
+                      return (
+                        <motion.div
+                          key={p.id}
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ ...pageEnter, delay: Math.min(0.04 * gi, 0.35) }}
+                        >
+                        <details
+                          className="group rounded-2xl border border-border/45 bg-muted/[0.12] overflow-hidden open:bg-muted/15 transition-colors"
+                        >
+                          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 sm:px-5 [&::-webkit-details-marker]:hidden">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <span className={cn('shrink-0 rounded-xl border px-2.5 py-1 text-xs font-bold', col.bg, col.text, col.border)}>
+                                {p.name}
+                              </span>
+                              <span className="text-xs text-muted-foreground/50 tabular-nums">
+                                {pt.length} task{pt.length !== 1 ? 's' : ''} · {open} active
+                              </span>
+                            </div>
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/35 group-open:text-primary/80">
+                              Toggle
+                            </span>
+                          </summary>
+                          <div className="border-t border-border/30 px-4 py-3 sm:px-5 space-y-2 bg-background/30">
+                            {pt
+                              .slice()
+                              .sort((a, b) => {
+                                const ad = a.status === 'completed' ? 1 : 0;
+                                const bd = b.status === 'completed' ? 1 : 0;
+                                if (ad !== bd) return ad - bd;
+                                return a.dueDate.localeCompare(b.dueDate);
+                              })
+                              .map(t => {
+                                const sm = STATUS_META[t.status];
+                                const pm = PRIORITY_META[t.priority];
+                                const isDone = t.status === 'completed';
+                                return (
+                                  <div
+                                    key={t.id}
+                                    className={cn(
+                                      'flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 rounded-xl border border-border/25 px-3 py-2.5',
+                                      isDone ? 'opacity-70' : '',
+                                    )}
+                                  >
+                                    <p className={cn('text-sm font-medium text-foreground min-w-0 flex-1 truncate', isDone && 'line-through decoration-muted-foreground/25')}>
+                                      {t.title}
+                                    </p>
+                                    <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                                      <span className={cn('text-[10px] px-2 py-0.5 rounded-full font-bold border', pm.bg, pm.text, pm.border)}>
+                                        {t.priority}
+                                      </span>
+                                      <span className={cn(
+                                        'text-[10px] px-2.5 py-0.5 rounded-full font-bold border whitespace-nowrap',
+                                        isDone
+                                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                          : `${sm?.bg ?? 'bg-muted/20'} ${sm?.text ?? 'text-muted-foreground'} border-border/30`,
+                                      )}>
+                                        {isDone ? 'Done' : (sm?.label ?? t.status)}
+                                      </span>
+                                      {!isDone && (
+                                        <span className="text-[10px] font-mono text-muted-foreground/40">Due {fmtISO(t.dueDate)}</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        </details>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                )}
+              </motion.div>
+
+              {/* ── Completed work ─────────────────────────────────────── */}
+              <motion.div
+                initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}
+                transition={{ ...pageEnter, delay: 0.36 }}
+                className="rounded-2xl border border-border/60 bg-gradient-to-br from-emerald-500/[0.04] via-card to-card p-6 sm:p-7"
+              >
+                <div className="flex items-start justify-between gap-4 flex-wrap mb-5">
+                  <div>
+                    <div className="flex items-center gap-2 text-emerald-500/80 mb-1">
+                      <Trophy className="h-4 w-4" />
+                      <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/50">Shipped</span>
+                    </div>
+                    <h2 className="text-lg font-semibold text-foreground">Completed tasks</h2>
+                    <p className="text-xs text-muted-foreground/50 mt-1">
+                      Work this teammate has already finished — newest completions first.
+                    </p>
+                  </div>
+                  <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                    {doneTasks.length}
+                  </span>
+                </div>
+
+                {doneTasks.length === 0 ? (
+                  <p className="text-sm text-muted-foreground/35 italic py-6 text-center">No completed tasks yet.</p>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {[...doneTasks]
+                      .sort((a, b) => (b.completedAt ?? '').localeCompare(a.completedAt ?? ''))
+                      .map((t, i) => {
+                        const proj = projects.find(p => p.id === t.projectId);
+                        const col = proj ? projColor(proj.id) : PROJECT_PALETTE[0];
+                        return (
+                          <motion.div
+                            key={t.id}
+                            initial={{ opacity: 0, scale: 0.98 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            transition={{ ...pageEnter, delay: Math.min(i * 0.03, 0.35) }}
+                            className="rounded-2xl border border-border/50 bg-card/90 p-4 flex flex-col gap-2 shadow-sm"
+                          >
+                            <p className="text-sm font-semibold text-foreground leading-snug">{t.title}</p>
+                            <div className="flex flex-wrap items-center gap-2">
+                              {proj && (
+                                <span className={cn('text-[10px] px-2 py-0.5 rounded-md font-semibold border', col.bg, col.text, col.border)}>
+                                  {proj.name}
+                                </span>
+                              )}
+                              <span className="text-[10px] font-mono text-muted-foreground/40">
+                                {t.completedAt ? `Completed ${fmtISO(t.completedAt.slice(0, 10))}` : `Due ${fmtISO(t.dueDate)}`}
+                              </span>
+                            </div>
+                          </motion.div>
+                        );
+                      })}
+                  </div>
+                )}
+              </motion.div>
+
               {/* ── Row 4 : task table ─────────────────────────────────── */}
               <motion.div
                 initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
-                transition={{ ...pageEnter, delay: 0.34 }}
+                transition={{ ...pageEnter, delay: 0.38 }}
                 className="rounded-2xl border border-border/60 bg-card overflow-hidden"
               >
                 {/* header */}
@@ -685,7 +1299,7 @@ export default function UserDetailPage() {
                   </motion.button>
                   <span className="min-w-[210px] text-center text-sm font-medium text-foreground/80 px-2">
                     {wkLabel}
-                    {loadingTS && <span className="text-xs text-muted-foreground/40 ml-1">…</span>}
+                    {loadingWeek && <span className="text-xs text-muted-foreground/40 ml-1">…</span>}
                   </span>
                   <motion.button type="button" transition={snappy} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
                     onClick={() => setWkOff(w => Math.min(0, w + 1))} disabled={wkOff >= 0}
@@ -786,6 +1400,16 @@ export default function UserDetailPage() {
           )}
 
         </AnimatePresence>
+
+        <DayTimelineDialog
+          open={dayDetailDate !== null}
+          onOpenChange={open => {
+            if (!open) setDayDetailDate(null);
+          }}
+          isoDate={dayDetailDate}
+          entries={weekEntries}
+          projects={projects}
+        />
       </div>
     </div>
   );

@@ -45,7 +45,7 @@ const AppNavbar = () => {
             <option value="">No projects</option>
           ) : (
             <>
-              <option value="all">All Projects</option>
+              <option value="all">All projects</option>
               {userProjects.map(p => (
                 <option key={p.id} value={p.id}>
                   {projectPickerLabel(p)}

@@ -1,14 +1,17 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
+import { BrowserRouter, Route, Routes, Navigate, useNavigate } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAppStore } from "@/stores/appStore";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import { toast } from "sonner";
+import { consumePendingMicrosoftAuth } from "@/lib/microsoftAuth";
 import LoginPage from "./pages/LoginPage";
 import SignUpPage from "./pages/SignUpPage";
 import DashboardPage from "./pages/DashboardPage";
 import MyTasksPage from "./pages/MyTasksPage";
 import TimesheetPage from "./pages/TimesheetPage";
+import TimeReportPage from "./pages/TimeReportPage";
 import UsersPage from "./pages/UsersPage";
 import UserDetailPage from "./pages/UserDetailPage";
 import ManageEmployeesPage from "./pages/ManageEmployeesPage";
@@ -61,6 +64,39 @@ function BootstrapGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/** Finish Microsoft redirect login after MSAL consumed the URL hash in `main.tsx` (sessionStorage pending). */
+function MsalRedirectResume() {
+  const loginWithMicrosoft = useAppStore(s => s.loginWithMicrosoft);
+  const navigate = useNavigate();
+  const ran = useRef(false);
+  useEffect(() => {
+    if (ran.current) return;
+    const pending = consumePendingMicrosoftAuth();
+    if (!pending) return;
+    ran.current = true;
+    void (async () => {
+      try {
+        if (pending.flow === 'signup') {
+          const user = await loginWithMicrosoft(pending.idToken, false, pending.role ?? undefined);
+          if (user) {
+            toast.success(`Welcome to ZET, ${user.name}!`);
+            navigate("/", { replace: true });
+          }
+        } else {
+          const user = await loginWithMicrosoft(pending.idToken, pending.rememberMe);
+          if (user) {
+            toast.success(`Welcome back, ${user.name}!`);
+            navigate("/", { replace: true });
+          }
+        }
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Microsoft sign-in failed.");
+      }
+    })();
+  }, [loginWithMicrosoft, navigate]);
+  return null;
+}
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
@@ -68,12 +104,14 @@ const App = () => (
       <ThemeHandler />
       <BootstrapGate>
       <BrowserRouter>
+        <MsalRedirectResume />
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignUpPage />} />
           <Route path="/" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
           <Route path="/tasks" element={<ProtectedRoute><MyTasksPage /></ProtectedRoute>} />
           <Route path="/timesheet" element={<ProtectedRoute><TimesheetPage /></ProtectedRoute>} />
+          <Route path="/reports" element={<ProtectedRoute><TimeReportPage /></ProtectedRoute>} />
           <Route path="/users" element={<ProtectedRoute managerOnly><UsersPage /></ProtectedRoute>} />
           <Route path="/users/:userId" element={<ProtectedRoute managerOnly><UserDetailPage /></ProtectedRoute>} />
           <Route path="/manage" element={<ProtectedRoute managerOnly><ManageEmployeesPage /></ProtectedRoute>} />

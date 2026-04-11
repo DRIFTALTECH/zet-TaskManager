@@ -43,9 +43,9 @@ const AppSidebar = () => {
         {/* Logo */}
         <div className="flex items-center gap-2 px-4 h-14 border-b border-border">
           <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-            <span className="text-sm font-bold text-primary">T</span>
+            <span className="text-sm font-bold text-primary">Z</span>
           </div>
-          <span className={`font-bold text-lg tracking-tight text-foreground whitespace-nowrap transition-opacity duration-200 ${expanded ? 'opacity-100' : 'opacity-0'}`}>TaskFlow</span>
+          <span className={`font-bold text-lg tracking-tight text-foreground whitespace-nowrap transition-opacity duration-200 ${expanded ? 'opacity-100' : 'opacity-0'}`}>ZET</span>
         </div>
 
         {/* Nav */}

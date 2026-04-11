@@ -1,7 +1,7 @@
 import { useAppStore } from '@/stores/appStore';
 import { useLocation, Link } from 'react-router-dom';
-import { LayoutDashboard, ListTodo, Clock, Users, FolderKanban, Settings, LogOut } from 'lucide-react';
-import { TaskFlowLogo } from '@/components/brand/TaskFlowLogo';
+import { LayoutDashboard, ListTodo, Clock, BarChart3, Users, FolderKanban, Settings, LogOut } from 'lucide-react';
+import { ZetLogo } from '@/components/brand/ZetLogo';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import UserAvatar from '@/components/UserAvatar';
@@ -10,6 +10,7 @@ const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/tasks', label: 'My Tasks', icon: ListTodo },
   { path: '/timesheet', label: 'Timesheet', icon: Clock },
+  { path: '/reports', label: 'Time report', icon: BarChart3 },
   { path: '/users', label: 'Users', icon: Users, managerOnly: true },
   { path: '/manage', label: 'Manage projects', icon: FolderKanban, managerOnly: true },
 ];
@@ -37,7 +38,7 @@ const AppSidebar = () => {
       >
         {/* Logo */}
         <div className="flex items-center gap-2 px-4 h-14 border-b border-border shrink-0">
-          <TaskFlowLogo iconOnly={!expanded} className="min-w-0" />
+          <ZetLogo iconOnly={!expanded} className="min-w-0" />
         </div>
 
         {/* Nav */}

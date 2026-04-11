@@ -1,5 +1,5 @@
 import json
-from datetime import date
+from datetime import date, datetime, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -120,6 +120,8 @@ def create_task(db: Session, current_user_id: str, body: TaskCreate) -> TaskOut:
         )
     tid = new_id("t")
     today = date.today().isoformat()
+    created_at = datetime.now(timezone.utc).isoformat()
+    due = (body.dueDate or "").strip() or today
     primary = assignee_ids[0]
     t = tasks_crud.create_task(
         db,
@@ -131,14 +133,14 @@ def create_task(db: Session, current_user_id: str, body: TaskCreate) -> TaskOut:
         assigned_to=primary,
         assigned_by=body.assignedBy,
         created_by=body.createdBy,
-        due_date=body.dueDate,
+        due_date=due,
         priority=body.priority,
         status="backlog",
         is_started=False,
         approved_by_manager=False,
         time_tracked=0,
         tags=body.tags,
-        created_at=today,
+        created_at=created_at,
     )
     assignees_crud.set_assignees(db, tid, assignee_ids)
     return to_task_out(db, t, current_user_id)

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { User, Project, Task, TaskStatus, KanbanColumn, Role } from '@/types';
 import { api, TOKEN_KEY } from '@/lib/api';
+import { defaultSelectedProjectIdForUser } from '@/lib/project-utils';
 
 const ACTIVE_TIMERS_KEY = 'tm_active_timers';
 function loadTimers(): Record<string, number> {
@@ -22,6 +23,7 @@ interface AppState {
   currentUser: User | null;
   login: (email: string, password: string, rememberMe?: boolean) => Promise<User | null>;
   register: (name: string, email: string, password: string, role?: Role) => Promise<User | null>;
+  loginWithMicrosoft: (idToken: string, rememberMe?: boolean, role?: Role) => Promise<User | null>;
   logout: () => void;
   updateProfile: (name: string, avatar: string) => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
@@ -112,7 +114,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         projects,
         tasks,
         kanbanColumns,
-        selectedProjectId: me.projectIds[0] ?? null,
+        selectedProjectId: defaultSelectedProjectIdForUser(projects, me.projectIds),
       });
     } catch {
       localStorage.removeItem(TOKEN_KEY);
@@ -147,7 +149,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         projects,
         tasks,
         kanbanColumns,
-        selectedProjectId: user.projectIds[0] ?? null,
+        selectedProjectId: defaultSelectedProjectIdForUser(projects, user.projectIds),
         hydrated: true,
       });
       return user;
@@ -173,13 +175,34 @@ export const useAppStore = create<AppState>((set, get) => ({
         projects,
         tasks,
         kanbanColumns,
-        selectedProjectId: user.projectIds[0] ?? null,
+        selectedProjectId: defaultSelectedProjectIdForUser(projects, user.projectIds),
         hydrated: true,
       });
     } catch {
       // Data loading failed but account was created — set minimal state
       set({ currentUser: user, hydrated: true });
     }
+    return user;
+  },
+
+  loginWithMicrosoft: async (idToken, rememberMe = false, role) => {
+    const { access_token, user } = await api.loginMicrosoft(idToken, rememberMe, role);
+    localStorage.setItem(TOKEN_KEY, access_token);
+    const [users, projects, tasks, kanbanColumns] = await Promise.all([
+      api.getUsers(),
+      api.getProjects(),
+      api.getTasks(),
+      api.getKanbanColumns(),
+    ]);
+    set({
+      currentUser: user,
+      users,
+      projects,
+      tasks,
+      kanbanColumns,
+      selectedProjectId: defaultSelectedProjectIdForUser(projects, user.projectIds),
+      hydrated: true,
+    });
     return user;
   },
 
@@ -358,11 +381,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     if (!task) return;
 
-    // Log time on the task
+    // Only persist when the session ran longer than 1 minute (no task log or timesheet row otherwise)
+    if (elapsedSeconds <= 60) return;
+
     const updatedTask = await api.logTime(taskId, workDate, elapsedSeconds);
     set({ tasks: get().tasks.map(x => (x.id === taskId ? updatedTask : x)) });
 
-    // Create a matching timesheet entry
     try {
       await api.createTimesheetWorkEntry({
         workDate,
@@ -373,7 +397,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         timeTo,
       });
     } catch {
-      // Timesheet entry creation is best-effort
+      /* best-effort */
     }
   },
 

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-TaskManager is a full-stack task management application with a React/TypeScript frontend and FastAPI/Python backend.
+**ZET** is a full-stack task management application with a React/TypeScript frontend and FastAPI/Python backend.
 
 ## Commands
 
@@ -26,6 +26,14 @@ uvicorn main:app --reload  # Start API server on port 8000
 ```
 
 The frontend proxies `/api` requests to `http://127.0.0.1:8000`. The `.env` file in `/frontend` sets `VITE_API_URL=http://127.0.0.1:8000`.
+
+### Microsoft sign-in (Entra / Azure AD)
+
+1. In **Azure Portal** → App registrations → New registration → **Single-page application (SPA)**; note the **Application (client) ID**.
+2. **Authentication** → add a **Single-page application** redirect URI matching the app origin (e.g. `http://localhost:8080/` for local Vite).
+3. Set **`MICROSOFT_CLIENT_ID`** on the backend (same value as the app client ID). Optional: **`VITE_MICROSOFT_TENANT_ID`** on the frontend (defaults to `common` for multi-tenant); use a directory tenant ID for single-tenant only.
+4. Frontend **`.env`**: `VITE_MICROSOFT_CLIENT_ID=<same client id>` (and optional tenant). The **Log in / Sign up with Microsoft** buttons appear only when `VITE_MICROSOFT_CLIENT_ID` is set.
+5. API: `POST /auth/microsoft` with `{ id_token, remember_me?, role? }` — validates the token with Microsoft JWKS and issues the app JWT.
 
 ## Architecture
 

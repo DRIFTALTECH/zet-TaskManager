@@ -39,17 +39,17 @@ function TaskTimerButton({ task, currentUserId }: { task: Task; currentUserId: s
   return isActive ? (
     <button
       onClick={e => { e.stopPropagation(); void stopTimer(task.id); }}
-      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-destructive/15 text-destructive text-xs font-semibold border border-destructive/20 hover:bg-destructive/25 transition-colors"
+      className="flex items-center gap-2 px-4 py-2 min-h-10 rounded-lg bg-destructive/15 text-destructive text-sm font-semibold border border-destructive/20 hover:bg-destructive/25 transition-colors"
     >
-      <Square className="h-3 w-3 fill-current" />
+      <Square className="h-4 w-4 fill-current shrink-0" />
       Stop · {elapsed}
     </button>
   ) : (
     <button
       onClick={e => { e.stopPropagation(); void startTimer(task.id); }}
-      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary/10 text-primary text-xs font-semibold border border-primary/20 hover:bg-primary/20 transition-colors"
+      className="flex items-center gap-2 px-4 py-2 min-h-10 rounded-lg bg-primary/10 text-primary text-sm font-semibold border border-primary/20 hover:bg-primary/20 transition-colors"
     >
-      <Play className="h-3 w-3 fill-current" />
+      <Play className="h-4 w-4 fill-current shrink-0" />
       Start
     </button>
   );

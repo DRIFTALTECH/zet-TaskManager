@@ -63,11 +63,11 @@ def get_db():
 # Helpful surface misconfiguration early (permissions, read-only FS)
 if not os.access(_DB_FILE.parent, os.W_OK):
     raise RuntimeError(
-        f"TaskManager database directory is not writable: {_DB_FILE.parent}. "
+        f"ZET database directory is not writable: {_DB_FILE.parent}. "
         "Fix permissions or set TASKMANAGER_SQLITE_PATH to a writable path."
     )
 if _DB_FILE.exists() and not os.access(_DB_FILE, os.W_OK):
     raise RuntimeError(
-        f"TaskManager database file is not writable: {_DB_FILE}. "
+        f"ZET database file is not writable: {_DB_FILE}. "
         "Run: chmod u+w on the file and data directory, or set TASKMANAGER_SQLITE_PATH."
     )

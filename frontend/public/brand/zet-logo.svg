@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 36" fill="none" aria-hidden="true">
+  <path
+    d="M4 8h18M4 22h18M20.5 8L5.5 22"
+    stroke="url(#zetZ)"
+    stroke-width="3.2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <text
+    x="34"
+    y="25"
+    fill="#0f172a"
+    font-family="system-ui, -apple-system, Segoe UI, sans-serif"
+    font-size="20"
+    font-weight="800"
+    letter-spacing="-0.04em"
+  >ZET</text>
+  <defs>
+    <linearGradient id="zetZ" x1="4" y1="8" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+  </defs>
+</svg>

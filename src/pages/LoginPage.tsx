@@ -46,9 +46,9 @@ const LoginPage = () => {
       >
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-primary/10 mb-4">
-            <span className="text-2xl font-bold text-primary">T</span>
+            <span className="text-2xl font-bold text-primary">Z</span>
           </div>
-          <h1 className="text-3xl font-bold tracking-tight">TaskFlow</h1>
+          <h1 className="text-3xl font-bold tracking-tight">ZET</h1>
           <p className="text-muted-foreground mt-2">Sign in to your workspace</p>
         </div>
 

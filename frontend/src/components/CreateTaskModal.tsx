@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import type { Priority } from '@/types';
 import { Users, Layers, Tag } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { localTodayISO, localTomorrowISO } from '@/lib/due-date-utils';
 
 interface Props {
   open: boolean;
@@ -55,6 +56,10 @@ const CreateTaskModal = ({ open, onOpenChange }: Props) => {
     }
   }, [currentUser, isManager, effectiveProjectId, projects]);
 
+  useEffect(() => {
+    if (open) setDueDate(localTodayISO());
+  }, [open]);
+
   if (!currentUser) return null;
 
   const resetForm = () => {
@@ -63,7 +68,7 @@ const CreateTaskModal = ({ open, onOpenChange }: Props) => {
     setManualProjectId('');
     setSectionId('');
     setAssigneeIds(new Set());
-    setDueDate('');
+    setDueDate(localTodayISO());
     setPriority('Medium');
     setTagsStr('');
   };
@@ -84,11 +89,9 @@ const CreateTaskModal = ({ open, onOpenChange }: Props) => {
   };
 
   const handleSave = async () => {
-    if (!title.trim() || !effectiveProjectId || !sectionId || !dueDate) {
+    if (!title.trim() || !effectiveProjectId || !sectionId) {
       return toast.error(
-        showProjectPicker
-          ? 'Please fill in title, project, section, and due date'
-          : 'Please fill in title, section, and due date',
+        showProjectPicker ? 'Please fill in title, project, and section' : 'Please fill in title and section',
       );
     }
     const ids = isManager ? [...assigneeIds] : [currentUser.id];
@@ -102,7 +105,7 @@ const CreateTaskModal = ({ open, onOpenChange }: Props) => {
         assigneeIds: ids,
         assignedBy: currentUser.id,
         createdBy: currentUser.id,
-        dueDate,
+        dueDate: dueDate.trim() || localTodayISO(),
         priority,
         tags: tagsStr.split(',').map(t => t.trim()).filter(Boolean),
       });
@@ -241,12 +244,42 @@ const CreateTaskModal = ({ open, onOpenChange }: Props) => {
               </div>
             )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="ct-due">
-                  Due date <span className="text-destructive">*</span>
+                <Label>When is it due?</Label>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setDueDate(localTodayISO())}
+                    className={cn(
+                      'text-xs px-3 py-2 rounded-lg border font-semibold transition-all',
+                      dueDate === localTodayISO()
+                        ? 'border-amber-500/60 bg-amber-500/15 text-amber-600 dark:text-amber-100 ring-2 ring-amber-500/40'
+                        : 'border-border/80 bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+                    )}
+                  >
+                    Due today
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDueDate(localTomorrowISO())}
+                    className={cn(
+                      'text-xs px-3 py-2 rounded-lg border font-semibold transition-all',
+                      dueDate === localTomorrowISO()
+                        ? 'border-sky-500/60 bg-sky-500/15 text-sky-600 dark:text-sky-100 ring-2 ring-sky-500/40'
+                        : 'border-border/80 bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+                    )}
+                  >
+                    Due tomorrow
+                  </button>
+                </div>
+                <Label htmlFor="ct-due" className="text-muted-foreground">
+                  Due date
                 </Label>
-                <DateInput id="ct-due" value={dueDate} onChange={setDueDate} required />
+                <DateInput id="ct-due" value={dueDate} onChange={setDueDate} />
+                <p className="text-[10px] text-muted-foreground/70">
+                  Quick picks above, or any date using the field or calendar.
+                </p>
               </div>
               <div className="space-y-2">
                 <Label>Priority</Label>

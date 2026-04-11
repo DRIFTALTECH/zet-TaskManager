@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { taskAssigneeIds, isTaskAssignedTo } from '@/lib/task-utils';
+import { dueBucketDateTextClass, getDueBucket } from '@/lib/due-date-utils';
 import { api } from '@/lib/api';
 import type { TaskFeedback } from '@/types';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -57,6 +58,30 @@ function fmtDate(d: string) {
   try { return new Date(d + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' }); }
   catch { return d; }
 }
+/** createdAt from API: full ISO (new tasks) or legacy YYYY-MM-DD only */
+function parseTaskCreatedAt(createdAt: string): { dateStr: string; timeStr: string | null } | null {
+  if (!createdAt?.trim()) return null;
+  const s = createdAt.trim();
+  const hasClock = /T\d{1,2}:\d{2}/.test(s);
+  const d = new Date(hasClock ? s : `${s}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return { dateStr: createdAt, timeStr: null };
+  const dateStr = d.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+  const timeStr = hasClock
+    ? d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+    : null;
+  return { dateStr, timeStr };
+}
+function fmtTaskCreatedDisplay(createdAt: string): string {
+  const p = parseTaskCreatedAt(createdAt);
+  if (!p) return '';
+  if (p.timeStr) return `Created ${p.dateStr} · ${p.timeStr}`;
+  return `Created ${p.dateStr}`;
+}
+function fmtTaskCreatedTimeline(createdAt: string): string {
+  const p = parseTaskCreatedAt(createdAt);
+  if (!p) return '';
+  return p.timeStr ? `${p.dateStr} · ${p.timeStr}` : p.dateStr;
+}
 function fmtTime(s: number) { const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); return `${h}h ${m}m`; }
 function tsShort(iso: string) { return iso.slice(0, 16).replace('T', ' '); }
 function newRow(): CustomFieldRow { return { localId: crypto.randomUUID(), key: '', value: '' }; }
@@ -71,6 +96,23 @@ function recordFromRows(rows: CustomFieldRow[]): Record<string, string> {
 function sortedKey(ids: string[]) { return [...ids].sort().join('|'); }
 function cfSig(cf?: Record<string, string>) {
   return JSON.stringify(Object.keys(cf || {}).sort().reduce<Record<string, string>>((a, k) => { a[k] = (cf || {})[k]; return a; }, {}));
+}
+
+function useElapsedTime(epochStart: number | null): string {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!epochStart) return;
+    const id = setInterval(() => setTick(n => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [epochStart]);
+  if (!epochStart) return '';
+  const secs = Math.max(0, Math.floor((Date.now() - epochStart) / 1000));
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  if (h > 0) return `${h}:${pad(m)}:${pad(s)}`;
+  return `${pad(m)}:${pad(s)}`;
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -94,7 +136,10 @@ function Avatar({ name, size = 'md' }: { name: string; size?: 'sm' | 'md' | 'lg'
 
 // ═══════════════════════════════════════════════════════════════════════════════
 const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
-  const { users, projects, kanbanColumns, updateTask, currentUser, deleteTask, reopenTaskToBacklog } = useAppStore();
+  const {
+    users, projects, kanbanColumns, updateTask, currentUser, deleteTask, reopenTaskToBacklog,
+    activeTimers, startTimer, stopTimer,
+  } = useAppStore();
 
   const [draftTitle, setDraftTitle] = useState('');
   const [draftDescription, setDraftDescription] = useState('');
@@ -158,6 +203,14 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
     return contentDirty || assigneeDirty;
   }, [task, draftTitle, draftDescription, draftPriority, draftAssigneeIds, draftCustomRows, canEditTaskFields, canManageAssignees]);
 
+  const timerEpochStart = task ? (activeTimers[task.id] ?? null) : null;
+  const elapsed = useElapsedTime(timerEpochStart);
+  const isTimerActive = !!timerEpochStart;
+  const canUseTaskTimer = Boolean(
+    task && currentUser && isTaskAssignedTo(task, currentUser.id) &&
+    task.status !== 'completed' && task.status !== 'done',
+  );
+
   if (!task) return null;
 
   const project = projects.find(p => p.id === task.projectId);
@@ -168,13 +221,17 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
     ? users.filter(u => project.members.includes(u.id)).sort((a, b) => a.name.localeCompare(b.name))
     : [];
   const assigneeUsers = taskAssigneeIds(task).map(id => users.find(u => u.id === id)).filter(Boolean) as typeof users;
-  const isOverdue = new Date(task.dueDate) < new Date() && task.status !== 'completed';
+  const isDoneDue = task.status === 'completed' || task.status === 'done';
+  const dueBucket = getDueBucket(task.dueDate);
+  const isOverdue = dueBucket === 'overdue' && !isDoneDue;
   const taskRef = `TF-${task.id.replace(/\D/g, '').padStart(3, '0')}`;
   const displayPriority = canEditTaskFields ? draftPriority : task.priority;
   const statusCfg = statusConfig[task.status] ?? statusConfig.backlog;
   // Resolve the display label from kanban columns so custom columns show their real name
   const statusLabel = kanbanColumns.find(c => c.id === task.status)?.label ?? statusCfg.label;
   const priCfg = priorityConfig[displayPriority] ?? priorityConfig.Medium;
+  const taskCreatedLine = fmtTaskCreatedDisplay(task.createdAt);
+  const taskCreatedTimeline = fmtTaskCreatedTimeline(task.createdAt);
 
   const toggleAssignee = (uid: string) => setDraftAssigneeIds(prev =>
     prev.includes(uid) ? prev.filter(id => id !== uid) : [...prev, uid]);
@@ -272,16 +329,19 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
 
             {/* Title + actions */}
             <div className="flex items-start gap-3 justify-between">
-              <div className="flex-1 min-w-0">
+              <div className="flex-1 min-w-0 pr-2">
                 {canEditTaskFields ? (
-                  <input
+                  <textarea
                     value={draftTitle}
                     onChange={e => setDraftTitle(e.target.value)}
-                    className="w-full text-[22px] font-bold bg-muted/40 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:bg-muted/60 placeholder:text-muted-foreground/30 border border-transparent focus:border-primary/20 transition-all leading-snug"
+                    rows={3}
+                    className="w-full text-[22px] font-bold bg-muted/40 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:bg-muted/60 placeholder:text-muted-foreground/30 border border-transparent focus:border-primary/20 transition-all leading-snug resize-y min-h-[2.85rem] max-h-[12rem] whitespace-pre-wrap break-words"
                     placeholder="Task title"
                   />
                 ) : (
-                  <h2 className="text-[22px] font-bold text-foreground leading-snug">{task.title}</h2>
+                  <h2 className="text-[22px] font-bold text-foreground leading-snug break-words whitespace-normal">
+                    {task.title}
+                  </h2>
                 )}
               </div>
               <div className="flex items-center gap-1.5 mt-1 shrink-0">
@@ -343,6 +403,41 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
               {/* Description */}
               <section>
                 <SectionLabel icon={MessageSquare} label="Description" accent="text-blue-400/70" />
+                {(taskCreatedLine || canUseTaskTimer) && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 -mt-1 mb-3">
+                    {taskCreatedLine ? (
+                      <p className="text-[11px] text-muted-foreground/70 tabular-nums min-w-0 flex-1">{taskCreatedLine}</p>
+                    ) : (
+                      <span className="flex-1 min-w-0" />
+                    )}
+                    {canUseTaskTimer && (
+                      <div className="flex items-center gap-2 shrink-0">
+                        {isTimerActive ? (
+                          <>
+                            <button
+                              type="button"
+                              className="text-sm font-semibold px-4 py-2 min-h-10 rounded-lg bg-destructive/90 text-destructive-foreground hover:bg-destructive transition-colors"
+                              onClick={() => void stopTimer(task.id)}
+                            >
+                              Stop
+                            </button>
+                            {elapsed ? (
+                              <span className="text-xs font-mono text-muted-foreground tabular-nums">{elapsed}</span>
+                            ) : null}
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            className="text-sm font-semibold px-4 py-2 min-h-10 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                            onClick={() => void startTimer(task.id)}
+                          >
+                            Start
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {canEditTaskFields ? (
                   <textarea
                     value={draftDescription}
@@ -576,10 +671,25 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
               {/* Due Date */}
               <section>
                 <SectionLabel icon={Calendar} label="Due Date" accent="text-cyan-400/70" />
-                <div className={`text-sm font-bold ${isOverdue ? 'text-red-400' : 'text-foreground'}`}>
+                <div className={`text-sm font-bold ${dueBucketDateTextClass(dueBucket, isDoneDue)}`}>
                   {fmtDate(task.dueDate)}
                 </div>
                 <div className="text-[11px] text-muted-foreground font-mono mt-0.5">{task.dueDate}</div>
+                {!isDoneDue && dueBucket === 'today' && (
+                  <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-red-600 dark:text-red-300 bg-red-500/10 px-2 py-0.5 rounded-md border border-red-500/25">
+                    Due today
+                  </div>
+                )}
+                {!isDoneDue && dueBucket === 'tomorrow' && (
+                  <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-orange-600 dark:text-orange-300 bg-orange-500/10 px-2 py-0.5 rounded-md border border-orange-500/25">
+                    Due tomorrow
+                  </div>
+                )}
+                {!isDoneDue && dueBucket === 'later' && (
+                  <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-muted-foreground bg-muted/40 px-2 py-0.5 rounded-md border border-border/40">
+                    Upcoming
+                  </div>
+                )}
                 {isOverdue && (
                   <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-red-400/80 bg-red-500/8 px-2 py-0.5 rounded-md border border-red-500/15">
                     <AlertTriangle className="h-3 w-3" /> Past due
@@ -665,7 +775,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                 <div className="space-y-2.5">
                   <div>
                     <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-semibold mb-0.5">Created</div>
-                    <div className="text-[11px] font-mono text-foreground/60">{task.createdAt}</div>
+                    <div className="text-[11px] text-foreground/60 tabular-nums">{taskCreatedTimeline}</div>
                   </div>
                   {task.startedAt && (
                     <div>

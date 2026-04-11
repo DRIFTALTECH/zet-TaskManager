@@ -16,6 +16,13 @@ class RegisterBody(BaseModel):
     role: Literal["employee", "manager"] = "employee"
 
 
+class MicrosoftAuthBody(BaseModel):
+    id_token: str = Field(..., min_length=20)
+    remember_me: bool = False
+    """Role for new accounts only; existing users keep their role."""
+    role: Literal["employee", "manager"] | None = None
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

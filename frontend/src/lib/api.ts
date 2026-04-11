@@ -35,8 +35,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { ...headers(!(init?.body instanceof FormData)), ...init?.headers },
   });
   if (res.status === 401) {
+    const detail = await parseError(res);
     localStorage.removeItem(TOKEN_KEY);
-    throw new Error('Unauthorized');
+    throw new Error(detail || 'Unauthorized');
   }
   if (!res.ok) throw new Error(await parseError(res));
   if (res.status === 204) return undefined as T;
@@ -68,6 +69,22 @@ export const api = {
     return request('/auth/register', {
       method: 'POST',
       body: JSON.stringify({ name, email, password, role }),
+    });
+  },
+
+  async loginMicrosoft(
+    idToken: string,
+    rememberMe = false,
+    role?: Role,
+  ): Promise<{ access_token: string; user: User }> {
+    const body: Record<string, unknown> = {
+      id_token: idToken,
+      remember_me: rememberMe,
+    };
+    if (role) body.role = role;
+    return request('/auth/microsoft', {
+      method: 'POST',
+      body: JSON.stringify(body),
     });
   },
 

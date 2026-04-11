@@ -1,0 +1,156 @@
+import {
+  AuthError,
+  BrowserAuthError,
+  BrowserAuthErrorCodes,
+  PublicClientApplication,
+  ServerError,
+  type Configuration,
+} from '@azure/msal-browser';
+import type { Role } from '@/types';
+
+/** Must match the Application (client) ID in Azure Entra / App registrations. */
+export function isMicrosoftAuthConfigured(): boolean {
+  const id = import.meta.env.VITE_MICROSOFT_CLIENT_ID as string | undefined;
+  return Boolean(id?.trim());
+}
+
+function clientId(): string {
+  const id = (import.meta.env.VITE_MICROSOFT_CLIENT_ID as string | undefined)?.trim();
+  if (!id) throw new Error('VITE_MICROSOFT_CLIENT_ID is not set');
+  return id;
+}
+
+let instance: PublicClientApplication | null = null;
+
+function getMsalInstance(): PublicClientApplication {
+  if (!instance) {
+    const tenantId = (import.meta.env.VITE_MICROSOFT_TENANT_ID as string | undefined)?.trim();
+    if (!tenantId) {
+      throw new Error(
+        'VITE_MICROSOFT_TENANT_ID is not set. Add your directory (tenant) ID to frontend/.env.',
+      );
+    }
+    const config: Configuration = {
+      auth: {
+        clientId: clientId(),
+        authority: `https://login.microsoftonline.com/${tenantId}`,
+        redirectUri: typeof window !== 'undefined' ? `${window.location.origin}/` : '/',
+      },
+      cache: {
+        cacheLocation: 'sessionStorage',
+        storeAuthStateInCookie: false,
+      },
+    };
+    instance = new PublicClientApplication(config);
+  }
+  return instance;
+}
+
+/** Set on the app origin tab immediately before `login*` redirects to Microsoft. */
+const OPTIONS_KEY = '__zet_msal_redirect_opts';
+/** Written in bootstrap after `handleRedirectPromise` resolves with tokens. */
+const PENDING_KEY = '__zet_msal_pending_token';
+
+export type PendingMicrosoftAuth = {
+  idToken: string;
+  flow: 'login' | 'signup';
+  rememberMe: boolean;
+  role?: Role;
+};
+
+/**
+ * Call once before React mounts. Consumes `#code=...` / hash from the redirect return
+ * (main window or popup) before BrowserRouter / Navigate can replace the URL.
+ */
+export async function initializeMsalBeforeReact(): Promise<void> {
+  if (!isMicrosoftAuthConfigured()) return;
+  let pca: PublicClientApplication;
+  try {
+    pca = getMsalInstance();
+  } catch {
+    return;
+  }
+  try {
+    await pca.initialize();
+    const result = await pca.handleRedirectPromise();
+    if (!result?.idToken?.trim()) return;
+
+    let flow: PendingMicrosoftAuth['flow'] = 'login';
+    let rememberMe = false;
+    let role: Role | undefined;
+    try {
+      const raw = sessionStorage.getItem(OPTIONS_KEY);
+      if (raw) {
+        const o = JSON.parse(raw) as { flow?: string; rememberMe?: boolean; role?: Role };
+        if (o.flow === 'signup') flow = 'signup';
+        if (typeof o.rememberMe === 'boolean') rememberMe = o.rememberMe;
+        if (o.role === 'manager' || o.role === 'employee') role = o.role;
+      }
+    } catch {
+      /* use defaults */
+    }
+    sessionStorage.removeItem(OPTIONS_KEY);
+
+    const pending: PendingMicrosoftAuth = {
+      idToken: result.idToken.trim(),
+      flow,
+      rememberMe,
+      role,
+    };
+    sessionStorage.setItem(PENDING_KEY, JSON.stringify(pending));
+  } catch (e) {
+    console.error('MSAL initialize / handleRedirectPromise:', e);
+  }
+}
+
+/** Pop and parse pending token from redirect completion (main runs `initializeMsalBeforeReact` first). */
+export function consumePendingMicrosoftAuth(): PendingMicrosoftAuth | null {
+  const raw = sessionStorage.getItem(PENDING_KEY);
+  if (!raw) return null;
+  sessionStorage.removeItem(PENDING_KEY);
+  try {
+    const p = JSON.parse(raw) as PendingMicrosoftAuth;
+    if (!p.idToken?.trim()) return null;
+    return p;
+  } catch {
+    return null;
+  }
+}
+
+function redirectRequest() {
+  return {
+    scopes: ['openid', 'profile', 'email'] as string[],
+    prompt: 'select_account' as const,
+  };
+}
+
+/** Full-page redirect to Microsoft. Page unload follows — only call from user gestures. */
+export async function signInWithMicrosoftRedirect(rememberMe: boolean): Promise<void> {
+  if (!isMicrosoftAuthConfigured()) return;
+  const pca = getMsalInstance();
+  await pca.initialize();
+  sessionStorage.setItem(OPTIONS_KEY, JSON.stringify({ flow: 'login', rememberMe }));
+  await pca.loginRedirect(redirectRequest());
+}
+
+export async function signUpWithMicrosoftRedirect(role: Role): Promise<void> {
+  if (!isMicrosoftAuthConfigured()) return;
+  const pca = getMsalInstance();
+  await pca.initialize();
+  sessionStorage.setItem(OPTIONS_KEY, JSON.stringify({ flow: 'signup', rememberMe: false, role }));
+  await pca.loginRedirect(redirectRequest());
+}
+
+export function formatMsalAuthError(e: unknown): string {
+  if (e instanceof BrowserAuthError && e.errorCode === BrowserAuthErrorCodes.userCancelled) {
+    return '';
+  }
+  if (e instanceof ServerError) {
+    return `${e.errorCode}: ${e.errorMessage}`.trim();
+  }
+  if (e instanceof AuthError) {
+    return `${e.errorCode}: ${e.errorMessage}`.trim();
+  }
+  if (e instanceof Error) return e.message;
+  return 'Microsoft sign-in failed.';
+}
