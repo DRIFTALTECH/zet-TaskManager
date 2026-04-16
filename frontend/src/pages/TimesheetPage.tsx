@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   ChevronLeft, ChevronRight, Download, Plus, Bell, Send,
   Trash2, MoreVertical, EyeOff, RotateCcw, Clock, CalendarDays,
+  Tag, DollarSign, List,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import {
@@ -15,6 +16,9 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { snappy, pageEnter } from '@/lib/motion';
 import type { TimesheetWorkEntry } from '@/types';
@@ -89,6 +93,54 @@ function formatDuration(seconds: number) {
   return `${m}m`;
 }
 
+/** Mirror backend span_seconds for duration preview between two HH:MM compact inputs. */
+function spanSecondsFromCompact(fromCompact: string, toCompact: string): number | null {
+  try {
+    const tf = compactTimeToApi(fromCompact);
+    const tt = compactTimeToApi(toCompact);
+    const [h1, m1] = tf.split(':').map(Number);
+    const [h2, m2] = tt.split(':').map(Number);
+    const sf = h1 * 3600 + m1 * 60;
+    const st = h2 * 3600 + m2 * 60;
+    if (st > sf) return st - sf;
+    if (st === sf) return 0;
+    return 86400 - sf + st;
+  } catch {
+    return null;
+  }
+}
+
+function formatDurationHMS(seconds: number | null): string {
+  if (seconds === null || seconds < 0) return '00:00:00';
+  const h = Math.floor(seconds / 3600) % 100;
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function mondayOf(d: Date): Date {
+  const m = new Date(d);
+  const day = m.getDay();
+  m.setDate(m.getDate() - (day === 0 ? 6 : day - 1));
+  m.setHours(0, 0, 0, 0);
+  return m;
+}
+
+/** Week offset (same as getWeekDates) so calendar picks jump to the right week. */
+function weekOffsetForIsoDate(iso: string): number {
+  const target = new Date(`${iso}T12:00:00`);
+  const now = new Date();
+  const w0 = mondayOf(now).getTime();
+  const w1 = mondayOf(target).getTime();
+  return Math.round((w1 - w0) / (7 * 24 * 60 * 60 * 1000));
+}
+
+function formatQuickDateLabel(iso: string, today: string): string {
+  if (iso === today) return 'Today';
+  const d = new Date(`${iso}T12:00:00`);
+  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
 type EntryModalState = null | { mode: 'new'; date: string } | { mode: 'edit'; entry: TimesheetWorkEntry };
 
 const inputCls = 'w-full rounded-xl border border-border/50 bg-muted/40 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 transition-all placeholder:text-muted-foreground/40';
@@ -115,6 +167,15 @@ const TimesheetPage = () => {
   const [selectedDays, setSelectedDays] = useState<string[]>([]);
   const [entryToDelete, setEntryToDelete] = useState<TimesheetWorkEntry | null>(null);
   const [deletingEntry, setDeletingEntry] = useState(false);
+
+  /** Clockify-style quick bar */
+  const [quickDesc, setQuickDesc] = useState('');
+  const [quickProjectId, setQuickProjectId] = useState('');
+  const [quickSectionId, setQuickSectionId] = useState('');
+  const [quickFrom, setQuickFrom] = useState('0900');
+  const [quickTo, setQuickTo] = useState('1700');
+  const [quickWorkDate, setQuickWorkDate] = useState<string | null>(null);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
 
   const todayStr = localISODate(new Date());
   const weekDates = getWeekDates(weekOffset);
@@ -233,6 +294,53 @@ const TimesheetPage = () => {
 
   const defaultNewDate = visibleWeekDates.includes(todayStr) ? todayStr : (visibleWeekDates[visibleWeekDates.length - 1] ?? weekDates[0]);
 
+  useEffect(() => {
+    setQuickWorkDate(prev => {
+      if (prev === null) return defaultNewDate;
+      if (visibleWeekDates.includes(prev)) return prev;
+      return defaultNewDate;
+    });
+  }, [weekOffset, defaultNewDate, visibleWeekDates]);
+
+  const quickSelectedProject = userProjects.find(p => p.id === quickProjectId);
+  const quickSectionOptions = quickSelectedProject?.sections ?? [];
+  const quickDurationPreview = spanSecondsFromCompact(quickFrom, quickTo);
+
+  const saveQuickEntry = async () => {
+    const workDate = quickWorkDate ?? defaultNewDate;
+    if (!quickProjectId || !quickSectionId) {
+      toast.error('Select a project and section');
+      return;
+    }
+    let timeFromApi: string;
+    let timeToApi: string;
+    try {
+      timeFromApi = compactTimeToApi(quickFrom);
+      timeToApi = compactTimeToApi(quickTo);
+    } catch {
+      toast.error('Enter valid start and end times (24h, e.g. 0930).');
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.createTimesheetWorkEntry({
+        workDate,
+        projectId: quickProjectId,
+        sectionId: quickSectionId,
+        description: quickDesc,
+        timeFrom: timeFromApi,
+        timeTo: timeToApi,
+      });
+      toast.success('Entry added');
+      setQuickDesc('');
+      await reloadEntries();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const exportCSV = () => {
     const header = ['Date', 'Description', 'Project', 'Section', 'From', 'To', 'Duration'].join(',');
     const rows = entries.map(e => {
@@ -296,16 +404,6 @@ const TimesheetPage = () => {
               transition={snappy}
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.97 }}
-              disabled={userProjects.length === 0}
-              onClick={() => openNewModal(defaultNewDate)}
-              className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-all font-semibold shadow-sm"
-            >
-              <Plus className="h-4 w-4" /> Log time
-            </motion.button>
-            <motion.button
-              transition={snappy}
-              whileHover={{ scale: 1.03 }}
-              whileTap={{ scale: 0.97 }}
               onClick={() => {
                 setSelectedDays(visibleWeekDates.filter(d => (dayView.find(dv => dv.date === d)?.totalSeconds ?? 0) > 0));
                 setNotifyOpen(true);
@@ -323,6 +421,179 @@ const TimesheetPage = () => {
             >
               <Download className="h-4 w-4" /> Export
             </motion.button>
+          </div>
+        </div>
+
+        {/* ── Quick entry bar (Clockify-style) ─────────────────────────────── */}
+        <div
+          className={cn(
+            'mt-5 rounded-2xl border border-border/40 bg-card shadow-sm',
+            'flex flex-wrap items-stretch gap-0 divide-y md:divide-y-0 md:divide-x divide-border/30',
+            userProjects.length === 0 && 'opacity-60 pointer-events-none',
+          )}
+        >
+          <div className="flex-1 min-w-[200px] flex items-center px-3 py-2.5 md:border-0">
+            <input
+              id="timesheet-quick-desc"
+              type="text"
+              placeholder="What have you worked on?"
+              value={quickDesc}
+              onChange={e => setQuickDesc(e.target.value)}
+              disabled={saving || userProjects.length === 0}
+              className="w-full bg-transparent text-sm placeholder:text-muted-foreground/45 focus:outline-none focus:ring-0 border-0 px-1 py-1"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-0 sm:gap-1 px-2 py-2 md:py-0">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  disabled={saving || userProjects.length === 0}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-sm font-semibold text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
+                >
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full border border-primary/40 bg-primary/10 text-primary">
+                    <Plus className="h-3.5 w-3.5" />
+                  </span>
+                  Project
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56 rounded-xl max-h-64 overflow-y-auto">
+                {userProjects.length === 0 ? (
+                  <div className="px-2 py-2 text-xs text-muted-foreground">No projects</div>
+                ) : (
+                  userProjects.map(p => (
+                    <DropdownMenuItem
+                      key={p.id}
+                      onClick={() => {
+                        setQuickProjectId(p.id);
+                        const first = p.sections[0]?.id ?? '';
+                        setQuickSectionId(prev => {
+                          if (p.sections.some(s => s.id === prev)) return prev;
+                          return first;
+                        });
+                      }}
+                      className="rounded-lg cursor-pointer"
+                    >
+                      {p.name}
+                    </DropdownMenuItem>
+                  ))
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  disabled={saving || !quickProjectId || quickSectionOptions.length === 0}
+                  className="inline-flex items-center gap-1 px-2.5 py-2 rounded-lg text-xs font-semibold text-foreground/80 hover:bg-muted/60 transition-colors disabled:opacity-40 max-w-[140px] truncate"
+                >
+                  {quickSectionId
+                    ? (quickSectionOptions.find(s => s.id === quickSectionId)?.name ?? 'Section')
+                    : 'Section'}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-52 rounded-xl max-h-56 overflow-y-auto">
+                {quickSectionOptions.length === 0 ? (
+                  <div className="px-2 py-2 text-xs text-muted-foreground">Pick a project first</div>
+                ) : (
+                  quickSectionOptions.map(s => (
+                    <DropdownMenuItem
+                      key={s.id}
+                      onClick={() => setQuickSectionId(s.id)}
+                      className="rounded-lg cursor-pointer"
+                    >
+                      {s.name}
+                    </DropdownMenuItem>
+                  ))
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <div className="hidden sm:flex h-8 w-px bg-border/40 mx-0.5" aria-hidden />
+            <button type="button" className="p-2 rounded-lg text-muted-foreground/40 hover:text-muted-foreground hover:bg-muted/50 transition-colors" title="Tags (coming soon)">
+              <Tag className="h-4 w-4" />
+            </button>
+            <button type="button" className="p-2 rounded-lg text-muted-foreground/40 hover:text-muted-foreground hover:bg-muted/50 transition-colors" title="Billable (coming soon)">
+              <DollarSign className="h-4 w-4" />
+            </button>
+
+            <div className="flex items-center gap-1.5 px-2 font-mono text-xs tabular-nums text-foreground/80">
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={4}
+                placeholder="0900"
+                value={quickFrom}
+                onChange={e => setQuickFrom(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                disabled={saving || userProjects.length === 0}
+                className="w-12 bg-muted/30 rounded-md border border-border/40 px-1.5 py-1 text-center text-xs"
+              />
+              <span className="text-muted-foreground/50">–</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={4}
+                placeholder="1700"
+                value={quickTo}
+                onChange={e => setQuickTo(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                disabled={saving || userProjects.length === 0}
+                className="w-12 bg-muted/30 rounded-md border border-border/40 px-1.5 py-1 text-center text-xs"
+              />
+            </div>
+
+            <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  disabled={saving || userProjects.length === 0}
+                  className="inline-flex items-center gap-1.5 px-2 py-2 rounded-lg text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors disabled:opacity-50"
+                >
+                  <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground/60" />
+                  <span className="whitespace-nowrap">
+                    {formatQuickDateLabel(quickWorkDate ?? defaultNewDate, todayStr)}
+                  </span>
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0 rounded-xl border-border/60" align="start">
+                <Calendar
+                  mode="single"
+                  selected={new Date(`${(quickWorkDate ?? defaultNewDate)}T12:00:00`)}
+                  onSelect={date => {
+                    if (!date) return;
+                    const iso = localISODate(date);
+                    if (iso > todayStr) return;
+                    setQuickWorkDate(iso);
+                    setWeekOffset(weekOffsetForIsoDate(iso));
+                    setDatePickerOpen(false);
+                  }}
+                  disabled={date => localISODate(date) > todayStr}
+                />
+              </PopoverContent>
+            </Popover>
+
+            <div className="px-2 font-mono text-sm font-bold tabular-nums text-foreground min-w-[5.5rem] text-center">
+              {formatDurationHMS(quickDurationPreview)}
+            </div>
+
+            <button
+              type="button"
+              disabled={saving || userProjects.length === 0}
+              onClick={() => void saveQuickEntry()}
+              className="m-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold uppercase tracking-wide hover:opacity-90 disabled:opacity-40 transition-opacity shrink-0"
+            >
+              {saving ? '…' : 'Add'}
+            </button>
+
+            <div className="hidden md:flex flex-col border-l border-border/30 py-1 pl-1">
+              <button type="button" className="p-1.5 rounded-md text-primary bg-primary/10" title="Timer mode">
+                <Clock className="h-4 w-4" />
+              </button>
+              <button type="button" className="p-1.5 rounded-md text-muted-foreground/50 hover:text-muted-foreground" title="List view">
+                <List className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -460,7 +731,11 @@ const TimesheetPage = () => {
                         <button
                           type="button"
                           disabled={userProjects.length === 0}
-                          onClick={() => openNewModal(day.date)}
+                          onClick={() => {
+                            setQuickWorkDate(day.date);
+                            setWeekOffset(weekOffsetForIsoDate(day.date));
+                            document.getElementById('timesheet-quick-desc')?.focus();
+                          }}
                           className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl font-semibold border border-border/40 bg-muted/30 hover:bg-primary/8 hover:border-primary/30 hover:text-primary text-muted-foreground transition-all disabled:opacity-40"
                         >
                           <Plus className="h-3.5 w-3.5" /> Add
@@ -473,7 +748,12 @@ const TimesheetPage = () => {
                       <div className="px-5 py-7 text-center text-sm text-muted-foreground/40 italic">
                         Nothing logged yet —{' '}
                         <button
-                          onClick={() => openNewModal(day.date)}
+                          type="button"
+                          onClick={() => {
+                            setQuickWorkDate(day.date);
+                            setWeekOffset(weekOffsetForIsoDate(day.date));
+                            document.getElementById('timesheet-quick-desc')?.focus();
+                          }}
                           disabled={userProjects.length === 0}
                           className="font-semibold text-primary/60 hover:text-primary transition-colors disabled:opacity-40 hover:underline"
                         >
