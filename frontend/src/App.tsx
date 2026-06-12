@@ -25,8 +25,9 @@ const queryClient = new QueryClient();
 function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen w-full">
+      <div className="aurora-layer" aria-hidden />
       <AppSidebar />
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 relative z-10">
         <AppNavbar />
         <main className="flex-1 min-w-0 overflow-auto">{children}</main>
       </div>
@@ -57,8 +58,12 @@ function BootstrapGate({ children }: { children: React.ReactNode }) {
   }, [bootstrap]);
   if (!hydrated) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background text-muted-foreground text-sm">
-        Loading…
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-background">
+        <div className="aurora-layer" aria-hidden />
+        <div className="relative z-10 flex flex-col items-center gap-4 animate-fade-in">
+          <div className="h-12 w-12 rounded-2xl bg-brand-gradient glow-brand animate-pulse" />
+          <p className="text-sm font-medium text-muted-foreground tracking-wide">Warming up ZET…</p>
+        </div>
       </div>
     );
   }
