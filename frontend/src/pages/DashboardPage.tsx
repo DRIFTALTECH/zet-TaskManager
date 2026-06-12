@@ -57,24 +57,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 
 const PROTECTED_IDS = new Set(['backlog', 'in_progress', 'in_review', 'done']);
 
-const COLUMN_ACCENTS: Record<string, { bar: string; badge: string }> = {
-  backlog: { bar: 'bg-slate-400/70', badge: 'bg-slate-500/15 text-slate-600 dark:text-slate-300 border-slate-500/25' },
-  in_progress: { bar: 'bg-indigo-500/80', badge: 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 border-indigo-500/25' },
-  in_review: { bar: 'bg-amber-500/80', badge: 'bg-amber-500/15 text-amber-600 dark:text-amber-300 border-amber-500/25' },
-  done: { bar: 'bg-emerald-500/80', badge: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border-emerald-500/25' },
-};
-const FALLBACK_COLUMN_ACCENTS = [
-  { bar: 'bg-violet-500/80', badge: 'bg-violet-500/15 text-violet-600 dark:text-violet-300 border-violet-500/25' },
-  { bar: 'bg-cyan-500/80', badge: 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-300 border-cyan-500/25' },
-  { bar: 'bg-rose-500/80', badge: 'bg-rose-500/15 text-rose-600 dark:text-rose-300 border-rose-500/25' },
-  { bar: 'bg-teal-500/80', badge: 'bg-teal-500/15 text-teal-600 dark:text-teal-300 border-teal-500/25' },
-];
-function columnAccent(id: string) {
-  if (COLUMN_ACCENTS[id]) return COLUMN_ACCENTS[id];
-  let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
-  return FALLBACK_COLUMN_ACCENTS[h % FALLBACK_COLUMN_ACCENTS.length];
-}
-
 const ID_PILL_PALETTES = [
   'bg-blue-500/15 text-blue-400 border-blue-500/25',
   'bg-violet-500/15 text-violet-400 border-violet-500/25',
@@ -158,7 +140,7 @@ function TaskCard({
       className={`group relative min-h-[250px] touch-none select-none ${canDrag ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
     >
       <div
-        className="hairline-card rounded-2xl p-6 min-h-[250px] flex flex-col shadow-card-soft transition-[transform,box-shadow] duration-200 ease-out will-change-transform group-hover:-translate-y-1.5 group-hover:scale-[1.02] group-hover:[box-shadow:0_20px_60px_-10px_var(--card-glow)]"
+        className="rounded-2xl border-2 border-border/70 bg-gradient-to-br from-muted/70 via-card to-muted/40 dark:from-muted/50 dark:via-card dark:to-muted/30 p-6 min-h-[250px] flex flex-col transition-[transform,box-shadow] duration-200 ease-out will-change-transform group-hover:-translate-y-1.5 group-hover:scale-[1.02] shadow-md group-hover:shadow-xl group-hover:[box-shadow:0_20px_60px_-10px_var(--card-glow)]"
         style={{ ['--card-glow' as string]: priorityGlowColor[task.priority] }}
       >
         <div className="flex items-center justify-between mb-4">
@@ -269,23 +251,21 @@ function KanbanColumnPanel({
     id: column.id, data: { type: 'column' as const },
   });
   const isProtected = PROTECTED_IDS.has(column.id);
-  const accent = columnAccent(column.id);
 
   return (
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition: transition ?? undefined, opacity: isDragging ? 0.4 : 1 }}
-      className={`min-w-[380px] w-[380px] flex flex-col shrink-0 rounded-2xl border border-border/50 bg-card/35 backdrop-blur-sm p-3 transition-[box-shadow,background-color,border-color] duration-150 ease-out ${isDropTarget ? 'ring-2 ring-primary/50 bg-accent/30 border-primary/40' : ''}`}
+      className={`min-w-[380px] w-[380px] flex flex-col shrink-0 rounded-2xl transition-[box-shadow,background-color] duration-150 ease-out ${isDropTarget ? 'ring-2 ring-blue-500/50 bg-blue-500/5' : ''}`}
     >
-      <div className={`h-1 rounded-full mb-3 ${accent.bar}`} aria-hidden />
       <div className="flex items-center justify-between mb-4 px-1">
         <div className="flex items-center gap-2">
           <button {...attributes} {...listeners} onClick={e => e.stopPropagation()}
             className="cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground/70 transition-colors touch-none p-0.5 rounded">
             <GripVertical className="h-4 w-4" />
           </button>
-          <h3 className="font-display text-sm font-bold tracking-tight text-foreground">{column.label}</h3>
-          <span className={`text-[11px] px-2.5 py-0.5 rounded-full font-mono font-semibold tabular-nums border ${accent.badge}`}>{tasks.length}</span>
+          <h3 className="text-sm font-semibold text-foreground">{column.label}</h3>
+          <span className="text-[11px] text-muted-foreground bg-muted/80 px-2.5 py-0.5 rounded-full font-medium border border-border/40">{tasks.length}</span>
           {isDoneColumn && (
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/15 text-green-400 border border-green-500/20 font-semibold">✓ Done</span>
           )}
@@ -338,11 +318,6 @@ function KanbanColumnPanel({
             />
           ))}
         </SortableContext>
-        {tasks.length === 0 && (
-          <div className="rounded-xl border border-dashed border-border/60 py-8 text-center text-xs text-muted-foreground/60">
-            Nothing here yet
-          </div>
-        )}
         <motion.button onClick={onNewTask} transition={snappy} whileHover={{ scale: 1.01, y: -1 }} whileTap={{ scale: 0.99 }}
           className="w-full flex items-center justify-center gap-1.5 text-xs text-muted-foreground py-2.5 rounded-xl border border-dashed border-border/50 hover:border-foreground/30 hover:text-foreground hover:bg-muted/50 transition-colors duration-100">
           <Plus className="h-3.5 w-3.5" /> New Task
@@ -427,17 +402,6 @@ const DashboardPage = () => {
       ),
     [projectTasks, dashPriorityFilter, dashDueFilter],
   );
-
-  const boardStats = useMemo(() => {
-    let dueToday = 0;
-    let overdue = 0;
-    for (const t of projectTasks) {
-      const bucket = getDueBucket(t.dueDate);
-      if (bucket === 'today') dueToday++;
-      else if (bucket === 'overdue') overdue++;
-    }
-    return { total: projectTasks.length, dueToday, overdue };
-  }, [projectTasks]);
 
   const handleSetDoneColumn = (colId: string) => {
     const next = doneColumnId === colId ? 'done' : colId;
@@ -595,26 +559,10 @@ const DashboardPage = () => {
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={pageEnter} className="p-6 h-full flex flex-col">
       <div className="mb-6 shrink-0 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <h1 className="font-display text-3xl font-extrabold tracking-tight text-foreground">{selectedProjectName}</h1>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-card/60 px-2.5 py-0.5 text-[11px] font-semibold text-muted-foreground">
-              <span className="h-1.5 w-1.5 rounded-full bg-brand-gradient" aria-hidden />
-              {boardStats.total} active
-            </span>
-            {boardStats.dueToday > 0 && (
-              <span className="inline-flex items-center rounded-full border border-amber-500/25 bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-amber-600 dark:text-amber-300">
-                {boardStats.dueToday} due today
-              </span>
-            )}
-            {boardStats.overdue > 0 && (
-              <span className="inline-flex items-center rounded-full border border-red-500/25 bg-red-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-red-600 dark:text-red-400">
-                {boardStats.overdue} overdue
-              </span>
-            )}
-            {isAllProjects && (
-              <span className="text-xs text-muted-foreground">Tasks across every project you belong to</span>
-            )}
-          </div>
+          <h1 className="text-2xl font-bold text-foreground">{selectedProjectName}</h1>
+          {isAllProjects && (
+            <p className="text-sm text-muted-foreground mt-1">Tasks across every project you belong to</p>
+          )}
         </div>
         <div className="flex flex-wrap items-end gap-3 sm:justify-end">
           <Popover>
@@ -712,7 +660,7 @@ const DashboardPage = () => {
         <DragOverlay dropAnimation={null}>
           {activeTask && (
             <div
-              className="hairline-card rounded-2xl backdrop-blur-sm p-6 shadow-2xl w-[380px] h-[250px] cursor-grabbing rotate-1 scale-[1.02]"
+              className="rounded-2xl border-2 border-border/70 bg-card/95 backdrop-blur-sm p-6 shadow-2xl w-[380px] h-[250px] cursor-grabbing rotate-1 scale-[1.02]"
               style={{ boxShadow: `0 25px 60px -10px ${priorityGlowColor[activeTask.priority]}` }}
             >
               <div className="flex items-center justify-between mb-3">
