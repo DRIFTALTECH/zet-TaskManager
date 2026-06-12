@@ -1,11 +1,18 @@
 """Lightweight audit-log helper used by all mutation routes."""
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
 from database.models import AuditLog, User
+
+
+def purge_old_audit_logs(db: Session) -> None:
+    """Delete audit rows older than 7 days. Commits immediately."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    db.query(AuditLog).filter(AuditLog.created_at < cutoff).delete(synchronize_session=False)
+    db.commit()
 
 
 def log_audit(
@@ -35,7 +42,10 @@ def log_audit(
 
 
 def get_audit_logs(db: Session, user_id: str, is_manager: bool, limit: int = 200):
-    """Return audit rows. Managers see all; employees see only their own."""
+    """Return audit rows. Managers see all; employees see only their own.
+    Purges rows older than 7 days before querying."""
+    purge_old_audit_logs(db)
+
     from database.models import User as UserModel
 
     q = db.query(AuditLog)

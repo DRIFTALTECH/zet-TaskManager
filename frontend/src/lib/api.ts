@@ -1,4 +1,4 @@
-import type { AuditLog, KanbanColumn, Project, Role, Task, TaskAttachment, TaskChecklist, TaskFeedback, TimesheetWorkEntry, User } from '@/types';
+import type { AuditLog, KanbanColumn, Notification, Project, Role, Task, TaskAttachment, TaskChecklist, TaskFeedback, TimesheetWorkEntry, User } from '@/types';
 
 const TOKEN_KEY = 'tm_token';
 
@@ -191,8 +191,8 @@ export const api = {
     return request(`/tasks/${taskId}/feedback`);
   },
 
-  async createTaskFeedback(taskId: string, message: string): Promise<TaskFeedback> {
-    return request(`/tasks/${taskId}/feedback`, { method: 'POST', body: JSON.stringify({ message }) });
+  async createTaskFeedback(taskId: string, message: string, mentionedUserIds: string[] = []): Promise<TaskFeedback> {
+    return request(`/tasks/${taskId}/feedback`, { method: 'POST', body: JSON.stringify({ message, mentionedUserIds }) });
   },
 
   async patchTaskFeedback(taskId: string, feedbackId: string, message: string): Promise<TaskFeedback> {
@@ -338,6 +338,23 @@ export const api = {
   // ── Audit Log ───────────────────────────────────────────────────────────────
   async getAuditLogs(limit = 200): Promise<AuditLog[]> {
     return request(`/audit?limit=${limit}`);
+  },
+
+  // ── Notifications ────────────────────────────────────────────────────────────
+  async getNotifications(): Promise<Notification[]> {
+    return request('/notifications');
+  },
+
+  async getUnreadNotificationCount(): Promise<{ count: number }> {
+    return request('/notifications/unread-count');
+  },
+
+  async markNotificationRead(notificationId: number): Promise<void> {
+    await request(`/notifications/${notificationId}/read`, { method: 'POST' });
+  },
+
+  async markAllNotificationsRead(): Promise<void> {
+    await request('/notifications/read-all', { method: 'POST' });
   },
 };
 

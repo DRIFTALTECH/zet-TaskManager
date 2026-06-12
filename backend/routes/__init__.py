@@ -1,7 +1,8 @@
 from fastapi import APIRouter
 
-from routes import audit, auth, kanban, projects, tasks, timesheet, users
+from routes import audit, auth, kanban, notifications, projects, tasks, timesheet, users
 from routes import checklists, attachments
+from ai.router import router as ai_router
 
 
 def register_routes() -> APIRouter:
@@ -13,6 +14,7 @@ def register_routes() -> APIRouter:
     root.include_router(kanban.router, prefix="/kanban", tags=["kanban"])
     root.include_router(timesheet.router, prefix="/timesheet", tags=["timesheet"])
     root.include_router(audit.router, prefix="/audit", tags=["audit"])
+    root.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
     # Nested sub-resources under /tasks/{task_id}
     root.include_router(
         checklists.router,
@@ -24,4 +26,5 @@ def register_routes() -> APIRouter:
         prefix="/tasks/{task_id}/attachments",
         tags=["attachments"],
     )
+    root.include_router(ai_router, prefix="/ai", tags=["ai"])
     return root

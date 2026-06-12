@@ -14,7 +14,7 @@ import {
   MessageSquare, Send, User2, CheckCircle2, RotateCcw, ChevronRight,
   CheckSquare, Square, Paperclip, Download, Upload,
 } from 'lucide-react';
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { taskAssigneeIds, isTaskAssignedTo } from '@/lib/task-utils';
 import UserAvatar from '@/components/UserAvatar';
 import { dueBucketDateTextClass, getDueBucket } from '@/lib/due-date-utils';
@@ -137,6 +137,13 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
   const [postingFeedback, setPostingFeedback] = useState(false);
   const [editingFeedbackId, setEditingFeedbackId] = useState<string | null>(null);
   const [editingFeedbackText, setEditingFeedbackText] = useState('');
+
+  // @mention state
+  const [mentionedUserIds, setMentionedUserIds] = useState<string[]>([]);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionStartPos, setMentionStartPos] = useState(0);
+  const [mentionDropdownIdx, setMentionDropdownIdx] = useState(0);
+  const commentTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [reopening, setReopening] = useState(false);
@@ -226,6 +233,13 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
     task.status !== 'completed' && task.status !== 'done',
   );
 
+  // @mention candidates — must be before early return to satisfy Rules of Hooks
+  const mentionCandidates = useMemo(() => {
+    if (mentionQuery === null) return [];
+    const q = mentionQuery.toLowerCase();
+    return users.filter(u => u.name.toLowerCase().includes(q)).slice(0, 6);
+  }, [mentionQuery, users]);
+
   if (!task) return null;
 
   const project = projects.find(p => p.id === task.projectId);
@@ -273,11 +287,63 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
     if (!newFeedbackText.trim()) return;
     setPostingFeedback(true);
     try {
-      const created = await api.createTaskFeedback(task.id, newFeedbackText.trim());
+      const created = await api.createTaskFeedback(task.id, newFeedbackText.trim(), mentionedUserIds);
       setFeedbackList(prev => [...prev, created]);
       setNewFeedbackText('');
+      setMentionedUserIds([]);
+      setMentionQuery(null);
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not post feedback'); }
     finally { setPostingFeedback(false); }
+  };
+
+  const handleCommentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setNewFeedbackText(val);
+    const pos = e.target.selectionStart ?? val.length;
+    // Find last @ before cursor that hasn't been closed by a space
+    const textBefore = val.slice(0, pos);
+    const match = textBefore.match(/@([^\s@]*)$/);
+    if (match) {
+      setMentionQuery(match[1]);
+      setMentionStartPos(textBefore.length - match[0].length);
+      setMentionDropdownIdx(0);
+    } else {
+      setMentionQuery(null);
+    }
+  };
+
+  const handleCommentKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionQuery !== null && mentionCandidates.length > 0) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setMentionDropdownIdx(i => (i + 1) % mentionCandidates.length); return; }
+      if (e.key === 'ArrowUp')   { e.preventDefault(); setMentionDropdownIdx(i => (i - 1 + mentionCandidates.length) % mentionCandidates.length); return; }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        insertMention(mentionCandidates[mentionDropdownIdx]);
+        return;
+      }
+      if (e.key === 'Escape') { setMentionQuery(null); return; }
+    }
+    if (e.key === 'Enter' && !e.shiftKey && mentionQuery === null) {
+      e.preventDefault();
+      void postFeedback();
+    }
+  };
+
+  const insertMention = (user: typeof users[number]) => {
+    const before = newFeedbackText.slice(0, mentionStartPos);
+    const after = newFeedbackText.slice(mentionStartPos + 1 + (mentionQuery?.length ?? 0));
+    const newText = `${before}@${user.name} ${after}`;
+    setNewFeedbackText(newText);
+    setMentionedUserIds(prev => prev.includes(user.id) ? prev : [...prev, user.id]);
+    setMentionQuery(null);
+    // Restore focus + cursor after name
+    requestAnimationFrame(() => {
+      if (commentTextareaRef.current) {
+        const pos = before.length + user.name.length + 2; // +2 for "@ " + space
+        commentTextareaRef.current.focus();
+        commentTextareaRef.current.setSelectionRange(pos, pos);
+      }
+    });
   };
 
   const saveFeedbackEdit = async () => {
@@ -848,11 +914,40 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                 <div className="flex gap-3 items-end">
                   {currentUser && <Avatar name={currentUser.name} avatar={currentUser.avatar} size="sm" />}
                   <div className="flex-1 relative">
+                    {/* @mention dropdown */}
+                    <AnimatePresence>
+                      {mentionQuery !== null && mentionCandidates.length > 0 && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: 4 }}
+                          transition={{ duration: 0.1 }}
+                          className="absolute bottom-full mb-1.5 left-0 w-56 glass border border-border/40 rounded-xl shadow-xl z-50 overflow-hidden"
+                        >
+                          {mentionCandidates.map((u, i) => (
+                            <button
+                              key={u.id}
+                              onMouseDown={e => { e.preventDefault(); insertMention(u); }}
+                              className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors ${
+                                i === mentionDropdownIdx ? 'bg-primary/15 text-foreground' : 'hover:bg-muted/40 text-foreground/80'
+                              }`}
+                            >
+                              <Avatar name={u.name} avatar={u.avatar} size="sm" />
+                              <div className="min-w-0">
+                                <p className="font-medium truncate text-xs">{u.name}</p>
+                                <p className="text-[10px] text-muted-foreground/50 capitalize">{u.role}</p>
+                              </div>
+                            </button>
+                          ))}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                     <textarea
+                      ref={commentTextareaRef}
                       value={newFeedbackText}
-                      onChange={e => setNewFeedbackText(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void postFeedback(); } }}
-                      placeholder="Add a comment… (Enter to send, Shift+Enter for newline)"
+                      onChange={handleCommentChange}
+                      onKeyDown={handleCommentKeyDown}
+                      placeholder="Add a comment… (@ to mention, Enter to send)"
                       rows={2}
                       className="w-full rounded-xl border border-border/40 bg-muted/20 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 resize-none pr-14 transition-all placeholder:text-muted-foreground/35 leading-relaxed"
                     />

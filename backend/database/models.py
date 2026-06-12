@@ -168,3 +168,19 @@ class AuditLog(Base):
     entity_name = Column(String, nullable=False, default="")
     details = Column(Text, nullable=False, default="{}")   # JSON blob
     created_at = Column(String, nullable=False)
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    # task_assigned | task_mentioned | task_status_changed | task_commented | task_approved
+    type = Column(String, nullable=False)
+    title = Column(String, nullable=False, default="")
+    message = Column(String, nullable=False, default="")
+    entity_type = Column(String, nullable=False, default="task")
+    entity_id = Column(String, nullable=False, default="")
+    is_read = Column(Boolean, nullable=False, default=False)
+    triggered_by = Column(String, ForeignKey("users.id"), nullable=False)
+    created_at = Column(String, nullable=False)

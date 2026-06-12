@@ -79,13 +79,46 @@ def ensure_default_kanban(db: Session) -> None:
     db.commit()
 
 
+def create_notifications_if_missing() -> None:
+    """Create the notifications table on databases that predate the feature."""
+    insp = inspect(engine)
+    if insp.has_table("notifications"):
+        return
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS notifications (
+                    id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                    user_id VARCHAR NOT NULL REFERENCES users (id),
+                    type VARCHAR NOT NULL,
+                    title VARCHAR NOT NULL DEFAULT '',
+                    message VARCHAR NOT NULL DEFAULT '',
+                    entity_type VARCHAR NOT NULL DEFAULT 'task',
+                    entity_id VARCHAR NOT NULL DEFAULT '',
+                    is_read BOOLEAN NOT NULL DEFAULT 0,
+                    triggered_by VARCHAR NOT NULL REFERENCES users (id),
+                    created_at VARCHAR NOT NULL
+                )
+                """
+            )
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_notifications_user_id ON notifications (user_id)")
+        )
+
+
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     migrate_timelogs_if_needed()
+    create_notifications_if_missing()
     db = SessionLocal()
     try:
         backfill_task_assignees(db)
         ensure_default_kanban(db)
+        # Purge audit logs older than 7 days on startup
+        from logic.audit import purge_old_audit_logs
+        purge_old_audit_logs(db)
     finally:
         db.close()
 

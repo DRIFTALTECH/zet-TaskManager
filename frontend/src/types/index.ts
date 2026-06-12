@@ -103,6 +103,20 @@ export interface AuditLog {
   createdAt: string;
 }
 
+export interface Notification {
+  id: number;
+  type: 'task_assigned' | 'task_mentioned' | 'task_status_changed' | 'task_commented' | 'task_approved';
+  title: string;
+  message: string;
+  entityType: string;
+  entityId: string;
+  isRead: boolean;
+  triggeredBy: string;
+  triggeredByName: string;
+  triggeredByAvatar: string;
+  createdAt: string;
+}
+
 /** Manual day rows on the Timesheet page (project, section, description, time range). */
 export interface TimesheetWorkEntry {
   id: string;

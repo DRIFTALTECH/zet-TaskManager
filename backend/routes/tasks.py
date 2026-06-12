@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, Response
 from sqlalchemy.orm import Session
 
 from database.database import get_db
-from database.models import Task
-from logic import task_feedback_logic, task_logic
+from database.models import Task, User
+from logic import task_feedback_logic, task_logic, notification_logic
 from logic.audit import log_audit
 from logic.schemas import (
     LogTimeBody,
@@ -16,6 +16,7 @@ from logic.schemas import (
     TaskPatch,
 )
 from routes.deps import get_current_user_id
+import crud.task_assignees as assignees_crud
 
 router = APIRouter()
 
@@ -34,6 +35,19 @@ def create_task(
     result = task_logic.create_task(db, user_id, body)
     log_audit(db, user_id, "task.created", "task", result.id, result.title,
               {"projectId": result.projectId, "priority": result.priority})
+    # Notify all assignees (except the creator)
+    actor = db.get(User, user_id)
+    actor_name = actor.name if actor else "Someone"
+    notification_logic.notify_users(
+        db,
+        user_ids=result.assigneeIds,
+        type="task_assigned",
+        title="New task assigned",
+        message=f'{actor_name} assigned you to "{result.title}"',
+        entity_type="task",
+        entity_id=result.id,
+        triggered_by=user_id,
+    )
     db.commit()
     return result
 
@@ -45,6 +59,8 @@ def patch_task(
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
+    # Capture old assignees before patch for diff
+    old_assignee_ids = set(assignees_crud.list_user_ids_ordered(db, task_id))
     result = task_logic.patch_task(db, user_id, task_id, body)
     details: dict = {}
     if body.status is not None:
@@ -52,6 +68,38 @@ def patch_task(
     if body.priority is not None:
         details["priority"] = body.priority
     log_audit(db, user_id, "task.updated", "task", task_id, result.title, details)
+
+    actor = db.get(User, user_id)
+    actor_name = actor.name if actor else "Someone"
+
+    # Notify newly added assignees
+    if body.assigneeIds is not None:
+        new_assignees = set(result.assigneeIds) - old_assignee_ids
+        notification_logic.notify_users(
+            db,
+            user_ids=list(new_assignees),
+            type="task_assigned",
+            title="New task assigned",
+            message=f'{actor_name} assigned you to "{result.title}"',
+            entity_type="task",
+            entity_id=task_id,
+            triggered_by=user_id,
+        )
+
+    # Notify creator + all assignees when status changes
+    if body.status is not None:
+        recipients = list(set(result.assigneeIds) | {result.createdBy})
+        notification_logic.notify_users(
+            db,
+            user_ids=recipients,
+            type="task_status_changed",
+            title="Task status updated",
+            message=f'{actor_name} moved "{result.title}" to {body.status}',
+            entity_type="task",
+            entity_id=task_id,
+            triggered_by=user_id,
+        )
+
     db.commit()
     return result
 
@@ -92,6 +140,19 @@ def move_task(
     result = task_logic.move_task(db, user_id, task_id, body)
     log_audit(db, user_id, "task.status_changed", "task", task_id, result.title,
               {"status": body.status})
+    actor = db.get(User, user_id)
+    actor_name = actor.name if actor else "Someone"
+    recipients = list(set(result.assigneeIds) | {result.createdBy})
+    notification_logic.notify_users(
+        db,
+        user_ids=recipients,
+        type="task_status_changed",
+        title="Task status updated",
+        message=f'{actor_name} moved "{result.title}" to {body.status}',
+        entity_type="task",
+        entity_id=task_id,
+        triggered_by=user_id,
+    )
     db.commit()
     return result
 
@@ -116,6 +177,19 @@ def approve_task(
 ):
     result = task_logic.approve_task(db, user_id, task_id)
     log_audit(db, user_id, "task.approved", "task", task_id, result.title, {})
+    actor = db.get(User, user_id)
+    actor_name = actor.name if actor else "Manager"
+    recipients = list(set(result.assigneeIds) | {result.createdBy})
+    notification_logic.notify_users(
+        db,
+        user_ids=recipients,
+        type="task_approved",
+        title="Task approved",
+        message=f'{actor_name} approved "{result.title}"',
+        entity_type="task",
+        entity_id=task_id,
+        triggered_by=user_id,
+    )
     db.commit()
     return result
 
@@ -147,7 +221,40 @@ def create_task_feedback(
     db: Session = Depends(get_db),
 ):
     result = task_feedback_logic.create_feedback(db, user_id, task_id, body)
-    log_audit(db, user_id, "task.comment_added", "task", task_id, "", {})
+    task_obj = db.get(Task, task_id)
+    log_audit(db, user_id, "task.comment_added", "task", task_id,
+              task_obj.title if task_obj else "", {})
+    actor = db.get(User, user_id)
+    actor_name = actor.name if actor else "Someone"
+    task_title = task_obj.title if task_obj else "a task"
+
+    # Notify creator + assignees about the comment
+    assignee_ids = assignees_crud.list_user_ids_ordered(db, task_id)
+    creator_id = task_obj.created_by if task_obj else ""
+    comment_recipients = list(set(assignee_ids) | {creator_id})
+    notification_logic.notify_users(
+        db,
+        user_ids=comment_recipients,
+        type="task_commented",
+        title="New comment",
+        message=f'{actor_name} commented on "{task_title}"',
+        entity_type="task",
+        entity_id=task_id,
+        triggered_by=user_id,
+    )
+
+    # Notify mentioned users
+    notification_logic.notify_users(
+        db,
+        user_ids=body.mentionedUserIds,
+        type="task_mentioned",
+        title="You were mentioned",
+        message=f'{actor_name} mentioned you in "{task_title}"',
+        entity_type="task",
+        entity_id=task_id,
+        triggered_by=user_id,
+    )
+
     db.commit()
     return result
 

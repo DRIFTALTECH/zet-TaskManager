@@ -199,6 +199,7 @@ class TaskFeedbackOut(BaseModel):
 
 class TaskFeedbackCreate(BaseModel):
     message: str = Field(..., min_length=1, max_length=8000)
+    mentionedUserIds: list[str] = Field(default_factory=list)
 
 
 class TaskFeedbackPatch(BaseModel):
@@ -253,4 +254,20 @@ class AuditLogOut(BaseModel):
     entityId: str
     entityName: str
     details: dict
+    createdAt: str
+
+
+# ── Notifications ─────────────────────────────────────────────────────────────
+
+class NotificationOut(BaseModel):
+    id: int
+    type: str
+    title: str
+    message: str
+    entityType: str
+    entityId: str
+    isRead: bool
+    triggeredBy: str
+    triggeredByName: str
+    triggeredByAvatar: str
     createdAt: str

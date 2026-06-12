@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import GlobalSearchModal from '@/components/GlobalSearchModal';
+import NotificationBell from '@/components/NotificationBell';
 
 const pageTitles: Record<string, string> = {
   '/': 'Dashboard',
@@ -74,6 +75,9 @@ const AppNavbar = () => {
             ⌘K
           </kbd>
         </button>
+
+        {/* Notifications */}
+        <NotificationBell />
 
         {/* Theme toggle */}
         <button
