@@ -93,7 +93,7 @@ const MyTasksPage = () => {
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={pageEnter} className="p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold">My Tasks</h1>
+          <h1 className="font-display text-3xl font-extrabold tracking-tight">My Tasks</h1>
           <p className="text-sm text-muted-foreground mt-1">{myTasks.length} total tasks across {userProjects.length} projects</p>
         </div>
         <motion.button
@@ -101,7 +101,7 @@ const MyTasksPage = () => {
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
           onClick={() => setCreateOpen(true)}
-          className="flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90 transition-opacity duration-100"
+          className="flex items-center gap-2 rounded-xl bg-brand-gradient glow-brand px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 transition-opacity duration-100"
         >
           <Plus className="h-4 w-4" /> Create Task
         </motion.button>
@@ -122,12 +122,25 @@ const MyTasksPage = () => {
               transition={snappyLayout}
             >
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <Layers className="h-4 w-4 text-primary" />
+                <div className="w-9 h-9 rounded-xl bg-brand-gradient glow-brand flex items-center justify-center shrink-0">
+                  <Layers className="h-4 w-4 text-white" />
                 </div>
-                <div>
-                  <h2 className="text-lg font-bold">{project.name}</h2>
+                <div className="min-w-0 flex-1">
+                  <h2 className="font-display text-lg font-bold tracking-tight truncate">{project.name}</h2>
                   <p className="text-xs text-muted-foreground">{projTasks.length} tasks · {completedTasks.length} completed</p>
+                </div>
+                <div className="hidden sm:flex items-center gap-2 shrink-0">
+                  <div className="h-1.5 w-28 rounded-full bg-muted overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${projTasks.length === 0 ? 0 : Math.round((completedTasks.length / projTasks.length) * 100)}%` }}
+                      transition={{ duration: 0.6, ease: 'easeOut' }}
+                      className="h-full rounded-full bg-brand-gradient"
+                    />
+                  </div>
+                  <span className="font-mono text-[11px] text-muted-foreground tabular-nums">
+                    {projTasks.length === 0 ? 0 : Math.round((completedTasks.length / projTasks.length) * 100)}%
+                  </span>
                 </div>
               </div>
 
@@ -147,7 +160,7 @@ const MyTasksPage = () => {
                         whileHover={{ scale: 1.005, x: 2, boxShadow: '0 4px 20px -4px hsl(var(--foreground) / 0.08)' }}
                         whileTap={{ scale: 0.995 }}
                         onClick={() => setSelectedTask(task)}
-                        className="rounded-xl border bg-card p-4 cursor-pointer transition-shadow duration-100"
+                        className="hairline-card rounded-xl p-4 cursor-pointer shadow-card-soft transition-shadow duration-100"
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
@@ -243,8 +256,11 @@ const MyTasksPage = () => {
 
       {myTasks.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-          <p className="font-medium">No tasks found</p>
-          <p className="text-sm">Create a task to get started</p>
+          <div className="w-12 h-12 rounded-2xl bg-brand-gradient glow-brand flex items-center justify-center mb-4">
+            <CheckCircle2 className="h-5 w-5 text-white" />
+          </div>
+          <p className="font-display font-bold text-foreground">All clear</p>
+          <p className="text-sm mt-1">Create a task to get started</p>
         </div>
       )}
 

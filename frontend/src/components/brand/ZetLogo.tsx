@@ -16,7 +16,7 @@ function ZMark({ onPrimary, className }: { onPrimary: boolean; className?: strin
       viewBox="0 0 32 32"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
-      className={cn('size-8 shrink-0', className)}
+      className={cn('size-8 shrink-0 drop-shadow-[0_2px_10px_hsl(var(--brand-1)/0.45)]', className)}
       aria-hidden
     >
       <path
@@ -57,7 +57,11 @@ export function ZetLogo({ variant = 'default', iconOnly = false, className }: Ze
       )}
     >
       <ZMark onPrimary={onPrimary} />
-      {!iconOnly && <span className="font-extrabold text-lg tracking-tight truncate">ZET</span>}
+      {!iconOnly && (
+        <span className="font-display font-extrabold text-lg tracking-tight truncate">
+          ZET
+        </span>
+      )}
     </div>
   );
 }
