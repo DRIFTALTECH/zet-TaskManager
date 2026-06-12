@@ -1,4 +1,4 @@
-import type { KanbanColumn, Project, Role, Task, TaskFeedback, TimesheetWorkEntry, User } from '@/types';
+import type { AuditLog, KanbanColumn, Project, Role, Task, TaskAttachment, TaskChecklist, TaskFeedback, TimesheetWorkEntry, User } from '@/types';
 
 const TOKEN_KEY = 'tm_token';
 
@@ -281,6 +281,63 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ current_password, new_password }),
     });
+  },
+
+  // ── Checklists ──────────────────────────────────────────────────────────────
+  async getChecklists(taskId: string): Promise<TaskChecklist[]> {
+    return request(`/tasks/${taskId}/checklists`);
+  },
+
+  async createChecklist(taskId: string, title: string, priority = 'Medium'): Promise<TaskChecklist> {
+    return request(`/tasks/${taskId}/checklists`, {
+      method: 'POST',
+      body: JSON.stringify({ title, priority }),
+    });
+  },
+
+  async patchChecklist(taskId: string, itemId: string, patch: { title?: string; priority?: string; isDone?: boolean }): Promise<TaskChecklist> {
+    return request(`/tasks/${taskId}/checklists/${itemId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+  },
+
+  async deleteChecklist(taskId: string, itemId: string): Promise<void> {
+    await request(`/tasks/${taskId}/checklists/${itemId}`, { method: 'DELETE' });
+  },
+
+  // ── Attachments ─────────────────────────────────────────────────────────────
+  async getAttachments(taskId: string): Promise<TaskAttachment[]> {
+    return request(`/tasks/${taskId}/attachments`);
+  },
+
+  async uploadAttachment(taskId: string, file: File): Promise<TaskAttachment> {
+    const form = new FormData();
+    form.append('file', file);
+    return request(`/tasks/${taskId}/attachments`, { method: 'POST', body: form });
+  },
+
+  async deleteAttachment(taskId: string, attachmentId: string): Promise<void> {
+    await request(`/tasks/${taskId}/attachments/${attachmentId}`, { method: 'DELETE' });
+  },
+
+  async downloadAttachment(taskId: string, attachmentId: string, filename: string): Promise<void> {
+    const res = await fetch(`${baseUrl()}/tasks/${taskId}/attachments/${attachmentId}/download`, {
+      headers: headers(false),
+    });
+    if (!res.ok) throw new Error('Download failed');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+
+  // ── Audit Log ───────────────────────────────────────────────────────────────
+  async getAuditLogs(limit = 200): Promise<AuditLog[]> {
+    return request(`/audit?limit=${limit}`);
   },
 };
 

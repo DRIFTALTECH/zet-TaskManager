@@ -1,5 +1,5 @@
 import { useAppStore } from '@/stores/appStore';
-import { Task, Priority, TaskStatus } from '@/types';
+import { Task, Priority, TaskStatus, TaskChecklist, TaskAttachment } from '@/types';
 import { Dialog, DialogContent, DialogDescription } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
@@ -12,9 +12,11 @@ import {
   Calendar, Tag, Clock, AlertTriangle, Plus, X, Trash2,
   FolderOpen, Layers, Mail, UserCircle, CircleDot,
   MessageSquare, Send, User2, CheckCircle2, RotateCcw, ChevronRight,
+  CheckSquare, Square, Paperclip, Download, Upload,
 } from 'lucide-react';
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { taskAssigneeIds, isTaskAssignedTo } from '@/lib/task-utils';
+import UserAvatar from '@/components/UserAvatar';
 import { dueBucketDateTextClass, getDueBucket } from '@/lib/due-date-utils';
 import { api } from '@/lib/api';
 import type { TaskFeedback } from '@/types';
@@ -39,21 +41,6 @@ const statusConfig: Record<TaskStatus, { style: string; label: string; bar: stri
 };
 
 // ── Avatar helpers ────────────────────────────────────────────────────────────
-const AVATAR_PALETTES = [
-  'bg-blue-500/20 text-blue-400 ring-blue-500/20',
-  'bg-violet-500/20 text-violet-400 ring-violet-500/20',
-  'bg-emerald-500/20 text-emerald-400 ring-emerald-500/20',
-  'bg-orange-500/20 text-orange-400 ring-orange-500/20',
-  'bg-pink-500/20 text-pink-400 ring-pink-500/20',
-  'bg-teal-500/20 text-teal-400 ring-teal-500/20',
-  'bg-amber-500/20 text-amber-400 ring-amber-500/20',
-  'bg-cyan-500/20 text-cyan-400 ring-cyan-500/20',
-];
-function avatarPalette(name: string) {
-  let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
-  return AVATAR_PALETTES[h % AVATAR_PALETTES.length];
-}
-function getInitials(name: string) { return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2); }
 function fmtDate(d: string) {
   try { return new Date(d + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' }); }
   catch { return d; }
@@ -125,13 +112,9 @@ function SectionLabel({ icon: Icon, label, accent = 'text-muted-foreground/60' }
   );
 }
 
-function Avatar({ name, size = 'md' }: { name: string; size?: 'sm' | 'md' | 'lg' }) {
-  const sizeMap = { sm: 'w-8 h-8 text-[10px]', md: 'w-9 h-9 text-xs', lg: 'w-11 h-11 text-sm' };
-  return (
-    <div className={`${sizeMap[size]} rounded-full flex items-center justify-center font-bold shrink-0 ring-1 ${avatarPalette(name)}`}>
-      {getInitials(name)}
-    </div>
-  );
+function Avatar({ name, avatar, size = 'md' }: { name: string; avatar?: string; size?: 'sm' | 'md' | 'lg' }) {
+  const sizeMap: Record<string, 'sm' | 'md' | 'lg'> = { sm: 'sm', md: 'md', lg: 'lg' };
+  return <UserAvatar name={name} avatar={avatar} size={sizeMap[size]} />;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -158,6 +141,19 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
   const [deleting, setDeleting] = useState(false);
   const [reopening, setReopening] = useState(false);
 
+  // ── Checklists ──────────────────────────────────────────────────────────────
+  const [checklists, setChecklists] = useState<TaskChecklist[]>([]);
+  const [checklistsLoading, setChecklistsLoading] = useState(false);
+  const [newCheckTitle, setNewCheckTitle] = useState('');
+  const [newCheckPriority, setNewCheckPriority] = useState<string>('Medium');
+  const [addingCheck, setAddingCheck] = useState(false);
+  const [showCheckForm, setShowCheckForm] = useState(false);
+
+  // ── Attachments ─────────────────────────────────────────────────────────────
+  const [attachments, setAttachments] = useState<TaskAttachment[]>([]);
+  const [attachmentsLoading, setAttachmentsLoading] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState(false);
+
   const isManager = currentUser?.role === 'manager';
   const isCompleted = task?.status === 'completed';
   const canReopenToBacklog = Boolean(
@@ -165,7 +161,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
     (currentUser.id === task.createdBy || isTaskAssignedTo(task, currentUser.id) || isManager),
   );
   const canEditTaskFields = Boolean(currentUser && task && !isCompleted && currentUser.id === task.createdBy);
-  const canManageAssignees = Boolean(isManager && task && !isCompleted && projects.some(p => p.id === task?.projectId));
+  const canManageAssignees = Boolean(task && !isCompleted && projects.some(p => p.id === task?.projectId));
   const canDeleteTask = Boolean(currentUser && task && currentUser.id === task.createdBy);
   const assigneeKey = task ? sortedKey(taskAssigneeIds(task)) : '';
 
@@ -185,12 +181,31 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
     finally { setFeedbackLoading(false); }
   }, [task?.id]);
 
+  const loadChecklists = useCallback(async () => {
+    if (!task?.id) return;
+    setChecklistsLoading(true);
+    try { setChecklists(await api.getChecklists(task.id)); }
+    catch { /* silently ignore */ }
+    finally { setChecklistsLoading(false); }
+  }, [task?.id]);
+
+  const loadAttachments = useCallback(async () => {
+    if (!task?.id) return;
+    setAttachmentsLoading(true);
+    try { setAttachments(await api.getAttachments(task.id)); }
+    catch { /* silently ignore */ }
+    finally { setAttachmentsLoading(false); }
+  }, [task?.id]);
+
   useEffect(() => { if (task && open) resetDraft(task); }, [open, task?.id, assigneeKey, resetDraft]);
   useEffect(() => {
     if (!open || !task?.id) return;
     void loadFeedback();
+    void loadChecklists();
+    void loadAttachments();
     setNewFeedbackText(''); setEditingFeedbackId(null); setEditingFeedbackText('');
-  }, [open, task?.id, loadFeedback]);
+    setShowCheckForm(false); setNewCheckTitle(''); setNewCheckPriority('Medium');
+  }, [open, task?.id, loadFeedback, loadChecklists, loadAttachments]);
 
   const isDirty = useMemo(() => {
     if (!task) return false;
@@ -377,18 +392,18 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                 {displayPriority}
               </span>
               {task.isStarted && (
-                <span className="text-[11px] px-3 py-1 rounded-full font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20 inline-flex items-center gap-1.5">
-                  <CircleDot className="h-3 w-3" /> Started
+                <span title="Started" className="w-6 h-6 rounded-full font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20 inline-flex items-center justify-center">
+                  <CircleDot className="h-3 w-3" />
                 </span>
               )}
               {task.approvedByManager && (
-                <span className="text-[11px] px-3 py-1 rounded-full font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 inline-flex items-center gap-1.5">
-                  <CheckCircle2 className="h-3 w-3" /> Approved
+                <span title="Approved" className="w-6 h-6 rounded-full font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 inline-flex items-center justify-center">
+                  <CheckCircle2 className="h-3 w-3" />
                 </span>
               )}
               {isOverdue && (
-                <span className="text-[11px] px-3 py-1 rounded-full font-semibold bg-red-500/15 text-red-400 border border-red-500/20 flex items-center gap-1.5">
-                  <AlertTriangle className="h-3 w-3" /> Overdue
+                <span title="Overdue" className="w-6 h-6 rounded-full font-semibold bg-red-500/15 text-red-400 border border-red-500/20 inline-flex items-center justify-center">
+                  <AlertTriangle className="h-3 w-3" />
                 </span>
               )}
             </div>
@@ -460,14 +475,14 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
               {canManageAssignees && (
                 <section>
                   <SectionLabel icon={User2} label="Manage Assignees" accent="text-violet-400/70" />
-                  <div className="rounded-xl border border-border/40 overflow-hidden divide-y divide-border/25 bg-card">
+                  <div className="rounded-xl border border-border/40 overflow-hidden divide-y divide-border/25 bg-card max-h-[280px] overflow-y-auto">
                     {projectMembers.map(u => (
                       <label
                         key={u.id}
                         className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-primary/5 transition-colors group"
                       >
                         <Checkbox checked={draftAssigneeIds.includes(u.id)} onCheckedChange={() => toggleAssignee(u.id)} />
-                        <Avatar name={u.name} size="sm" />
+                        <Avatar name={u.name} avatar={u.avatar} size="sm" />
                         <div className="flex-1 min-w-0">
                           <div className="text-sm font-semibold truncate group-hover:text-primary transition-colors">{u.name}</div>
                           <div className="text-xs text-muted-foreground truncate">{u.email}</div>
@@ -530,6 +545,222 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                 </section>
               )}
 
+              {/* ── Checklists ── */}
+              <section>
+                {(() => {
+                  const done = checklists.filter(c => c.isDone).length;
+                  const total = checklists.length;
+                  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+
+                  const addChecklist = async () => {
+                    if (!newCheckTitle.trim()) return;
+                    setAddingCheck(true);
+                    try {
+                      const item = await api.createChecklist(task.id, newCheckTitle.trim(), newCheckPriority);
+                      setChecklists(prev => [...prev, item]);
+                      setNewCheckTitle(''); setNewCheckPriority('Medium'); setShowCheckForm(false);
+                    } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not add item'); }
+                    finally { setAddingCheck(false); }
+                  };
+
+                  const toggleCheck = async (item: TaskChecklist) => {
+                    try {
+                      const updated = await api.patchChecklist(task.id, item.id, { isDone: !item.isDone });
+                      setChecklists(prev => prev.map(c => c.id === updated.id ? updated : c));
+                    } catch { toast.error('Could not update item'); }
+                  };
+
+                  const deleteCheck = async (itemId: string) => {
+                    try {
+                      await api.deleteChecklist(task.id, itemId);
+                      setChecklists(prev => prev.filter(c => c.id !== itemId));
+                    } catch { toast.error('Could not delete item'); }
+                  };
+
+                  return (
+                    <>
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground/60">
+                          <CheckSquare className="h-3.5 w-3.5 shrink-0" />
+                          <span>Checklist {total > 0 ? `(${done}/${total})` : ''}</span>
+                        </div>
+                        <button
+                          onClick={() => setShowCheckForm(v => !v)}
+                          className="text-[11px] text-primary/60 hover:text-primary flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-primary/8 transition-colors font-medium"
+                        >
+                          <Plus className="h-3 w-3" /> Add
+                        </button>
+                      </div>
+
+                      {total > 0 && (
+                        <div className="mb-3">
+                          <div className="flex items-center justify-between text-[10px] text-muted-foreground/50 mb-1">
+                            <span>Progress</span>
+                            <span className={pct === 100 ? 'text-emerald-400 font-bold' : ''}>{pct}%</span>
+                          </div>
+                          <div className="h-1.5 rounded-full bg-muted/40 overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all duration-500 ${pct === 100 ? 'bg-emerald-500' : 'bg-primary'}`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+
+                      {checklistsLoading ? (
+                        <div className="py-4 flex justify-center">
+                          <div className="w-4 h-4 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+                        </div>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {checklists.map(item => {
+                            const pc = { Urgent: 'text-red-400', High: 'text-orange-400', Medium: 'text-yellow-400', Low: 'text-green-400' }[item.priority] ?? 'text-muted-foreground/50';
+                            return (
+                              <div key={item.id} className="flex items-center gap-2.5 group rounded-xl px-2 py-1.5 hover:bg-muted/30 transition-colors">
+                                <button onClick={() => void toggleCheck(item)} className="shrink-0 text-muted-foreground/50 hover:text-primary transition-colors">
+                                  {item.isDone
+                                    ? <CheckSquare className="h-4 w-4 text-emerald-400" />
+                                    : <Square className="h-4 w-4" />}
+                                </button>
+                                <span className={`flex-1 text-sm min-w-0 truncate ${item.isDone ? 'line-through text-muted-foreground/40' : 'text-foreground'}`}>
+                                  {item.title}
+                                </span>
+                                <span className={`text-[10px] font-semibold shrink-0 ${pc}`}>{item.priority}</span>
+                                <button
+                                  onClick={() => void deleteCheck(item.id)}
+                                  className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-500/10 text-muted-foreground/40 hover:text-red-400 transition-all shrink-0"
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {showCheckForm && (
+                        <div className="mt-3 space-y-2 p-3 rounded-xl border border-border/40 bg-muted/20">
+                          <input
+                            autoFocus
+                            value={newCheckTitle}
+                            onChange={e => setNewCheckTitle(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') void addChecklist(); if (e.key === 'Escape') setShowCheckForm(false); }}
+                            placeholder="Item title…"
+                            className="w-full bg-transparent text-sm border border-border/40 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/40 placeholder:text-muted-foreground/35"
+                          />
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={newCheckPriority}
+                              onChange={e => setNewCheckPriority(e.target.value)}
+                              className="text-xs flex-1 border border-border/40 rounded-lg px-2 py-1.5 bg-muted/30 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                            >
+                              {['Low', 'Medium', 'High', 'Urgent'].map(p => <option key={p} value={p}>{p}</option>)}
+                            </select>
+                            <button
+                              onClick={() => void addChecklist()}
+                              disabled={addingCheck || !newCheckTitle.trim()}
+                              className="text-xs px-3 py-1.5 rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 font-semibold transition-all"
+                            >
+                              {addingCheck ? '…' : 'Add'}
+                            </button>
+                            <button onClick={() => setShowCheckForm(false)} className="text-xs px-3 py-1.5 rounded-lg border border-border/40 hover:bg-muted/60 transition-colors text-muted-foreground">
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {total === 0 && !showCheckForm && (
+                        <p className="text-xs text-muted-foreground/35 italic">No checklist items yet</p>
+                      )}
+                    </>
+                  );
+                })()}
+              </section>
+
+              {/* ── Attachments ── */}
+              <section>
+                {(() => {
+                  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setUploadingFile(true);
+                    try {
+                      const att = await api.uploadAttachment(task.id, file);
+                      setAttachments(prev => [...prev, att]);
+                      toast.success(`${file.name} uploaded`);
+                    } catch (err) { toast.error(err instanceof Error ? err.message : 'Upload failed'); }
+                    finally { setUploadingFile(false); e.target.value = ''; }
+                  };
+
+                  const handleDelete = async (att: TaskAttachment) => {
+                    try {
+                      await api.deleteAttachment(task.id, att.id);
+                      setAttachments(prev => prev.filter(a => a.id !== att.id));
+                      toast.success('Attachment deleted');
+                    } catch { toast.error('Could not delete attachment'); }
+                  };
+
+                  const fmtSize = (bytes: number) => {
+                    if (bytes < 1024) return `${bytes} B`;
+                    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+                    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+                  };
+
+                  return (
+                    <>
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground/60">
+                          <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                          <span>Attachments {attachments.length > 0 ? `(${attachments.length})` : ''}</span>
+                        </div>
+                        <label className="text-[11px] text-primary/60 hover:text-primary flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-primary/8 transition-colors font-medium cursor-pointer">
+                          <Upload className="h-3 w-3" />
+                          {uploadingFile ? 'Uploading…' : 'Upload'}
+                          <input type="file" className="sr-only" onChange={e => void handleFileUpload(e)} disabled={uploadingFile} />
+                        </label>
+                      </div>
+
+                      {attachmentsLoading ? (
+                        <div className="py-4 flex justify-center">
+                          <div className="w-4 h-4 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+                        </div>
+                      ) : attachments.length === 0 ? (
+                        <p className="text-xs text-muted-foreground/35 italic">No attachments yet</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {attachments.map(att => (
+                            <div key={att.id} className="flex items-center gap-2.5 group rounded-xl border border-border/30 px-3 py-2.5 bg-muted/10 hover:bg-muted/25 transition-colors">
+                              <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-medium truncate text-foreground">{att.filename}</p>
+                                <p className="text-[10px] text-muted-foreground/50">{fmtSize(att.sizeBytes)} · {att.uploaderName}</p>
+                              </div>
+                              <button
+                                onClick={() => void api.downloadAttachment(task.id, att.id, att.filename)}
+                                className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-primary/10 text-muted-foreground/50 hover:text-primary transition-all shrink-0"
+                                title="Download"
+                              >
+                                <Download className="h-3.5 w-3.5" />
+                              </button>
+                              {(currentUser?.id === att.uploadedBy || isManager) && (
+                                <button
+                                  onClick={() => void handleDelete(att)}
+                                  className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-500/10 text-muted-foreground/40 hover:text-red-400 transition-all shrink-0"
+                                  title="Delete"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </section>
+
               {/* Comments */}
               <section>
                 <SectionLabel
@@ -563,7 +794,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                             transition={{ duration: 0.15 }}
                             className={`flex gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}
                           >
-                            <Avatar name={fb.authorName || '?'} size="sm" />
+                            <Avatar name={fb.authorName || '?'} avatar={users.find(u => u.id === fb.userId)?.avatar} size="sm" />
                             <div className={`flex-1 min-w-0 flex flex-col gap-1 ${isOwn ? 'items-end' : 'items-start'}`}>
                               <div className={`flex items-center gap-2 ${isOwn ? 'flex-row-reverse' : ''}`}>
                                 <span className="text-xs font-semibold text-foreground">{fb.authorName}</span>
@@ -615,7 +846,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
 
                 {/* Comment input */}
                 <div className="flex gap-3 items-end">
-                  {currentUser && <Avatar name={currentUser.name} size="sm" />}
+                  {currentUser && <Avatar name={currentUser.name} avatar={currentUser.avatar} size="sm" />}
                   <div className="flex-1 relative">
                     <textarea
                       value={newFeedbackText}
@@ -707,7 +938,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                     <div className="space-y-2.5">
                       {assigneeUsers.map(u => (
                         <div key={u.id} className="flex items-center gap-2.5 group">
-                          <Avatar name={u.name} size="sm" />
+                          <Avatar name={u.name} avatar={u.avatar} size="sm" />
                           <div className="flex-1 min-w-0">
                             <div className="text-xs font-semibold truncate group-hover:text-primary transition-colors">{u.name}</div>
                             <div className="text-[10px] text-muted-foreground/60 truncate">{u.email}</div>
@@ -718,13 +949,6 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                   )}
                 </section>
               )}
-
-              {/* Time Tracked */}
-              <section>
-                <SectionLabel icon={Clock} label="Time Tracked" accent="text-teal-400/70" />
-                <div className="text-xl font-bold text-foreground tracking-tight">{fmtTime(task.timeTracked)}</div>
-                <div className="text-[10px] text-muted-foreground/50 mt-0.5">Total across all assignees</div>
-              </section>
 
               {/* Tags */}
               {task.tags.length > 0 && (
@@ -743,9 +967,11 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                 <SectionLabel icon={UserCircle} label="People" accent="text-indigo-400/70" />
                 <div className="space-y-3">
                   <div className="flex items-center gap-2.5 group">
-                    <Avatar name={creator?.name ?? '?'} size="sm" />
+                    <Avatar name={creator?.name ?? '?'} avatar={creator?.avatar} size="sm" />
                     <div className="min-w-0 flex-1">
-                      <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-semibold">Created by</div>
+                      <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-semibold">
+                        {creator?.id === assigner?.id ? 'Created & assigned by' : 'Created by'}
+                      </div>
                       <div className="text-xs font-semibold truncate group-hover:text-primary transition-colors">{creator?.name ?? task.createdBy}</div>
                       {creator?.email && (
                         <div className="text-[10px] text-muted-foreground/50 flex items-center gap-1 truncate mt-0.5">
@@ -754,18 +980,20 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2.5 group">
-                    <Avatar name={assigner?.name ?? '?'} size="sm" />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-semibold">Assigned by</div>
-                      <div className="text-xs font-semibold truncate group-hover:text-primary transition-colors">{assigner?.name ?? task.assignedBy}</div>
-                      {assigner?.email && (
-                        <div className="text-[10px] text-muted-foreground/50 flex items-center gap-1 truncate mt-0.5">
-                          <Mail className="h-2.5 w-2.5 shrink-0" />{assigner.email}
-                        </div>
-                      )}
+                  {creator?.id !== assigner?.id && (
+                    <div className="flex items-center gap-2.5 group">
+                      <Avatar name={assigner?.name ?? '?'} avatar={assigner?.avatar} size="sm" />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-semibold">Assigned by</div>
+                        <div className="text-xs font-semibold truncate group-hover:text-primary transition-colors">{assigner?.name ?? task.assignedBy}</div>
+                        {assigner?.email && (
+                          <div className="text-[10px] text-muted-foreground/50 flex items-center gap-1 truncate mt-0.5">
+                            <Mail className="h-2.5 w-2.5 shrink-0" />{assigner.email}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               </section>
 
@@ -773,6 +1001,10 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
               <section>
                 <SectionLabel icon={Clock} label="Timeline" accent="text-slate-400/70" />
                 <div className="space-y-2.5">
+                  <div>
+                    <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-semibold mb-0.5">Time tracked</div>
+                    <div className="text-sm font-bold text-foreground tabular-nums">{fmtTime(task.timeTracked)}</div>
+                  </div>
                   <div>
                     <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-semibold mb-0.5">Created</div>
                     <div className="text-[11px] text-foreground/60 tabular-nums">{taskCreatedTimeline}</div>

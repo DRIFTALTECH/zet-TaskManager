@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from database.database import get_db
-from logic import project_logic, user_logic
+from logic import user_logic
 from logic.schemas import PasswordUpdate, ProfileUpdate, UserOut
 from routes.deps import get_current_user_id
 
@@ -12,7 +12,6 @@ router = APIRouter()
 @router.get("/me", response_model=UserOut)
 def me(user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
     u = user_logic.get_user_or_404(db, user_id)
-    project_logic.ensure_personal_project(db, user_id)
     return user_logic.to_user_out(db, u)
 
 

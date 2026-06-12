@@ -77,8 +77,6 @@ def list_tasks(db: Session, current_user_id: str) -> list[TaskOut]:
     visible = []
     for t in all_t:
         p = projects_crud.get_by_id(db, t.project_id)
-        if p and p.is_personal and p.created_by != current_user_id:
-            continue
         mids = projects_crud.member_ids(db, t.project_id)
         if current_user_id in mids:
             visible.append(t)
@@ -112,12 +110,6 @@ def create_task(db: Session, current_user_id: str, body: TaskCreate) -> TaskOut:
     for uid in assignee_ids:
         if uid not in mids:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Every assignee must be a project member")
-    actor = user_logic.get_user_or_404(db, current_user_id)
-    if actor.role != "manager" and set(assignee_ids) != {current_user_id}:
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN,
-            "Only managers can assign tasks to people other than yourself",
-        )
     tid = new_id("t")
     today = date.today().isoformat()
     created_at = datetime.now(timezone.utc).isoformat()
@@ -207,12 +199,6 @@ def patch_task(db: Session, current_user_id: str, task_id: str, body: TaskPatch)
         for uid in assignee_ids:
             if uid not in mids:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, "Every assignee must be a project member")
-        actor = user_logic.get_user_or_404(db, current_user_id)
-        if actor.role != "manager":
-            raise HTTPException(
-                status.HTTP_403_FORBIDDEN,
-                "Only managers can change who is assigned",
-            )
         assignees_crud.set_assignees(db, t.id, assignee_ids)
         t.assigned_to = assignee_ids[0]
     if body.customFields is not None:

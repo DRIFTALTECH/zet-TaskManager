@@ -6,23 +6,8 @@ import { useNavigate } from 'react-router-dom';
 import { snappy, pageEnter } from '@/lib/motion';
 import { isTaskAssignedTo } from '@/lib/task-utils';
 
-// ── Avatar helpers ────────────────────────────────────────────────────────────
-const AVATAR_PALETTES = [
-  { bg: 'bg-blue-500/20', text: 'text-blue-400', ring: 'ring-blue-500/25', glow: 'shadow-blue-500/20' },
-  { bg: 'bg-violet-500/20', text: 'text-violet-400', ring: 'ring-violet-500/25', glow: 'shadow-violet-500/20' },
-  { bg: 'bg-emerald-500/20', text: 'text-emerald-400', ring: 'ring-emerald-500/25', glow: 'shadow-emerald-500/20' },
-  { bg: 'bg-orange-500/20', text: 'text-orange-400', ring: 'ring-orange-500/25', glow: 'shadow-orange-500/20' },
-  { bg: 'bg-pink-500/20', text: 'text-pink-400', ring: 'ring-pink-500/25', glow: 'shadow-pink-500/20' },
-  { bg: 'bg-teal-500/20', text: 'text-teal-400', ring: 'ring-teal-500/25', glow: 'shadow-teal-500/20' },
-  { bg: 'bg-amber-500/20', text: 'text-amber-400', ring: 'ring-amber-500/25', glow: 'shadow-amber-500/20' },
-  { bg: 'bg-cyan-500/20', text: 'text-cyan-400', ring: 'ring-cyan-500/25', glow: 'shadow-cyan-500/20' },
-];
+import UserAvatar from '@/components/UserAvatar';
 
-function avatarPalette(name: string) {
-  let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
-  return AVATAR_PALETTES[h % AVATAR_PALETTES.length];
-}
-function getInitials(name: string) { return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2); }
 
 const UsersPage = () => {
   const { users, tasks, projects } = useAppStore();
@@ -131,7 +116,6 @@ const UsersPage = () => {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {filteredUsers.map((user, i) => {
-              const palette = avatarPalette(user.name);
               const activeTasks = tasks.filter(t => isTaskAssignedTo(t, user.id) && t.status !== 'completed').length;
               const userProjects = projects.filter(p => p.members.includes(user.id));
               const isManager = user.role === 'manager';
@@ -156,9 +140,7 @@ const UsersPage = () => {
                   <div className="p-5">
                     {/* Avatar + name */}
                     <div className="flex items-center gap-4 mb-4">
-                      <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-bold text-base shrink-0 ring-2 transition-all duration-200 group-hover:shadow-lg ${palette.bg} ${palette.text} ${palette.ring} group-hover:${palette.glow}`}>
-                        {getInitials(user.name)}
-                      </div>
+                      <UserAvatar name={user.name} avatar={user.avatar} size="lg" className="!rounded-2xl ring-2" />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap mb-1">
                           <h3 className="font-bold text-foreground group-hover:text-primary transition-colors truncate">{user.name}</h3>

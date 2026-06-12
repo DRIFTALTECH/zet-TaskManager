@@ -12,7 +12,7 @@ from jwt import PyJWKClient
 from sqlalchemy.orm import Session
 
 import crud.users as users_crud
-from logic import project_logic, user_logic
+from logic import user_logic
 from logic.schemas import LoginBody, LoginResponse, MicrosoftAuthBody, RegisterBody
 
 JWT_SECRET = os.environ.get("TASKMANAGER_JWT_SECRET", "dev-secret-change-me")
@@ -104,7 +104,6 @@ def login(db: Session, body: LoginBody) -> LoginResponse:
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
     token = create_access_token(user.id, remember_me=body.remember_me)
-    project_logic.ensure_personal_project(db, user.id)
     return LoginResponse(access_token=token, user=user_logic.to_user_out(db, user))
 
 
@@ -124,7 +123,6 @@ def register(db: Session, body: RegisterBody) -> LoginResponse:
         role=body.role,
     )
     token = create_access_token(user.id)
-    project_logic.ensure_personal_project(db, user.id)
     return LoginResponse(access_token=token, user=user_logic.to_user_out(db, user))
 
 
@@ -144,7 +142,6 @@ def microsoft_auth(db: Session, body: MicrosoftAuthBody) -> LoginResponse:
     user = users_crud.get_by_email(db, email)
     if user:
         token = create_access_token(user.id, remember_me=body.remember_me)
-        project_logic.ensure_personal_project(db, user.id)
         return LoginResponse(access_token=token, user=user_logic.to_user_out(db, user))
 
     role = body.role if body.role in ("employee", "manager") else "employee"
@@ -157,5 +154,4 @@ def microsoft_auth(db: Session, body: MicrosoftAuthBody) -> LoginResponse:
         role=role,
     )
     token = create_access_token(user.id, remember_me=body.remember_me)
-    project_logic.ensure_personal_project(db, user.id)
     return LoginResponse(access_token=token, user=user_logic.to_user_out(db, user))

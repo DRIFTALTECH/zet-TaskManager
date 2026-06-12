@@ -31,6 +31,7 @@ import {
   ListFilter,
 } from 'lucide-react';
 import TaskDetailModal from '@/components/TaskDetailModal';
+import UserAvatar from '@/components/UserAvatar';
 import CreateTaskModal from '@/components/CreateTaskModal';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -130,17 +131,16 @@ function TaskCard({
   const isOverdue = dueBucket === 'overdue' && !isDoneLane;
   const showTimer = (canStartTimer || isTimerActive) && task.status !== 'completed' && task.status !== 'done';
   const formatDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   return (
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition: transition ?? undefined, opacity: isDragging ? 0 : 1, ...(isDragging ? { pointerEvents: 'none' as const } : {}) }}
       {...attributes} {...(canDrag ? listeners : {})}
       onClick={onClick}
-      className={`group relative h-[250px] touch-none select-none ${canDrag ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
+      className={`group relative min-h-[250px] touch-none select-none ${canDrag ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
     >
       <div
-        className="rounded-2xl border-2 border-border/70 bg-gradient-to-br from-muted/70 via-card to-muted/40 dark:from-muted/50 dark:via-card dark:to-muted/30 p-6 h-full flex flex-col transition-[transform,box-shadow] duration-200 ease-out will-change-transform group-hover:-translate-y-1.5 group-hover:scale-[1.02] shadow-md group-hover:shadow-xl group-hover:[box-shadow:0_20px_60px_-10px_var(--card-glow)]"
+        className="rounded-2xl border-2 border-border/70 bg-gradient-to-br from-muted/70 via-card to-muted/40 dark:from-muted/50 dark:via-card dark:to-muted/30 p-6 min-h-[250px] flex flex-col transition-[transform,box-shadow] duration-200 ease-out will-change-transform group-hover:-translate-y-1.5 group-hover:scale-[1.02] shadow-md group-hover:shadow-xl group-hover:[box-shadow:0_20px_60px_-10px_var(--card-glow)]"
         style={{ ['--card-glow' as string]: priorityGlowColor[task.priority] }}
       >
         <div className="flex items-center justify-between mb-4">
@@ -153,15 +153,23 @@ function TaskCard({
           {((showProjectPill && taskProject) || taskSection || showTimer) && (
             <div className="flex items-center justify-between gap-2 min-h-10">
               <div className="flex items-center gap-1.5 flex-wrap min-w-0 pr-2 flex-1">
-                {showProjectPill && taskProject && (
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold truncate max-w-[120px] ${idPillColor(taskProject.id)}`}>
-                    {taskProject.name}
+                {showProjectPill && taskProject && taskSection ? (
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold truncate max-w-[200px] ${idPillColor(taskProject.id)}`}>
+                    {taskProject.name} · {taskSection.name}
                   </span>
-                )}
-                {taskSection && (
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold truncate max-w-[120px] ${idPillColor(taskSection.id)}`}>
-                    {taskSection.name}
-                  </span>
+                ) : (
+                  <>
+                    {showProjectPill && taskProject && (
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold truncate max-w-[120px] ${idPillColor(taskProject.id)}`}>
+                        {taskProject.name}
+                      </span>
+                    )}
+                    {taskSection && (
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold truncate max-w-[120px] ${idPillColor(taskSection.id)}`}>
+                        {taskSection.name}
+                      </span>
+                    )}
+                  </>
                 )}
               </div>
               <div className="flex items-center justify-end shrink-0">
@@ -196,9 +204,7 @@ function TaskCard({
             <div className="flex items-center gap-2 min-w-0">
               <div className="flex -space-x-2 shrink-0">
                 {assigneeList.slice(0, 3).map(u => (
-                  <div key={u.id} className="w-7 h-7 rounded-full bg-muted border-2 border-card flex items-center justify-center">
-                    <span className="text-[10px] font-bold text-muted-foreground">{getInitials(u.name)}</span>
-                  </div>
+                  <UserAvatar key={u.id} name={u.name} avatar={u.avatar} size="xs" className="border-2 border-card" />
                 ))}
                 {assigneeList.length === 0 && <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center"><span className="text-[10px] text-muted-foreground">?</span></div>}
               </div>

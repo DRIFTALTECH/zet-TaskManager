@@ -3,8 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   ChevronLeft, ChevronRight, Download, Plus, Bell, Send,
-  Trash2, MoreVertical, EyeOff, RotateCcw, Clock, CalendarDays,
-  Tag, DollarSign, List,
+  Trash2, MoreVertical, CalendarX2, Clock, CalendarDays,
+  Tag, DollarSign, List, X, Mail,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import {
@@ -12,7 +12,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -23,6 +23,8 @@ import { toast } from 'sonner';
 import { snappy, pageEnter } from '@/lib/motion';
 import type { TimesheetWorkEntry } from '@/types';
 import { api } from '@/lib/api';
+import { acquireGraphToken, hasMicrosoftSession, isMicrosoftAuthConfigured } from '@/lib/microsoftAuth';
+import UserAvatar from '@/components/UserAvatar';
 
 const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const dayShort = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -41,9 +43,17 @@ const ID_PILL_PALETTES = [
   'bg-indigo-500/15 text-indigo-400 border-indigo-500/25',
   'bg-rose-500/15 text-rose-400 border-rose-500/25',
 ];
+const ID_DOT_COLORS = [
+  'bg-blue-400', 'bg-violet-400', 'bg-emerald-400', 'bg-orange-400', 'bg-pink-400',
+  'bg-teal-400', 'bg-amber-400', 'bg-cyan-400', 'bg-indigo-400', 'bg-rose-400',
+];
 function idPillColor(id: string): string {
   let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
   return ID_PILL_PALETTES[h % ID_PILL_PALETTES.length];
+}
+function idDotColor(id: string): string {
+  let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
+  return ID_DOT_COLORS[h % ID_DOT_COLORS.length];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -69,7 +79,6 @@ function formatDisplayDate(iso: string): string {
   if (!y || !m || !d) return iso;
   return `${d}-${m}-${y}`;
 }
-function dayHideKey(weekOffset: number, iso: string): string { return `${weekOffset}|${iso}`; }
 function compactTimeToApi(raw: string): string {
   const digits = raw.replace(/\D/g, '');
   if (digits.length === 0) throw new Error('empty');
@@ -148,7 +157,7 @@ const textareaCls = `${inputCls} resize-y min-h-[72px] break-words [overflow-wra
 
 // ═══════════════════════════════════════════════════════════════════════════════
 const TimesheetPage = () => {
-  const { currentUser, projects, users } = useAppStore();
+  const { currentUser, projects, users, addSection } = useAppStore();
   const [weekOffset, setWeekOffset] = useState(0);
   const [entries, setEntries] = useState<TimesheetWorkEntry[]>([]);
   const [loadingEntries, setLoadingEntries] = useState(false);
@@ -161,12 +170,26 @@ const TimesheetPage = () => {
   const [formTimeTo, setFormTimeTo] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const [hiddenDayKeys, setHiddenDayKeys] = useState<Set<string>>(() => new Set());
+  const [onLeaveDays, setOnLeaveDays] = useState<Set<string>>(() => new Set());
   const [notifyOpen, setNotifyOpen] = useState(false);
-  const [notifyRecipient, setNotifyRecipient] = useState('');
+  const [notifyToTags, setNotifyToTags] = useState<string[]>([]);
+  const [notifyToInput, setNotifyToInput] = useState('');
+  const [notifyCcTags, setNotifyCcTags] = useState<string[]>([]);
+  const [notifyCcInput, setNotifyCcInput] = useState('');
+  const [notifySubject, setNotifySubject] = useState('');
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [showToSuggestions, setShowToSuggestions] = useState(false);
+  const [showCcSuggestions, setShowCcSuggestions] = useState(false);
   const [selectedDays, setSelectedDays] = useState<string[]>([]);
   const [entryToDelete, setEntryToDelete] = useState<TimesheetWorkEntry | null>(null);
   const [deletingEntry, setDeletingEntry] = useState(false);
+
+  // ── Inline section creation ────────────────────────────────────────────────
+  const [showQuickNewSection, setShowQuickNewSection] = useState(false);
+  const [quickNewSectionName, setQuickNewSectionName] = useState('');
+  const [showFormNewSection, setShowFormNewSection] = useState(false);
+  const [formNewSectionName, setFormNewSectionName] = useState('');
+  const [creatingSec, setCreatingSec] = useState(false);
 
   /** Clockify-style quick bar */
   const [quickDesc, setQuickDesc] = useState('');
@@ -216,17 +239,39 @@ const TimesheetPage = () => {
     [visibleWeekDates, entries, weekDates],
   );
 
-  const visibleDays = useMemo(
-    () => dayView.filter(d => !hiddenDayKeys.has(dayHideKey(weekOffset, d.date))),
-    [dayView, hiddenDayKeys, weekOffset],
-  );
 
-  const hiddenCountThisWeek = useMemo(
-    () => dayView.filter(d => hiddenDayKeys.has(dayHideKey(weekOffset, d.date))).length,
-    [dayView, hiddenDayKeys, weekOffset],
-  );
+  const resetForm = () => {
+    setFormProjectId(''); setFormSectionId(''); setFormDescription(''); setFormTimeFrom(''); setFormTimeTo('');
+    setShowFormNewSection(false); setFormNewSectionName('');
+  };
 
-  const resetForm = () => { setFormProjectId(''); setFormSectionId(''); setFormDescription(''); setFormTimeFrom(''); setFormTimeTo(''); };
+  const handleCreateQuickSection = async () => {
+    if (!quickNewSectionName.trim() || !quickProjectId) return;
+    setCreatingSec(true);
+    try {
+      await addSection(quickProjectId, quickNewSectionName.trim());
+      const updatedProj = useAppStore.getState().projects.find(p => p.id === quickProjectId);
+      const newSec = updatedProj?.sections.find(s => s.name.trim() === quickNewSectionName.trim());
+      if (newSec) setQuickSectionId(newSec.id);
+      setQuickNewSectionName(''); setShowQuickNewSection(false);
+      toast.success('Section created');
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not create section'); }
+    finally { setCreatingSec(false); }
+  };
+
+  const handleCreateFormSection = async () => {
+    if (!formNewSectionName.trim() || !formProjectId) return;
+    setCreatingSec(true);
+    try {
+      await addSection(formProjectId, formNewSectionName.trim());
+      const updatedProj = useAppStore.getState().projects.find(p => p.id === formProjectId);
+      const newSec = updatedProj?.sections.find(s => s.name.trim() === formNewSectionName.trim());
+      if (newSec) setFormSectionId(newSec.id);
+      setFormNewSectionName(''); setShowFormNewSection(false);
+      toast.success('Section created');
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not create section'); }
+    finally { setCreatingSec(false); }
+  };
 
   const openNewModal = (workDate: string) => { resetForm(); setEntryModal({ mode: 'new', date: workDate }); };
   const openEditModal = (entry: TimesheetWorkEntry) => {
@@ -239,19 +284,10 @@ const TimesheetPage = () => {
   };
   const closeEntryModal = () => { setEntryModal(null); resetForm(); };
 
-  const toggleHideDay = (date: string) => {
-    const k = dayHideKey(weekOffset, date);
-    setHiddenDayKeys(prev => {
+  const toggleOnLeave = (date: string) => {
+    setOnLeaveDays(prev => {
       const next = new Set(prev);
-      if (next.has(k)) next.delete(k); else next.add(k);
-      return next;
-    });
-  };
-
-  const showAllDaysThisWeek = () => {
-    setHiddenDayKeys(prev => {
-      const next = new Set(prev);
-      for (const d of dayView) next.delete(dayHideKey(weekOffset, d.date));
+      if (next.has(date)) next.delete(date); else next.add(date);
       return next;
     });
   };
@@ -359,11 +395,158 @@ const TimesheetPage = () => {
 
   const toggleDay = (date: string) => setSelectedDays(prev => prev.includes(date) ? prev.filter(d => d !== date) : [...prev, date]);
 
-  const handleNotify = () => {
-    if (!notifyRecipient) return toast.error('Select a recipient');
+  // ── Email helpers ──────────────────────────────────────────────────────────
+  const EMAIL_PROJ_COLORS = ['#3b82f6','#8b5cf6','#10b981','#f97316','#ec4899','#14b8a6','#f59e0b','#06b6d4','#6366f1','#f43f5e'];
+  const projEmailColor = (id: string) => { let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) & 0xffff; return EMAIL_PROJ_COLORS[h % EMAIL_PROJ_COLORS.length]; };
+
+  const addToTag = (email: string) => {
+    const e = email.trim().replace(/,+$/, '');
+    if (e && !notifyToTags.includes(e)) setNotifyToTags(prev => [...prev, e]);
+    setNotifyToInput('');
+  };
+  const addCcTag = (email: string) => {
+    const e = email.trim().replace(/,+$/, '');
+    if (e && !notifyCcTags.includes(e)) setNotifyCcTags(prev => [...prev, e]);
+    setNotifyCcInput('');
+  };
+  const toggleUserToTag = (userEmail: string) => {
+    if (notifyToTags.includes(userEmail)) setNotifyToTags(prev => prev.filter(t => t !== userEmail));
+    else setNotifyToTags(prev => [...prev, userEmail]);
+  };
+
+  const buildEmailHtml = (summary: typeof scheduleSummary): string => {
+    const senderName = currentUser?.name ?? 'Team member';
+    const sorted = [...summary].filter(Boolean);
+    const dateRange = sorted.length === 0 ? ''
+      : sorted.length === 1
+        ? `${sorted[0]!.dayName}, ${formatDisplayDate(sorted[0]!.date)}`
+        : `${sorted[0]!.dayName} ${formatDisplayDate(sorted[0]!.date)} – ${sorted[sorted.length - 1]!.dayName} ${formatDisplayDate(sorted[sorted.length - 1]!.date)}`;
+    const totalAllSecs = sorted.reduce((acc, d) => acc + (d?.totalSeconds ?? 0), 0);
+
+    const colHeaders = `
+      <tr bgcolor="#f8fafc">
+        <td width="26%" style="padding:8px 10px;font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;border-bottom:1px solid #e2e8f0;">PROJECT &middot; SECTION</td>
+        <td width="42%" style="padding:8px 10px;font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;border-bottom:1px solid #e2e8f0;">DESCRIPTION</td>
+        <td width="16%" style="padding:8px 10px;font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;border-bottom:1px solid #e2e8f0;">TIME</td>
+        <td width="16%" style="padding:8px 10px;font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;border-bottom:1px solid #e2e8f0;text-align:right;">DURATION</td>
+      </tr>`;
+
+    const dayRows = sorted.map(d => {
+      if (!d) return '';
+      const dayTotal = d.totalSeconds > 0 ? formatDuration(d.totalSeconds) : '&mdash;';
+
+      const isOnLeave = onLeaveDays.has(d.date);
+
+      const entryRows = isOnLeave
+        ? `<tr><td colspan="4" style="padding:14px 10px;background:#fffbeb;border-left:3px solid #f59e0b;">
+            <span style="font-size:13px;font-weight:600;color:#b45309;">On Leave</span>
+            <span style="font-size:12px;color:#92400e;margin-left:6px;">— no work logged this day</span>
+           </td></tr>`
+        : d.entriesForDay.length > 0 ? d.entriesForDay.map(en => {
+          const proj = projects.find(p => p.id === en.projectId);
+          const sec = proj?.sections.find(s => s.id === en.sectionId);
+          const pc = proj ? projEmailColor(proj.id) : '#6b7280';
+          const desc = en.description?.trim() || '<em style="color:#94a3b8;">No description</em>';
+          const projSecHtml = proj
+            ? `<span style="font-size:12px;font-weight:700;color:${pc};">${proj.name}</span>${sec ? `<br><span style="font-size:11px;color:#94a3b8;">${sec.name}</span>` : ''}`
+            : '<span style="color:#94a3b8;">—</span>';
+          return `<tr>
+            <td style="padding:11px 10px;border-bottom:1px solid #f1f5f9;vertical-align:top;">${projSecHtml}</td>
+            <td style="padding:11px 10px;border-bottom:1px solid #f1f5f9;vertical-align:top;font-size:13px;color:#1e293b;line-height:1.5;">${desc}</td>
+            <td style="padding:11px 10px;border-bottom:1px solid #f1f5f9;vertical-align:top;font-size:12px;color:#64748b;white-space:nowrap;">${en.timeFrom}&nbsp;&ndash;&nbsp;${en.timeTo}</td>
+            <td style="padding:11px 10px;border-bottom:1px solid #f1f5f9;vertical-align:top;font-size:13px;font-weight:800;color:#1e293b;text-align:right;white-space:nowrap;">${formatDuration(en.seconds)}</td>
+          </tr>`;
+        }).join('')
+        : `<tr><td colspan="4" style="padding:14px 10px;color:#94a3b8;font-size:13px;font-style:italic;">No entries logged</td></tr>`;
+
+      return `
+        <tr>
+          <td colspan="4" style="padding:20px 10px 10px;">
+            <table width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+              <td style="font-size:18px;font-weight:800;color:#1e293b;">${d.dayName}&nbsp;<span style="font-size:14px;font-weight:400;color:#94a3b8;">${formatDisplayDate(d.date)}</span>${isOnLeave ? '&nbsp;<span style="font-size:11px;font-weight:700;color:#b45309;background:#fef3c7;border:1px solid #fcd34d;border-radius:4px;padding:1px 6px;">On Leave</span>' : ''}</td>
+              <td style="text-align:right;font-size:14px;font-weight:700;color:#6366f1;">${isOnLeave ? '' : dayTotal}</td>
+            </tr></table>
+          </td>
+        </tr>
+        ${isOnLeave ? '' : colHeaders}
+        ${entryRows}`;
+    }).join('');
+
+    return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;">
+  <tr><td align="center">
+    <table width="620" cellpadding="0" cellspacing="0" style="max-width:620px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(15,23,42,.08);">
+
+      <!-- Header -->
+      <tr><td bgcolor="#0f172a" style="padding:28px 20px 24px;">
+        <h1 style="margin:0 0 6px;font-size:24px;color:#ffffff;font-weight:800;letter-spacing:-.01em;">Timesheet Report</h1>
+        <p style="margin:0;font-size:13px;color:#ffffff;">${senderName} &middot; ${dateRange}</p>
+      </td></tr>
+
+      <!-- Day rows -->
+      <tr><td style="padding:0 10px 12px;">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0">
+          ${dayRows}
+        </table>
+      </td></tr>
+
+      <!-- Total -->
+      <tr><td style="padding:16px 20px;border-top:1px solid #e2e8f0;">
+        <table width="100%" cellpadding="0" cellspacing="0"><tr>
+          <td style="color:#7c3aed;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;">Total Hours Logged</td>
+          <td style="text-align:right;color:#0f172a;font-size:26px;font-weight:800;letter-spacing:-.02em;">${formatDuration(totalAllSecs)}</td>
+        </tr></table>
+      </td></tr>
+
+      <!-- Footer -->
+      <tr><td style="padding:12px 20px;border-top:1px solid #f1f5f9;text-align:center;">
+        <p style="margin:0;font-size:11px;color:#94a3b8;">Sent via Zet</p>
+      </td></tr>
+
+    </table>
+  </td></tr>
+</table>
+</body></html>`;
+  };
+
+  const handleNotify = async () => {
+    const toList = [...notifyToTags, ...(notifyToInput.trim() ? [notifyToInput.trim()] : [])].filter(Boolean);
+    if (toList.length === 0) return toast.error('Add at least one recipient email address');
     if (selectedDays.length === 0) return toast.error('Select at least one day');
-    toast.success(`Schedule sent to ${users.find(u => u.id === notifyRecipient)?.name || 'recipient'}`);
-    setNotifyOpen(false); setSelectedDays([]); setNotifyRecipient('');
+    if (!isMicrosoftAuthConfigured()) return toast.error('Microsoft sign-in is not configured. Set VITE_MICROSOFT_CLIENT_ID in .env.');
+    if (!hasMicrosoftSession()) return toast.error('Sign in with Microsoft to send emails from your account.');
+    setSendingEmail(true);
+    try {
+      const token = await acquireGraphToken();
+      const html = buildEmailHtml(scheduleSummary);
+      const ccList = [...notifyCcTags, ...(notifyCcInput.trim() ? [notifyCcInput.trim()] : [])].filter(Boolean);
+      const message: Record<string, unknown> = {
+        subject: notifySubject.trim() || `Timesheet report – ${currentUser?.name}`,
+        body: { contentType: 'HTML', content: html },
+        toRecipients: toList.map(e => ({ emailAddress: { address: e } })),
+      };
+      if (ccList.length > 0) message.ccRecipients = ccList.map(e => ({ emailAddress: { address: e } }));
+      const res = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, saveToSentItems: true }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { error?: { message?: string } };
+        throw new Error(err?.error?.message ?? `Graph API error ${res.status}`);
+      }
+      toast.success(`Email sent to ${toList.length} recipient${toList.length > 1 ? 's' : ''}!`);
+      setNotifyOpen(false);
+      setSelectedDays([]);
+      setNotifyToTags([]); setNotifyToInput('');
+      setNotifyCcTags([]); setNotifyCcInput('');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Failed to send email');
+    } finally {
+      setSendingEmail(false);
+    }
   };
 
   const scheduleSummary = selectedDays.sort().map(date => dayView.find(d => d.date === date)).filter(Boolean);
@@ -405,7 +588,15 @@ const TimesheetPage = () => {
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.97 }}
               onClick={() => {
-                setSelectedDays(visibleWeekDates.filter(d => (dayView.find(dv => dv.date === d)?.totalSeconds ?? 0) > 0));
+                const activeDays = visibleWeekDates.filter(d => (dayView.find(dv => dv.date === d)?.totalSeconds ?? 0) > 0);
+                setSelectedDays(activeDays);
+                const sorted = [...activeDays].sort();
+                const range = sorted.length === 0 ? weekLabel
+                  : sorted.length === 1 ? formatDisplayDate(sorted[0])
+                  : `${formatDisplayDate(sorted[0])} – ${formatDisplayDate(sorted[sorted.length - 1])}`;
+                setNotifySubject(sorted.length <= 1
+                  ? `${currentUser.name}'s timesheet – ${range}`
+                  : `${currentUser.name}'s timesheet from ${formatDisplayDate(sorted[0])} to ${formatDisplayDate(sorted[sorted.length - 1])}`);
                 setNotifyOpen(true);
               }}
               className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl border border-border/50 hover:bg-muted/50 hover:border-border/80 transition-all text-muted-foreground hover:text-foreground font-medium"
@@ -450,12 +641,26 @@ const TimesheetPage = () => {
                 <button
                   type="button"
                   disabled={saving || userProjects.length === 0}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-sm font-semibold text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
+                  className={cn(
+                    'inline-flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 max-w-[160px]',
+                    quickProjectId
+                      ? 'text-foreground hover:bg-muted/60'
+                      : 'text-primary hover:bg-primary/10',
+                  )}
                 >
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full border border-primary/40 bg-primary/10 text-primary">
-                    <Plus className="h-3.5 w-3.5" />
-                  </span>
-                  Project
+                  {quickProjectId && quickSelectedProject ? (
+                    <>
+                      <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${idDotColor(quickProjectId)}`} />
+                      <span className="truncate">{quickSelectedProject.name}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full border border-primary/40 bg-primary/10 text-primary shrink-0">
+                        <Plus className="h-3.5 w-3.5" />
+                      </span>
+                      Project
+                    </>
+                  )}
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-56 rounded-xl max-h-64 overflow-y-auto">
@@ -472,9 +677,12 @@ const TimesheetPage = () => {
                           if (p.sections.some(s => s.id === prev)) return prev;
                           return first;
                         });
+                        setShowQuickNewSection(false);
+                        setQuickNewSectionName('');
                       }}
-                      className="rounded-lg cursor-pointer"
+                      className="rounded-lg cursor-pointer flex items-center gap-2"
                     >
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${idDotColor(p.id)}`} />
                       {p.name}
                     </DropdownMenuItem>
                   ))
@@ -486,17 +694,24 @@ const TimesheetPage = () => {
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  disabled={saving || !quickProjectId || quickSectionOptions.length === 0}
-                  className="inline-flex items-center gap-1 px-2.5 py-2 rounded-lg text-xs font-semibold text-foreground/80 hover:bg-muted/60 transition-colors disabled:opacity-40 max-w-[140px] truncate"
+                  disabled={saving || !quickProjectId}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold text-foreground/80 hover:bg-muted/60 transition-colors disabled:opacity-40 max-w-[140px]"
                 >
-                  {quickSectionId
-                    ? (quickSectionOptions.find(s => s.id === quickSectionId)?.name ?? 'Section')
-                    : 'Section'}
+                  {quickSectionId ? (
+                    <>
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${idDotColor(quickSectionId)}`} />
+                      <span className="truncate">{quickSectionOptions.find(s => s.id === quickSectionId)?.name ?? 'Section'}</span>
+                    </>
+                  ) : (
+                    <span className="truncate text-muted-foreground">Section</span>
+                  )}
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-52 rounded-xl max-h-56 overflow-y-auto">
-                {quickSectionOptions.length === 0 ? (
+                {!quickProjectId ? (
                   <div className="px-2 py-2 text-xs text-muted-foreground">Pick a project first</div>
+                ) : quickSectionOptions.length === 0 ? (
+                  <div className="px-2 py-2 text-xs text-muted-foreground">No sections — create one below</div>
                 ) : (
                   quickSectionOptions.map(s => (
                     <DropdownMenuItem
@@ -507,6 +722,17 @@ const TimesheetPage = () => {
                       {s.name}
                     </DropdownMenuItem>
                   ))
+                )}
+                {quickProjectId && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => setShowQuickNewSection(true)}
+                      className="rounded-lg cursor-pointer text-primary font-semibold"
+                    >
+                      <Plus className="h-3.5 w-3.5 mr-1.5" /> Create section
+                    </DropdownMenuItem>
+                  </>
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
@@ -596,6 +822,40 @@ const TimesheetPage = () => {
             </div>
           </div>
         </div>
+
+        {/* ── Quick bar inline section creation ────────────────────────────── */}
+        {showQuickNewSection && quickProjectId && (
+          <div className="mt-2 flex items-center gap-2 rounded-xl border border-primary/30 bg-primary/5 px-4 py-2.5">
+            <span className="text-xs font-semibold text-primary/70 shrink-0">New section:</span>
+            <input
+              autoFocus
+              value={quickNewSectionName}
+              onChange={e => setQuickNewSectionName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') void handleCreateQuickSection();
+                if (e.key === 'Escape') { setShowQuickNewSection(false); setQuickNewSectionName(''); }
+              }}
+              placeholder="Section name…"
+              disabled={creatingSec}
+              className="flex-1 bg-transparent text-sm focus:outline-none placeholder:text-muted-foreground/40"
+            />
+            <button
+              type="button"
+              onClick={() => void handleCreateQuickSection()}
+              disabled={!quickNewSectionName.trim() || creatingSec}
+              className="text-xs px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold disabled:opacity-40 transition-opacity shrink-0"
+            >
+              {creatingSec ? '…' : 'Create'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setShowQuickNewSection(false); setQuickNewSectionName(''); }}
+              className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted/50 transition-colors"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── Scrollable body ───────────────────────────────────────────────── */}
@@ -641,16 +901,6 @@ const TimesheetPage = () => {
           </div>
 
           <div className="flex items-center gap-2.5 shrink-0">
-            {hiddenCountThisWeek > 0 && (
-              <button
-                type="button"
-                onClick={showAllDaysThisWeek}
-                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl border border-border/50 hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-all font-medium"
-              >
-                <RotateCcw className="h-3 w-3" />
-                Show {hiddenCountThisWeek} hidden day{hiddenCountThisWeek !== 1 ? 's' : ''}
-              </button>
-            )}
 
             {/* Week total */}
             <div className="flex items-center gap-2.5 bg-primary/8 border border-primary/20 rounded-xl px-4 py-2">
@@ -672,22 +922,10 @@ const TimesheetPage = () => {
           <div className="rounded-2xl border border-dashed border-border/40 bg-muted/10 px-6 py-10 text-center text-sm text-muted-foreground/50">
             No days in this range — future days are hidden.
           </div>
-        ) : visibleDays.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-border/40 bg-muted/10 px-6 py-12 text-center space-y-3">
-            <EyeOff className="h-8 w-8 text-muted-foreground/25 mx-auto" />
-            <p className="text-sm text-muted-foreground/50">Every day this week is hidden from view.</p>
-            <button
-              type="button"
-              onClick={showAllDaysThisWeek}
-              className="text-sm text-primary hover:text-primary/80 font-semibold transition-colors"
-            >
-              Show all days
-            </button>
-          </div>
         ) : (
           <div className="space-y-4">
             <AnimatePresence initial={false}>
-              {visibleDays.map((day, idx) => {
+              {dayView.map((day, idx) => {
                 const isToday = day.date === todayStr;
                 return (
                   <motion.section
@@ -722,38 +960,42 @@ const TimesheetPage = () => {
 
                         <button
                           type="button"
-                          onClick={() => toggleHideDay(day.date)}
-                          className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/60 transition-all font-medium"
+                          onClick={() => toggleOnLeave(day.date)}
+                          className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg transition-all font-medium ${
+                            onLeaveDays.has(day.date)
+                              ? 'bg-amber-500/15 text-amber-600 border border-amber-500/30 hover:bg-amber-500/25'
+                              : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/60'
+                          }`}
                         >
-                          <EyeOff className="h-3.5 w-3.5" /> Hide
+                          <CalendarX2 className="h-3.5 w-3.5" />
+                          {onLeaveDays.has(day.date) ? 'On Leave ✓' : 'On Leave'}
                         </button>
 
-                        <button
-                          type="button"
-                          disabled={userProjects.length === 0}
-                          onClick={() => {
-                            setQuickWorkDate(day.date);
-                            setWeekOffset(weekOffsetForIsoDate(day.date));
-                            document.getElementById('timesheet-quick-desc')?.focus();
-                          }}
-                          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl font-semibold border border-border/40 bg-muted/30 hover:bg-primary/8 hover:border-primary/30 hover:text-primary text-muted-foreground transition-all disabled:opacity-40"
-                        >
-                          <Plus className="h-3.5 w-3.5" /> Add
-                        </button>
+                        {!onLeaveDays.has(day.date) && (
+                          <button
+                            type="button"
+                            disabled={userProjects.length === 0}
+                            onClick={() => openNewModal(day.date)}
+                            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl font-semibold border border-border/40 bg-muted/30 hover:bg-primary/8 hover:border-primary/30 hover:text-primary text-muted-foreground transition-all disabled:opacity-40"
+                          >
+                            <Plus className="h-3.5 w-3.5" /> Add
+                          </button>
+                        )}
                       </div>
                     </div>
 
                     {/* Entries */}
-                    {day.entriesForDay.length === 0 ? (
+                    {onLeaveDays.has(day.date) ? (
+                      <div className="px-5 py-6 flex items-center justify-center gap-2.5 text-amber-500/70">
+                        <CalendarX2 className="h-4 w-4 shrink-0" />
+                        <span className="text-sm font-medium">On leave — no entries for this day</span>
+                      </div>
+                    ) : day.entriesForDay.length === 0 ? (
                       <div className="px-5 py-7 text-center text-sm text-muted-foreground/40 italic">
                         Nothing logged yet —{' '}
                         <button
                           type="button"
-                          onClick={() => {
-                            setQuickWorkDate(day.date);
-                            setWeekOffset(weekOffsetForIsoDate(day.date));
-                            document.getElementById('timesheet-quick-desc')?.focus();
-                          }}
+                          onClick={() => openNewModal(day.date)}
                           disabled={userProjects.length === 0}
                           className="font-semibold text-primary/60 hover:text-primary transition-colors disabled:opacity-40 hover:underline"
                         >
@@ -893,17 +1135,62 @@ const TimesheetPage = () => {
                 </select>
               </div>
               <div className="space-y-1.5 min-w-0">
-                <Label className="text-xs font-bold text-muted-foreground/60 uppercase tracking-wide" htmlFor="ts-section">Section</Label>
-                <select
-                  id="ts-section"
-                  value={formSectionId}
-                  onChange={e => setFormSectionId(e.target.value)}
-                  className={inputCls}
-                  disabled={saving || !formProjectId || sectionOptions.length === 0}
-                >
-                  <option value="">{formProjectId ? 'Choose section…' : 'Pick a project first'}</option>
-                  {sectionOptions.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-bold text-muted-foreground/60 uppercase tracking-wide" htmlFor="ts-section">Section</Label>
+                  {formProjectId && !showFormNewSection && (
+                    <button
+                      type="button"
+                      onClick={() => setShowFormNewSection(true)}
+                      className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 font-semibold transition-colors"
+                    >
+                      <Plus className="h-3 w-3" /> New
+                    </button>
+                  )}
+                </div>
+                {showFormNewSection ? (
+                  <div className="flex gap-2">
+                    <input
+                      autoFocus
+                      value={formNewSectionName}
+                      onChange={e => setFormNewSectionName(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') void handleCreateFormSection();
+                        if (e.key === 'Escape') { setShowFormNewSection(false); setFormNewSectionName(''); }
+                      }}
+                      placeholder="Section name…"
+                      className={inputCls}
+                      disabled={creatingSec}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleCreateFormSection()}
+                      disabled={!formNewSectionName.trim() || creatingSec}
+                      className="shrink-0 px-3 py-2 text-xs rounded-xl bg-primary text-primary-foreground font-semibold disabled:opacity-40"
+                    >
+                      {creatingSec ? '…' : 'Create'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setShowFormNewSection(false); setFormNewSectionName(''); }}
+                      className="shrink-0 p-2 rounded-xl border border-border/50 text-muted-foreground hover:bg-muted/50"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <select
+                    id="ts-section"
+                    value={formSectionId}
+                    onChange={e => setFormSectionId(e.target.value)}
+                    className={inputCls}
+                    disabled={saving || !formProjectId}
+                  >
+                    <option value="">
+                      {!formProjectId ? 'Pick a project first' : sectionOptions.length === 0 ? 'No sections — create one →' : 'Choose section…'}
+                    </option>
+                    {sectionOptions.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                )}
               </div>
             </div>
 
@@ -963,33 +1250,49 @@ const TimesheetPage = () => {
       </Dialog>
 
       {/* ── Notify Modal ─────────────────────────────────────────────────── */}
-      <Dialog open={notifyOpen} onOpenChange={setNotifyOpen}>
-        <DialogContent className="sm:max-w-lg rounded-2xl">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-bold">Notify schedule</DialogTitle>
+      <Dialog open={notifyOpen} onOpenChange={v => {
+        setNotifyOpen(v);
+        if (!v) { setNotifyToTags([]); setNotifyToInput(''); setNotifyCcTags([]); setNotifyCcInput(''); }
+      }}>
+        <DialogContent className="sm:max-w-lg flex max-h-[min(90dvh,92vh)] min-h-0 flex-col gap-0 overflow-hidden p-0">
+          <DialogHeader className="shrink-0 px-6 pb-4 pt-2 text-left border-b border-border/60">
+            <DialogTitle className="text-xl font-bold">Send timesheet email</DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-5 pt-1">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5 space-y-5">
+
+            {/* From */}
+            <div className="rounded-xl border border-border/50 bg-muted/20 px-4 py-3 flex items-center gap-3">
+              <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-widest">From (your Microsoft account)</p>
+                <p className="text-sm font-medium truncate">{currentUser.name} <span className="text-muted-foreground font-normal">&lt;{currentUser.email}&gt;</span></p>
+              </div>
+            </div>
+
+            {/* MS warnings */}
+            {!isMicrosoftAuthConfigured() && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-600 dark:text-amber-400">
+                <strong>Microsoft sign-in not configured.</strong> Set <code>VITE_MICROSOFT_CLIENT_ID</code> in <code>frontend/.env</code> and restart to enable email sending.
+              </div>
+            )}
+            {isMicrosoftAuthConfigured() && !hasMicrosoftSession() && (
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-600 dark:text-amber-400">
+                <strong>Not signed in with Microsoft.</strong> Sign out and use <em>Sign in with Microsoft</em> to send emails from your account.
+              </div>
+            )}
+
+            {/* Day picker */}
             <div>
-              <p className="text-[10px] font-bold text-muted-foreground/50 uppercase tracking-widest mb-2.5">Select days</p>
+              <p className="text-[10px] font-bold text-muted-foreground/50 uppercase tracking-widest mb-2.5">Days to include</p>
               <div className="flex flex-wrap gap-2">
                 {[...visibleWeekDates].sort((a, b) => b.localeCompare(a)).map(date => {
                   const i = weekDates.indexOf(date);
                   const isSelected = selectedDays.includes(date);
                   return (
-                    <motion.button
-                      key={date}
-                      type="button"
-                      transition={snappy}
-                      whileHover={{ scale: 1.03 }}
-                      whileTap={{ scale: 0.97 }}
+                    <motion.button key={date} type="button" transition={snappy} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
                       onClick={() => toggleDay(date)}
-                      className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
-                        isSelected
-                          ? 'bg-primary/15 text-primary border-primary/30 shadow-sm'
-                          : 'bg-muted/40 border-border/40 text-muted-foreground hover:bg-muted/70 hover:border-border/60'
-                      }`}
-                    >
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold border transition-all ${isSelected ? 'bg-primary/15 text-primary border-primary/30 shadow-sm' : 'bg-muted/40 border-border/40 text-muted-foreground hover:bg-muted/70 hover:border-border/60'}`}>
                       {dayShort[i] ?? ''} {formatDisplayDate(date)}
                     </motion.button>
                   );
@@ -997,62 +1300,174 @@ const TimesheetPage = () => {
               </div>
             </div>
 
-            <div>
-              <p className="text-[10px] font-bold text-muted-foreground/50 uppercase tracking-widest mb-2.5">Send to</p>
-              <select
-                value={notifyRecipient}
-                onChange={e => setNotifyRecipient(e.target.value)}
-                className={inputCls}
-              >
-                <option value="">Select recipient…</option>
-                {users.filter(u => u.id !== currentUser.id).map(u => (
-                  <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
-                ))}
-              </select>
+            {/* To field */}
+            <div className="space-y-1.5">
+              <Label>To <span className="text-destructive">*</span></Label>
+              <div className="relative">
+                {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+                <div className="w-full min-h-[42px] rounded-xl border border-border/80 bg-background px-3 py-2 flex flex-wrap gap-1.5 cursor-text focus-within:ring-2 focus-within:ring-primary/40"
+                     onClick={() => document.getElementById('notify-to-input')?.focus()}>
+                  {notifyToTags.map(email => (
+                    <span key={email} className="flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-md bg-primary/10 text-primary text-xs font-medium border border-primary/20 shrink-0">
+                      {email}
+                      <button type="button" onClick={e => { e.stopPropagation(); setNotifyToTags(prev => prev.filter(t => t !== email)); }}
+                              className="p-0.5 rounded hover:bg-primary/20 transition-colors">
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                    </span>
+                  ))}
+                  <input id="notify-to-input" type="text" value={notifyToInput}
+                    onChange={e => { setNotifyToInput(e.target.value); setShowToSuggestions(true); }}
+                    onFocus={() => setShowToSuggestions(true)}
+                    onKeyDown={e => {
+                      if ((e.key === 'Enter' || e.key === ',') && notifyToInput.trim()) {
+                        e.preventDefault(); addToTag(notifyToInput); setShowToSuggestions(false);
+                      } else if (e.key === 'Backspace' && !notifyToInput && notifyToTags.length > 0) {
+                        setNotifyToTags(prev => prev.slice(0, -1));
+                      } else if (e.key === 'Escape') {
+                        setShowToSuggestions(false);
+                      }
+                    }}
+                    onBlur={() => { setTimeout(() => setShowToSuggestions(false), 150); if (notifyToInput.trim()) addToTag(notifyToInput); }}
+                    placeholder={notifyToTags.length === 0 ? 'Type name or email…' : ''}
+                    className="flex-1 min-w-[150px] bg-transparent outline-none text-sm placeholder:text-muted-foreground/50" />
+                </div>
+                {showToSuggestions && (() => {
+                  const q = notifyToInput.toLowerCase();
+                  const suggestions = q.length > 0
+                    ? users.filter(u => !notifyToTags.includes(u.email) && (u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)))
+                    : [];
+                  return suggestions.length > 0 ? (
+                    <div className="absolute top-full left-0 right-0 z-50 mt-1 rounded-xl border border-border/60 bg-popover shadow-lg overflow-hidden">
+                      {suggestions.slice(0, 6).map(u => (
+                        <button key={u.id} type="button"
+                          onMouseDown={e => { e.preventDefault(); addToTag(u.email); setShowToSuggestions(false); }}
+                          className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted/60 transition-colors text-left">
+                          <UserAvatar name={u.name} avatar={u.avatar} size="sm" />
+                          <span className="min-w-0">
+                            <span className="block text-sm font-medium truncate">{u.name}{u.id === currentUser.id ? ' (you)' : ''}</span>
+                            <span className="block text-xs text-muted-foreground truncate">{u.email}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null;
+                })()}
+              </div>
             </div>
 
+            {/* CC field */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label>CC <span className="text-muted-foreground font-normal text-xs">(optional)</span></Label>
+                <button type="button" onClick={() => { if (!notifyCcTags.includes(currentUser.email)) addCcTag(currentUser.email); }}
+                        className="text-xs text-primary hover:text-primary/80 font-semibold transition-colors">
+                  + CC myself
+                </button>
+              </div>
+              <div className="relative">
+                {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+                <div className="w-full min-h-[42px] rounded-xl border border-border/80 bg-background px-3 py-2 flex flex-wrap gap-1.5 cursor-text focus-within:ring-2 focus-within:ring-primary/40"
+                     onClick={() => document.getElementById('notify-cc-input')?.focus()}>
+                  {notifyCcTags.map(email => (
+                    <span key={email} className="flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-md bg-muted/60 text-foreground text-xs font-medium border border-border/50 shrink-0">
+                      {email}
+                      <button type="button" onClick={e => { e.stopPropagation(); setNotifyCcTags(prev => prev.filter(t => t !== email)); }}
+                              className="p-0.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                    </span>
+                  ))}
+                  <input id="notify-cc-input" type="text" value={notifyCcInput}
+                    onChange={e => { setNotifyCcInput(e.target.value); setShowCcSuggestions(true); }}
+                    onFocus={() => setShowCcSuggestions(true)}
+                    onKeyDown={e => {
+                      if ((e.key === 'Enter' || e.key === ',') && notifyCcInput.trim()) {
+                        e.preventDefault(); addCcTag(notifyCcInput); setShowCcSuggestions(false);
+                      } else if (e.key === 'Backspace' && !notifyCcInput && notifyCcTags.length > 0) {
+                        setNotifyCcTags(prev => prev.slice(0, -1));
+                      } else if (e.key === 'Escape') {
+                        setShowCcSuggestions(false);
+                      }
+                    }}
+                    onBlur={() => { setTimeout(() => setShowCcSuggestions(false), 150); if (notifyCcInput.trim()) addCcTag(notifyCcInput); }}
+                    placeholder={notifyCcTags.length === 0 ? 'Type name or email…' : ''}
+                    className="flex-1 min-w-[150px] bg-transparent outline-none text-sm placeholder:text-muted-foreground/50" />
+                </div>
+                {showCcSuggestions && (() => {
+                  const q = notifyCcInput.toLowerCase();
+                  const suggestions = q.length > 0
+                    ? users.filter(u => !notifyCcTags.includes(u.email) && (u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)))
+                    : [];
+                  return suggestions.length > 0 ? (
+                    <div className="absolute top-full left-0 right-0 z-50 mt-1 rounded-xl border border-border/60 bg-popover shadow-lg overflow-hidden">
+                      {suggestions.slice(0, 6).map(u => (
+                        <button key={u.id} type="button"
+                          onMouseDown={e => { e.preventDefault(); addCcTag(u.email); setShowCcSuggestions(false); }}
+                          className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-muted/60 transition-colors text-left">
+                          <UserAvatar name={u.name} avatar={u.avatar} size="sm" />
+                          <span className="min-w-0">
+                            <span className="block text-sm font-medium truncate">{u.name}{u.id === currentUser.id ? ' (you)' : ''}</span>
+                            <span className="block text-xs text-muted-foreground truncate">{u.email}</span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null;
+                })()}
+              </div>
+            </div>
+
+            {/* Subject */}
+            <div className="space-y-1.5">
+              <Label htmlFor="notify-subject">Subject</Label>
+              <input id="notify-subject" value={notifySubject} onChange={e => setNotifySubject(e.target.value)}
+                placeholder={`Timesheet report – ${currentUser.name}`} className={inputCls} />
+            </div>
+
+            {/* Preview */}
             {scheduleSummary.length > 0 && (
-              <div className="rounded-xl border border-border/35 bg-muted/10 p-4 max-h-[260px] overflow-y-auto space-y-3">
-                <h4 className="text-[10px] font-bold text-muted-foreground/50 uppercase tracking-widest">Preview</h4>
+              <div className="rounded-xl border border-border/35 bg-muted/10 p-4 max-h-[200px] overflow-y-auto space-y-3">
+                <h4 className="text-[10px] font-bold text-muted-foreground/50 uppercase tracking-widest">Content preview</h4>
                 {scheduleSummary.map(d => d && (
-                  <div key={d.date} className="space-y-1">
-                    <div className="flex items-center justify-between gap-2 min-w-0">
-                      <span className="text-sm font-bold">
-                        {d.dayName}{' '}
-                        <span className="text-xs font-normal text-muted-foreground/60">{formatDisplayDate(d.date)}</span>
-                      </span>
-                      <span className="text-xs font-bold shrink-0 text-primary">{formatDuration(d.totalSeconds)}</span>
+                  <div key={d.date} className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-bold">{d.dayName} <span className="text-xs font-normal text-muted-foreground/60">{formatDisplayDate(d.date)}</span></span>
+                      <span className="text-xs font-bold text-primary shrink-0">{formatDuration(d.totalSeconds)}</span>
                     </div>
                     {d.entriesForDay.length > 0 ? d.entriesForDay.map(en => {
-                      const project = projects.find(p => p.id === en.projectId);
-                      const section = project?.sections.find(s => s.id === en.sectionId);
+                      const proj = projects.find(p => p.id === en.projectId);
+                      const sec = proj?.sections.find(s => s.id === en.sectionId);
                       return (
-                        <div key={en.id} className="flex items-start justify-between pl-3 gap-2 text-xs text-muted-foreground/60">
-                          <span className="min-w-0 break-words [overflow-wrap:anywhere]">
-                            {en.description?.trim() || '(no description)'} · {project?.name}{section ? ` · ${section.name}` : ''} · {en.timeFrom}–{en.timeTo}
-                          </span>
-                          <span className="font-mono shrink-0 text-foreground/60">{formatDuration(en.seconds)}</span>
+                        <div key={en.id} className="pl-3 border-l-2 border-border/40 space-y-0.5">
+                          <p className="text-xs text-foreground leading-snug break-words [overflow-wrap:anywhere]">{en.description?.trim() || <em className="text-muted-foreground/50">No description</em>}</p>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[10px] font-semibold" style={{ color: projEmailColor(en.projectId) }}>{proj?.name}</span>
+                            {sec && <><span className="text-muted-foreground/40 text-[10px]">›</span><span className="text-[10px] text-muted-foreground">{sec.name}</span></>}
+                            <span className="text-[10px] text-muted-foreground/60 ml-auto">{en.timeFrom}–{en.timeTo} · {formatDuration(en.seconds)}</span>
+                          </div>
                         </div>
                       );
-                    }) : (
-                      <p className="pl-3 text-xs text-muted-foreground/40 italic">No activity logged</p>
-                    )}
+                    }) : <p className="pl-3 text-xs text-muted-foreground/40 italic">No entries</p>}
                   </div>
                 ))}
               </div>
             )}
           </div>
 
-          <DialogFooter className="gap-2 mt-2">
+          <div className="shrink-0 px-6 py-4 border-t border-border/60 flex gap-2 justify-end bg-muted/10">
             <Button variant="ghost" onClick={() => setNotifyOpen(false)} className="rounded-xl">Cancel</Button>
             <button
-              onClick={handleNotify}
-              disabled={!notifyRecipient || selectedDays.length === 0}
-              className="flex items-center gap-2 text-sm px-5 py-2 rounded-xl bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-all font-semibold"
+              onClick={() => void handleNotify()}
+              disabled={(notifyToTags.length === 0 && !notifyToInput.trim()) || selectedDays.length === 0 || sendingEmail || !isMicrosoftAuthConfigured() || !hasMicrosoftSession()}
+              className="flex items-center gap-2 text-sm px-5 py-2.5 rounded-xl bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-all font-semibold"
             >
-              <Send className="h-3.5 w-3.5" /> Send
+              {sendingEmail
+                ? <><span className="h-3.5 w-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" /> Sending…</>
+                : <><Send className="h-3.5 w-3.5" /> Send to {notifyToTags.length + (notifyToInput.trim() ? 1 : 0) || ''}{notifyToTags.length + (notifyToInput.trim() ? 1 : 0) > 0 ? ` recipient${notifyToTags.length + (notifyToInput.trim() ? 1 : 0) > 1 ? 's' : ''}` : 'email'}</>
+              }
             </button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
 

@@ -203,3 +203,54 @@ class TaskFeedbackCreate(BaseModel):
 
 class TaskFeedbackPatch(BaseModel):
     message: str = Field(..., min_length=1, max_length=8000)
+
+
+# ── Checklists ────────────────────────────────────────────────────────────────
+
+class TaskChecklistOut(BaseModel):
+    id: str
+    taskId: str
+    title: str
+    priority: str
+    isDone: bool
+    position: int
+    createdBy: str
+    createdAt: str
+
+
+class TaskChecklistCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=500)
+    priority: str = "Medium"
+
+
+class TaskChecklistPatch(BaseModel):
+    title: str | None = None
+    priority: str | None = None
+    isDone: bool | None = None
+
+
+# ── Attachments ───────────────────────────────────────────────────────────────
+
+class TaskAttachmentOut(BaseModel):
+    id: str
+    taskId: str
+    filename: str
+    contentType: str
+    sizeBytes: int
+    uploadedBy: str
+    uploaderName: str
+    createdAt: str
+
+
+# ── Audit Log ─────────────────────────────────────────────────────────────────
+
+class AuditLogOut(BaseModel):
+    id: int
+    userId: str
+    userName: str
+    action: str
+    entityType: str
+    entityId: str
+    entityName: str
+    details: dict
+    createdAt: str

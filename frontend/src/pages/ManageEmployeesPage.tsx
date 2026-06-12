@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useMemo, useState } from 'react';
 import {
   Plus, Search, X, UserPlus, ChevronRight, FolderOpen,
-  Trash2, Users, LayoutGrid, ListTodo, Sparkles, Lock,
+  Trash2, Users, LayoutGrid, ListTodo, Sparkles,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
@@ -16,6 +16,7 @@ import { snappy, pageEnter } from '@/lib/motion';
 import { isTaskAssignedTo, taskAssigneeIds } from '@/lib/task-utils';
 import TaskDetailModal from '@/components/TaskDetailModal';
 import { Task } from '@/types';
+import UserAvatar from '@/components/UserAvatar';
 
 // ── Project accent colors ──────────────────────────────────────────────────────
 const PROJECT_ACCENTS = [
@@ -29,17 +30,6 @@ const PROJECT_ACCENTS = [
   { border: 'border-l-cyan-500', bg: 'bg-cyan-500', light: 'bg-cyan-500/10', text: 'text-cyan-400', ring: 'ring-cyan-500/20', pill: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30' },
 ];
 
-// ── Avatar palettes ───────────────────────────────────────────────────────────
-const AVATAR_PALETTES = [
-  'bg-blue-500/20 text-blue-400 ring-blue-500/20',
-  'bg-violet-500/20 text-violet-400 ring-violet-500/20',
-  'bg-emerald-500/20 text-emerald-400 ring-emerald-500/20',
-  'bg-orange-500/20 text-orange-400 ring-orange-500/20',
-  'bg-pink-500/20 text-pink-400 ring-pink-500/20',
-  'bg-teal-500/20 text-teal-400 ring-teal-500/20',
-  'bg-amber-500/20 text-amber-400 ring-amber-500/20',
-  'bg-cyan-500/20 text-cyan-400 ring-cyan-500/20',
-];
 
 const PRIORITY_STYLES: Record<string, string> = {
   Urgent: 'bg-red-500/15 text-red-400 border-red-500/25',
@@ -51,20 +41,6 @@ const PRIORITY_STYLES: Record<string, string> = {
 function projectAccent(id: string) {
   let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
   return PROJECT_ACCENTS[h % PROJECT_ACCENTS.length];
-}
-function avatarPalette(name: string) {
-  let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
-  return AVATAR_PALETTES[h % AVATAR_PALETTES.length];
-}
-function getInitials(name: string) { return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2); }
-
-function Avatar({ name, size = 'md' }: { name: string; size?: 'sm' | 'md' | 'lg' }) {
-  const sizeMap = { sm: 'w-8 h-8 text-[10px]', md: 'w-10 h-10 text-xs', lg: 'w-12 h-12 text-sm' };
-  return (
-    <div className={`${sizeMap[size]} rounded-full flex items-center justify-center font-bold shrink-0 ring-1 ${avatarPalette(name)}`}>
-      {getInitials(name)}
-    </div>
-  );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -229,7 +205,6 @@ const ManageEmployeesPage = () => {
               const isSelected = selectedProjectId === project.id;
               const accent = projectAccent(project.id);
               const projTasks = tasks.filter(t => t.projectId === project.id);
-              const isPersonal = !!project.isPersonal;
               return (
                 <motion.button
                   key={project.id}
@@ -247,11 +222,7 @@ const ManageEmployeesPage = () => {
                     <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 transition-all ${
                       isSelected ? `${accent.light}` : 'bg-muted/60 group-hover:bg-muted'
                     }`}>
-                      {isPersonal ? (
-                        <Lock className={`h-4 w-4 transition-colors ${isSelected ? accent.text : 'text-muted-foreground/50 group-hover:text-muted-foreground'}`} />
-                      ) : (
                         <FolderOpen className={`h-4 w-4 transition-colors ${isSelected ? accent.text : 'text-muted-foreground/50 group-hover:text-muted-foreground'}`} />
-                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className={`text-sm font-semibold truncate transition-colors ${isSelected ? 'text-foreground' : 'text-foreground/80 group-hover:text-foreground'}`}>
@@ -297,11 +268,7 @@ const ManageEmployeesPage = () => {
                 <div className="px-6 py-5 bg-gradient-to-r from-muted/20 to-transparent">
                   <div className="flex items-center gap-3">
                     <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${selectedAccent.light}`}>
-                      {selectedProject.isPersonal ? (
-                        <Lock className={`h-5 w-5 ${selectedAccent.text}`} />
-                      ) : (
                         <FolderOpen className={`h-5 w-5 ${selectedAccent.text}`} />
-                      )}
                     </div>
                     <div>
                       <h2 className="text-lg font-bold text-foreground">{projectPickerLabel(selectedProject)}</h2>
@@ -315,11 +282,6 @@ const ManageEmployeesPage = () => {
 
               {/* ── Members section ─────────────────────────────────────── */}
               <section>
-                {selectedProject.isPersonal && (
-                  <p className="text-xs text-muted-foreground/70 mb-4 rounded-xl border border-border/30 bg-muted/20 px-3 py-2.5 leading-relaxed">
-                    This workspace is private. Only you can see its tasks; teammates and managers are not added here.
-                  </p>
-                )}
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-2">
                     <Users className={`h-4 w-4 ${selectedAccent.text}`} />
@@ -328,7 +290,6 @@ const ManageEmployeesPage = () => {
                       <span className="ml-2 text-xs font-normal text-muted-foreground/60">({filtered.length})</span>
                     </h3>
                   </div>
-                  {!selectedProject.isPersonal && (
                     <div className="flex items-center gap-2 bg-muted/40 border border-border/40 rounded-xl px-3 py-1.5 w-52">
                       <Search className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
                       <input
@@ -343,7 +304,6 @@ const ManageEmployeesPage = () => {
                         </button>
                       )}
                     </div>
-                  )}
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -361,7 +321,7 @@ const ManageEmployeesPage = () => {
                           className="group rounded-xl border border-border/35 bg-card hover:border-border/60 hover:shadow-sm transition-all duration-150 p-4"
                         >
                           <div className="flex items-center gap-3">
-                            <Avatar name={user.name} size="md" />
+                            <UserAvatar name={user.name} avatar={user.avatar} size="md" />
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="text-sm font-semibold group-hover:text-primary transition-colors">{user.name}</span>
@@ -373,7 +333,6 @@ const ManageEmployeesPage = () => {
                               </div>
                               <p className="text-xs text-muted-foreground/60 truncate mt-0.5">{user.email}</p>
                             </div>
-                            {!selectedProject.isPersonal && (
                               <motion.button
                                 transition={snappy}
                                 whileHover={{ scale: 1.1 }}
@@ -384,7 +343,6 @@ const ManageEmployeesPage = () => {
                               >
                                 <X className="h-3.5 w-3.5" />
                               </motion.button>
-                            )}
                           </div>
                           <div className="mt-2.5 ml-13 flex items-center gap-3 text-[11px] text-muted-foreground/50" style={{ marginLeft: '52px' }}>
                             <span>{user.projectIds.length} {user.projectIds.length === 1 ? 'project' : 'projects'}</span>
@@ -400,7 +358,7 @@ const ManageEmployeesPage = () => {
                       No members match "{searchTerm}"
                     </div>
                   )}
-                  {projectMembers.length === 0 && !selectedProject.isPersonal && (
+                  {projectMembers.length === 0 && (
                     <div className="col-span-2 text-center py-8 text-sm text-muted-foreground/40 italic border border-dashed border-border/30 rounded-xl">
                       No members yet. Add someone below.
                     </div>
@@ -408,7 +366,7 @@ const ManageEmployeesPage = () => {
                 </div>
 
                 {/* Add members */}
-                {!selectedProject.isPersonal && users.filter(u => !selectedProject.members.includes(u.id)).length > 0 && (
+                {users.filter(u => !selectedProject.members.includes(u.id)).length > 0 && (
                   <div className="mt-5 pt-5 border-t border-border/25">
                     <p className="text-[11px] font-bold text-muted-foreground/50 uppercase tracking-widest mb-3">Add to project</p>
                     <div className="flex flex-wrap gap-2">
@@ -431,9 +389,7 @@ const ManageEmployeesPage = () => {
                             }}
                             className="flex items-center gap-2 text-xs px-3 py-2 rounded-xl border border-border/40 bg-muted/30 hover:bg-primary/8 hover:border-primary/40 hover:text-primary text-muted-foreground/70 transition-all duration-150 font-medium group"
                           >
-                            <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0 ${avatarPalette(u.name)} group-hover:ring-2 group-hover:${selectedAccent.ring} transition-all`}>
-                              {getInitials(u.name)}
-                            </div>
+                            <UserAvatar name={u.name} avatar={u.avatar} size="xs" />
                             <span>{u.name}</span>
                             {u.role === 'manager' && (
                               <span className="text-[9px] font-bold text-primary/60 group-hover:text-primary">Mgr</span>

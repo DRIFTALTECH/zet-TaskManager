@@ -19,7 +19,6 @@ def create_project(
     description: str,
     created_by: str,
     created_at: str,
-    is_personal: bool = False,
 ) -> Project:
     p = Project(
         id=project_id,
@@ -27,7 +26,6 @@ def create_project(
         description=description,
         created_by=created_by,
         created_at=created_at,
-        is_personal=is_personal,
     )
     db.add(p)
     db.commit()

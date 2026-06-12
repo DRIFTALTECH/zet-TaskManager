@@ -12,8 +12,6 @@ import {
   PieChart,
   Pie,
   Cell,
-  Area,
-  AreaChart,
 } from 'recharts';
 import { motion } from 'framer-motion';
 import { ChevronLeft, ChevronRight, BarChart3, TrendingUp } from 'lucide-react';
@@ -84,7 +82,6 @@ const TimeReportPage = () => {
   const [loading, setLoading] = useState(false);
 
   const isManager = currentUser?.role === 'manager';
-  const viewingSelf = currentUser && selectedUserId === currentUser.id;
 
   useEffect(() => {
     if (currentUser && !selectedUserId) setSelectedUserId(currentUser.id);
@@ -139,39 +136,10 @@ const TimeReportPage = () => {
     [projects],
   );
 
-  /** Task-timer seconds by date (assignee’s logs) — only meaningful for the signed-in user’s own tasks payload. */
-  const taskSecondsByDate = useMemo(() => {
-    const map: Record<string, number> = {};
-    if (!currentUser || !viewingSelf) return map;
-    for (const t of tasks) {
-      if (!t.assigneeIds.includes(currentUser.id)) continue;
-      for (const [d, sec] of Object.entries(t.timeLog)) {
-        if (d < activeRange.start || d > activeRange.end) continue;
-        map[d] = (map[d] ?? 0) + sec;
-      }
-    }
-    return map;
-  }, [tasks, currentUser, viewingSelf, activeRange.start, activeRange.end]);
-
-  const timesheetByDate = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const e of filteredEntries) {
-      map[e.workDate] = (map[e.workDate] ?? 0) + e.seconds;
-    }
-    return map;
-  }, [filteredEntries]);
-
   const timesheetTotal = useMemo(
     () => filteredEntries.reduce((a, e) => a + e.seconds, 0),
     [filteredEntries],
   );
-
-  const taskTimerTotal = useMemo(() => {
-    if (!viewingSelf) return 0;
-    return Object.values(taskSecondsByDate).reduce((a, b) => a + b, 0);
-  }, [taskSecondsByDate, viewingSelf]);
-
-  const combinedTotal = timesheetTotal + taskTimerTotal;
 
   /** Per-project totals for donut / list */
   const projectTotals = useMemo(() => {
@@ -217,8 +185,6 @@ const TimeReportPage = () => {
           tab === 'summary'
             ? `${DAY_LABEL[idx] ?? ''}\n${format(parseISO(iso), 'MMM d')}`
             : format(parseISO(iso), 'MMM d'),
-        timesheet: Math.round((timesheetByDate[iso] ?? 0) / 3600 * 100) / 100,
-        taskTimer: Math.round((taskSecondsByDate[iso] ?? 0) / 3600 * 100) / 100,
       };
       for (const p of topProjects) {
         const secs = filteredEntries
@@ -237,8 +203,6 @@ const TimeReportPage = () => {
     weekDays,
     activeRange.start,
     activeRange.end,
-    timesheetByDate,
-    taskSecondsByDate,
     topProjects,
     topProjectIds,
     filteredEntries,
@@ -272,7 +236,7 @@ const TimeReportPage = () => {
             <p className="text-[11px] font-semibold tracking-[0.2em] text-muted-foreground uppercase mb-1">ZET · Time report</p>
             <h1 className="text-2xl font-bold tracking-tight text-foreground">Analytics</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Timesheet hours with optional task-timer totals {viewingSelf ? '(your assignments)' : ''}
+              Timesheet hours logged per week · broken down by project
             </p>
           </div>
 
@@ -351,32 +315,16 @@ const TimeReportPage = () => {
         </div>
 
         {/* Totals */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="rounded-xl border border-border/80 bg-card p-5 shadow-sm">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Combined</p>
-            <p className="text-3xl font-bold tabular-nums mt-1 text-foreground" style={{ color: ZET.indigo }}>
-              {formatHMS(combinedTotal)}
+        <div className="rounded-xl border border-border/80 bg-card p-5 shadow-sm flex items-center gap-6">
+          <div>
+            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              {tab === 'summary' ? 'This week · Timesheet' : 'Period · Timesheet'}
             </p>
-            <p className="text-xs text-muted-foreground mt-2">{selectedUserName}</p>
+            <p className="text-3xl font-bold tabular-nums mt-1" style={{ color: ZET.indigo }}>
+              {formatHMS(timesheetTotal)}
+            </p>
+            <p className="text-xs text-muted-foreground mt-2">{hoursApprox(timesheetTotal)} h logged · {selectedUserName}</p>
           </div>
-          <div className="rounded-xl border border-border/80 bg-card p-5 shadow-sm">
-            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Timesheet</p>
-            <p className="text-2xl font-semibold tabular-nums mt-1">{formatHMS(timesheetTotal)}</p>
-            <p className="text-xs text-muted-foreground mt-2">{hoursApprox(timesheetTotal)} h logged</p>
-          </div>
-          {viewingSelf ? (
-            <div className="rounded-xl border border-border/80 bg-card p-5 shadow-sm">
-              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Task timer</p>
-              <p className="text-2xl font-semibold tabular-nums mt-1" style={{ color: ZET.violet }}>
-                {formatHMS(taskTimerTotal)}
-              </p>
-              <p className="text-xs text-muted-foreground mt-2">From task time logs (your tasks)</p>
-            </div>
-          ) : (
-            <div className="rounded-xl border border-dashed border-border/80 bg-muted/20 p-5 flex items-center">
-              <p className="text-sm text-muted-foreground">Task timer breakdown is available when you view your own report.</p>
-            </div>
-          )}
         </div>
 
           <TabsContent value="summary" className="mt-0 space-y-6 outline-none">
@@ -492,52 +440,40 @@ const TimeReportPage = () => {
 
           <TabsContent value="trend" className="mt-0 space-y-6 outline-none">
             <div className="rounded-xl border border-border/80 bg-card p-5 shadow-sm">
-              <h2 className="text-sm font-semibold mb-4">Hours over time</h2>
-              <div className="h-[360px] w-full min-w-0">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={barData} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="fillTs" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={ZET.indigo} stopOpacity={0.35} />
-                        <stop offset="100%" stopColor={ZET.indigo} stopOpacity={0.02} />
-                      </linearGradient>
-                      <linearGradient id="fillTask" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={ZET.violet} stopOpacity={0.35} />
-                        <stop offset="100%" stopColor={ZET.violet} stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                    <XAxis dataKey="label" tick={{ fontSize: 10 }} minTickGap={24} />
-                    <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${v}h`} width={40} />
-                    <Tooltip
-                      contentStyle={chartTooltipStyle}
-                      formatter={(value: number, name: string) => [`${value}h`, name]}
-                    />
-                    <Legend wrapperStyle={{ fontSize: 12 }} verticalAlign="top" align="right" />
-                    <Area
-                      type="monotone"
-                      dataKey="timesheet"
-                      name="Timesheet"
-                      stroke={ZET.indigo}
-                      fill="url(#fillTs)"
-                      strokeWidth={2}
-                    />
-                    {viewingSelf && (
-                      <Area
-                        type="monotone"
-                        dataKey="taskTimer"
-                        name="Task timer"
-                        stroke={ZET.violet}
-                        fill="url(#fillTask)"
-                        strokeWidth={2}
-                      />
-                    )}
-                  </AreaChart>
-                </ResponsiveContainer>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-sm font-semibold">Hours over time · by project</h2>
+                <span className="text-xs text-muted-foreground">Rolling 42 days</span>
               </div>
-              {!viewingSelf && (
-                <p className="text-xs text-muted-foreground mt-2">Task timer series hidden — open your own profile in Person to compare both sources.</p>
-              )}
+              <div className="h-[360px] w-full min-w-0">
+                {topProjects.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-sm text-muted-foreground border border-dashed border-border rounded-lg">
+                    No timesheet data in this range — add entries on Timesheet.
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={barData} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                      <XAxis dataKey="label" tick={{ fontSize: 10 }} minTickGap={24} />
+                      <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${v}h`} width={40} />
+                      <Tooltip
+                        contentStyle={chartTooltipStyle}
+                        formatter={(value: number, name: string) => [`${value}h`, name]}
+                      />
+                      <Legend wrapperStyle={{ fontSize: 12 }} verticalAlign="top" align="right" />
+                      {topProjects.map((p, i) => (
+                        <Bar
+                          key={p.projectId}
+                          dataKey={p.projectId}
+                          name={p.name}
+                          stackId="day"
+                          fill={zetStackColor(i)}
+                          radius={i === topProjects.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                        />
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
             </div>
           </TabsContent>
         </Tabs>

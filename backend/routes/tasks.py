@@ -2,7 +2,9 @@ from fastapi import APIRouter, Depends, Response
 from sqlalchemy.orm import Session
 
 from database.database import get_db
+from database.models import Task
 from logic import task_feedback_logic, task_logic
+from logic.audit import log_audit
 from logic.schemas import (
     LogTimeBody,
     TaskCreate,
@@ -29,7 +31,11 @@ def create_task(
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    return task_logic.create_task(db, user_id, body)
+    result = task_logic.create_task(db, user_id, body)
+    log_audit(db, user_id, "task.created", "task", result.id, result.title,
+              {"projectId": result.projectId, "priority": result.priority})
+    db.commit()
+    return result
 
 
 @router.patch("/{task_id}", response_model=TaskOut)
@@ -39,7 +45,15 @@ def patch_task(
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    return task_logic.patch_task(db, user_id, task_id, body)
+    result = task_logic.patch_task(db, user_id, task_id, body)
+    details: dict = {}
+    if body.status is not None:
+        details["status"] = body.status
+    if body.priority is not None:
+        details["priority"] = body.priority
+    log_audit(db, user_id, "task.updated", "task", task_id, result.title, details)
+    db.commit()
+    return result
 
 
 @router.delete("/{task_id}", status_code=204)
@@ -48,7 +62,11 @@ def delete_task(
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
+    task = db.get(Task, task_id)
+    title = task.title if task else task_id
     task_logic.delete_task(db, user_id, task_id)
+    log_audit(db, user_id, "task.deleted", "task", task_id, title, {})
+    db.commit()
     return Response(status_code=204)
 
 
@@ -58,7 +76,10 @@ def start_task(
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    return task_logic.start_task(db, user_id, task_id)
+    result = task_logic.start_task(db, user_id, task_id)
+    log_audit(db, user_id, "task.started", "task", task_id, result.title, {})
+    db.commit()
+    return result
 
 
 @router.post("/{task_id}/move", response_model=TaskOut)
@@ -68,7 +89,11 @@ def move_task(
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    return task_logic.move_task(db, user_id, task_id, body)
+    result = task_logic.move_task(db, user_id, task_id, body)
+    log_audit(db, user_id, "task.status_changed", "task", task_id, result.title,
+              {"status": body.status})
+    db.commit()
+    return result
 
 
 @router.post("/{task_id}/reopen-to-backlog", response_model=TaskOut)
@@ -77,7 +102,10 @@ def reopen_task_to_backlog(
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    return task_logic.reopen_completed_to_backlog(db, user_id, task_id)
+    result = task_logic.reopen_completed_to_backlog(db, user_id, task_id)
+    log_audit(db, user_id, "task.reopened", "task", task_id, result.title, {})
+    db.commit()
+    return result
 
 
 @router.post("/{task_id}/approve", response_model=TaskOut)
@@ -86,7 +114,10 @@ def approve_task(
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    return task_logic.approve_task(db, user_id, task_id)
+    result = task_logic.approve_task(db, user_id, task_id)
+    log_audit(db, user_id, "task.approved", "task", task_id, result.title, {})
+    db.commit()
+    return result
 
 
 @router.post("/{task_id}/log-time", response_model=TaskOut)
@@ -115,7 +146,10 @@ def create_task_feedback(
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ):
-    return task_feedback_logic.create_feedback(db, user_id, task_id, body)
+    result = task_feedback_logic.create_feedback(db, user_id, task_id, body)
+    log_audit(db, user_id, "task.comment_added", "task", task_id, "", {})
+    db.commit()
+    return result
 
 
 @router.patch("/{task_id}/feedback/{feedback_id}", response_model=TaskFeedbackOut)

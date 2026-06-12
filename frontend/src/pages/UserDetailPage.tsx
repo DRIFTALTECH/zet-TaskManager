@@ -1190,15 +1190,18 @@ export default function UserDetailPage() {
               <motion.div
                 initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
                 transition={{ ...pageEnter, delay: 0.38 }}
-                className="rounded-2xl border border-border/60 bg-card overflow-hidden"
               >
+                <details className="group rounded-2xl border border-border/60 bg-card overflow-hidden">
                 {/* header */}
-                <div className="flex items-center justify-between px-6 py-4 border-b border-border/40">
+                <summary className="flex cursor-pointer list-none items-center justify-between px-6 py-4 border-b border-border/40 [&::-webkit-details-marker]:hidden">
                   <div>
                     <h2 className="text-sm font-semibold text-foreground">All Tasks</h2>
                     <p className="text-xs text-muted-foreground/50 mt-0.5">{active.length} active · {doneTasks.length} completed</p>
                   </div>
-                </div>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/35 group-open:text-primary/80">
+                    Toggle
+                  </span>
+                </summary>
 
                 {/* column headers */}
                 <div className="grid grid-cols-[1fr_auto_auto_auto] gap-4 px-6 py-2.5 bg-muted/20 border-b border-border/30">
@@ -1272,6 +1275,7 @@ export default function UserDetailPage() {
                     })}
                   </div>
                 )}
+                </details>
               </motion.div>
 
             </motion.div>

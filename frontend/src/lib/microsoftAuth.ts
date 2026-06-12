@@ -141,6 +141,55 @@ export async function signUpWithMicrosoftRedirect(role: Role): Promise<void> {
   await pca.loginRedirect(redirectRequest());
 }
 
+/**
+ * Returns true if there is an active Microsoft account in the MSAL cache
+ * (i.e. the user signed in via Microsoft this session).
+ */
+export function hasMicrosoftSession(): boolean {
+  if (!isMicrosoftAuthConfigured()) return false;
+  try {
+    return getMsalInstance().getAllAccounts().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Acquires a Microsoft Graph access token scoped to Mail.Send.
+ * Tries a silent refresh first; falls back to a popup for incremental consent
+ * (needed the first time, or after consent is revoked).
+ *
+ * Throws if:
+ *  - Microsoft auth is not configured
+ *  - No MSAL account exists (user did not sign in via Microsoft)
+ *  - The user cancels the consent popup
+ */
+export async function acquireGraphToken(): Promise<string> {
+  if (!isMicrosoftAuthConfigured()) {
+    throw new Error('Microsoft sign-in is not configured. Set VITE_MICROSOFT_CLIENT_ID in frontend/.env.');
+  }
+  const pca = getMsalInstance();
+  await pca.initialize();
+  const accounts = pca.getAllAccounts();
+  if (accounts.length === 0) {
+    throw new Error(
+      'No Microsoft account found. Sign out and sign back in using the "Sign in with Microsoft" button.',
+    );
+  }
+  const request = {
+    scopes: ['https://graph.microsoft.com/Mail.Send'],
+    account: accounts[0],
+  };
+  try {
+    const result = await pca.acquireTokenSilent(request);
+    return result.accessToken;
+  } catch {
+    // Silent refresh failed (no cached token or consent not yet given) → popup
+    const result = await pca.acquireTokenPopup(request);
+    return result.accessToken;
+  }
+}
+
 export function formatMsalAuthError(e: unknown): string {
   if (e instanceof BrowserAuthError && e.errorCode === BrowserAuthErrorCodes.userCancelled) {
     return '';

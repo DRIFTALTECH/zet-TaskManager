@@ -23,8 +23,6 @@ class Project(Base):
     description = Column(String, nullable=False, default="")
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)
-    # True = private workspace: only created_by sees it; no extra members allowed
-    is_personal = Column(Boolean, nullable=False, default=False)
 
     sections = relationship("Section", back_populates="project", cascade="all, delete-orphan")
     members = relationship("ProjectMember", back_populates="project", cascade="all, delete-orphan")
@@ -131,3 +129,42 @@ class TaskFeedback(Base):
     message = Column(Text, nullable=False)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
+
+
+class TaskChecklist(Base):
+    __tablename__ = "task_checklists"
+
+    id = Column(String, primary_key=True)
+    task_id = Column(String, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    title = Column(String, nullable=False)
+    priority = Column(String, nullable=False, default="Medium")
+    is_done = Column(Boolean, nullable=False, default=False)
+    position = Column(Integer, nullable=False, default=0)
+    created_by = Column(String, ForeignKey("users.id"), nullable=False)
+    created_at = Column(String, nullable=False)
+
+
+class TaskAttachment(Base):
+    __tablename__ = "task_attachments"
+
+    id = Column(String, primary_key=True)
+    task_id = Column(String, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    filename = Column(String, nullable=False)          # original user filename
+    stored_name = Column(String, nullable=False)       # UUID-based filename on disk
+    content_type = Column(String, nullable=False, default="application/octet-stream")
+    size_bytes = Column(Integer, nullable=False, default=0)
+    uploaded_by = Column(String, ForeignKey("users.id"), nullable=False)
+    created_at = Column(String, nullable=False)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    action = Column(String, nullable=False)        # e.g. "task.created", "checklist.done"
+    entity_type = Column(String, nullable=False)   # "task" | "project" | "checklist" | "attachment"
+    entity_id = Column(String, nullable=False)
+    entity_name = Column(String, nullable=False, default="")
+    details = Column(Text, nullable=False, default="{}")   # JSON blob
+    created_at = Column(String, nullable=False)

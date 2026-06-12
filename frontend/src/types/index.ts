@@ -31,7 +31,6 @@ export interface Project {
   sections: Section[];
   createdAt: string;
   /** Server-managed private workspace; only visible to the owner */
-  isPersonal?: boolean;
 }
 
 export interface Task {
@@ -68,6 +67,40 @@ export interface TaskFeedback {
   message: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TaskChecklist {
+  id: string;
+  taskId: string;
+  title: string;
+  priority: Priority;
+  isDone: boolean;
+  position: number;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface TaskAttachment {
+  id: string;
+  taskId: string;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedBy: string;
+  uploaderName: string;
+  createdAt: string;
+}
+
+export interface AuditLog {
+  id: number;
+  userId: string;
+  userName: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  entityName: string;
+  details: Record<string, unknown>;
+  createdAt: string;
 }
 
 /** Manual day rows on the Timesheet page (project, section, description, time range). */

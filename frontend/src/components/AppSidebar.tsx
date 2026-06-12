@@ -1,6 +1,6 @@
 import { useAppStore } from '@/stores/appStore';
 import { useLocation, Link } from 'react-router-dom';
-import { LayoutDashboard, ListTodo, Clock, BarChart3, Users, FolderKanban, Settings, LogOut } from 'lucide-react';
+import { LayoutDashboard, ListTodo, Clock, BarChart3, Users, FolderKanban, Settings, LogOut, ShieldCheck } from 'lucide-react';
 import { ZetLogo } from '@/components/brand/ZetLogo';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -13,6 +13,7 @@ const navItems = [
   { path: '/reports', label: 'Time report', icon: BarChart3 },
   { path: '/users', label: 'Users', icon: Users, managerOnly: true },
   { path: '/manage', label: 'Manage projects', icon: FolderKanban, managerOnly: true },
+  { path: '/audit', label: 'Audit', icon: ShieldCheck },
 ];
 
 const AppSidebar = () => {

@@ -6,7 +6,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DateInput } from '@/components/ui/date-input';
 import { toast } from 'sonner';
 import type { Priority } from '@/types';
-import { Users, Layers, Tag } from 'lucide-react';
+import { Users, Layers, Tag, Plus, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { localTodayISO, localTomorrowISO } from '@/lib/due-date-utils';
 
@@ -25,7 +25,7 @@ const priorityChoice: Record<Priority, string> = {
 };
 
 const CreateTaskModal = ({ open, onOpenChange }: Props) => {
-  const { currentUser, projects, users, createTask, selectedProjectId } = useAppStore();
+  const { currentUser, projects, users, createTask, addSection, selectedProjectId } = useAppStore();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [manualProjectId, setManualProjectId] = useState('');
@@ -34,8 +34,10 @@ const CreateTaskModal = ({ open, onOpenChange }: Props) => {
   const [dueDate, setDueDate] = useState('');
   const [priority, setPriority] = useState<Priority>('Medium');
   const [tagsStr, setTagsStr] = useState('');
+  const [showNewSection, setShowNewSection] = useState(false);
+  const [newSectionName, setNewSectionName] = useState('');
+  const [creatingSec, setCreatingSec] = useState(false);
 
-  const isManager = currentUser?.role === 'manager';
   const userProjects = currentUser ? projects.filter(p => currentUser.projectIds.includes(p.id)) : [];
 
   const implicitProject =
@@ -49,12 +51,12 @@ const CreateTaskModal = ({ open, onOpenChange }: Props) => {
     : [];
 
   useEffect(() => {
-    if (!currentUser || isManager || !effectiveProjectId) return;
+    if (!currentUser || !effectiveProjectId) return;
     const p = projects.find(pr => pr.id === effectiveProjectId);
     if (p?.members.includes(currentUser.id)) {
-      setAssigneeIds(new Set([currentUser.id]));
+      setAssigneeIds(prev => prev.size === 0 ? new Set([currentUser.id]) : prev);
     }
-  }, [currentUser, isManager, effectiveProjectId, projects]);
+  }, [currentUser, effectiveProjectId, projects]);
 
   useEffect(() => {
     if (open) setDueDate(localTodayISO());
@@ -71,12 +73,34 @@ const CreateTaskModal = ({ open, onOpenChange }: Props) => {
     setDueDate(localTodayISO());
     setPriority('Medium');
     setTagsStr('');
+    setShowNewSection(false);
+    setNewSectionName('');
+  };
+
+  const handleCreateSection = async () => {
+    if (!newSectionName.trim() || !effectiveProjectId) return;
+    setCreatingSec(true);
+    try {
+      await addSection(effectiveProjectId, newSectionName.trim());
+      const updatedProj = useAppStore.getState().projects.find(p => p.id === effectiveProjectId);
+      const newSec = updatedProj?.sections.find(s => s.name.trim() === newSectionName.trim());
+      if (newSec) setSectionId(newSec.id);
+      setNewSectionName('');
+      setShowNewSection(false);
+      toast.success('Section created');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not create section');
+    } finally {
+      setCreatingSec(false);
+    }
   };
 
   const handleManualProjectChange = (id: string) => {
     setManualProjectId(id);
     setSectionId('');
     setAssigneeIds(new Set(currentUser ? [currentUser.id] : []));
+    setShowNewSection(false);
+    setNewSectionName('');
   };
 
   const toggleAssignee = (userId: string) => {
@@ -94,7 +118,7 @@ const CreateTaskModal = ({ open, onOpenChange }: Props) => {
         showProjectPicker ? 'Please fill in title, project, and section' : 'Please fill in title and section',
       );
     }
-    const ids = isManager ? [...assigneeIds] : [currentUser.id];
+    const ids = [...assigneeIds];
     if (ids.length === 0) return toast.error('Select at least one person assigned to this task');
     try {
       await createTask({
@@ -132,7 +156,7 @@ const CreateTaskModal = ({ open, onOpenChange }: Props) => {
         <DialogHeader className="shrink-0 px-6 pb-4 pt-2 text-left border-b border-border/60">
           <DialogTitle className="text-xl">New task</DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">
-            Add a title and optional details. Managers can assign multiple people on the project.
+            Add a title and optional details. You can assign this task to anyone on the project.
           </DialogDescription>
         </DialogHeader>
 
@@ -187,20 +211,63 @@ const CreateTaskModal = ({ open, onOpenChange }: Props) => {
               )}
               {selectedProject && (
                 <div className="space-y-1.5">
-                  <Label htmlFor="ct-section">Section</Label>
-                  <select
-                    id="ct-section"
-                    value={sectionId}
-                    onChange={e => setSectionId(e.target.value)}
-                    className={field}
-                  >
-                    <option value="">Choose section…</option>
-                    {selectedProject.sections.map(s => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="ct-section">Section</Label>
+                    {!showNewSection && (
+                      <button
+                        type="button"
+                        onClick={() => setShowNewSection(true)}
+                        className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 font-semibold transition-colors"
+                      >
+                        <Plus className="h-3 w-3" /> New section
+                      </button>
+                    )}
+                  </div>
+                  {showNewSection ? (
+                    <div className="flex gap-2">
+                      <input
+                        autoFocus
+                        value={newSectionName}
+                        onChange={e => setNewSectionName(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') void handleCreateSection();
+                          if (e.key === 'Escape') { setShowNewSection(false); setNewSectionName(''); }
+                        }}
+                        placeholder="Section name…"
+                        className={field}
+                        disabled={creatingSec}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void handleCreateSection()}
+                        disabled={!newSectionName.trim() || creatingSec}
+                        className="shrink-0 px-3 py-2 text-xs rounded-xl bg-primary text-primary-foreground font-semibold disabled:opacity-40 transition-opacity"
+                      >
+                        {creatingSec ? '…' : 'Create'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setShowNewSection(false); setNewSectionName(''); }}
+                        className="shrink-0 p-2 rounded-xl border border-border/60 text-muted-foreground hover:bg-muted/50 transition-colors"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <select
+                      id="ct-section"
+                      value={sectionId}
+                      onChange={e => setSectionId(e.target.value)}
+                      className={field}
+                    >
+                      <option value="">
+                        {selectedProject.sections.length === 0 ? 'No sections yet — create one →' : 'Choose section…'}
                       </option>
-                    ))}
-                  </select>
+                      {selectedProject.sections.map(s => (
+                        <option key={s.id} value={s.id}>{s.name}</option>
+                      ))}
+                    </select>
+                  )}
                 </div>
               )}
             </div>
@@ -210,37 +277,27 @@ const CreateTaskModal = ({ open, onOpenChange }: Props) => {
                 <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   <Users className="h-3.5 w-3.5" /> Assigned to
                 </div>
-                {isManager ? (
-                  <div className="space-y-2">
-                    <p className="text-xs text-muted-foreground">Select everyone who should work on this task.</p>
-                    <div className="rounded-lg border border-border/50 bg-background divide-y divide-border/40 max-h-[200px] overflow-y-auto">
-                      {projectMembers.map(u => (
-                        <label
-                          key={u.id}
-                          className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-muted/40 transition-colors duration-100"
-                        >
-                          <Checkbox checked={assigneeIds.has(u.id)} onCheckedChange={() => toggleAssignee(u.id)} />
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium truncate">
-                              {u.name}
-                              {u.id === currentUser.id ? ' (you)' : ''}
-                            </div>
-                            <div className="text-xs text-muted-foreground truncate">{u.email}</div>
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground">Select everyone who should work on this task.</p>
+                  <div className="rounded-lg border border-border/50 bg-background divide-y divide-border/40 max-h-[200px] overflow-y-auto">
+                    {projectMembers.map(u => (
+                      <label
+                        key={u.id}
+                        className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-muted/40 transition-colors duration-100"
+                      >
+                        <Checkbox checked={assigneeIds.has(u.id)} onCheckedChange={() => toggleAssignee(u.id)} />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium truncate">
+                            {u.name}
+                            {u.id === currentUser.id ? ' (you)' : ''}
                           </div>
-                          <span className="text-[10px] uppercase text-muted-foreground shrink-0">{u.role}</span>
-                        </label>
-                      ))}
-                    </div>
+                          <div className="text-xs text-muted-foreground truncate">{u.email}</div>
+                        </div>
+                        <span className="text-[10px] uppercase text-muted-foreground shrink-0">{u.role}</span>
+                      </label>
+                    ))}
                   </div>
-                ) : (
-                  <p className="text-sm text-foreground">
-                    <span className="font-medium">You</span>
-                    <span className="text-muted-foreground">
-                      {' '}
-                      — new tasks you create are assigned only to you. A manager can add others later.
-                    </span>
-                  </p>
-                )}
+                </div>
               </div>
             )}
 
