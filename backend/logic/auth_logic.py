@@ -121,6 +121,8 @@ def register(db: Session, body: RegisterBody) -> LoginResponse:
         email=email,
         password_hash=hash_password(body.password),
         role=body.role,
+        job_title=body.job_title,
+        experience_months=body.experience_months,
     )
     token = create_access_token(user.id)
     return LoginResponse(access_token=token, user=user_logic.to_user_out(db, user))
@@ -144,7 +146,16 @@ def microsoft_auth(db: Session, body: MicrosoftAuthBody) -> LoginResponse:
         token = create_access_token(user.id, remember_me=body.remember_me)
         return LoginResponse(access_token=token, user=user_logic.to_user_out(db, user))
 
-    role = body.role if body.role in ("employee", "manager") else "employee"
+    # New account — role must be explicitly chosen by the user.
+    # If no role was provided (e.g. came from the login page, not signup), refuse and
+    # tell the frontend to redirect to /signup so the user can pick their role.
+    if body.role not in ("employee", "manager"):
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            "no_account",   # sentinel the frontend checks for
+        )
+
+    role = body.role
     user = users_crud.create_user(
         db,
         user_id=str(uuid.uuid4()),
@@ -152,6 +163,8 @@ def microsoft_auth(db: Session, body: MicrosoftAuthBody) -> LoginResponse:
         email=email,
         password_hash=hash_password(secrets.token_urlsafe(48)),
         role=role,
+        job_title=body.job_title,
+        experience_months=body.experience_months,
     )
     token = create_access_token(user.id, remember_me=body.remember_me)
     return LoginResponse(access_token=token, user=user_logic.to_user_out(db, user))

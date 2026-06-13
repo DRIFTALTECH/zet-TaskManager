@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Bar,
   BarChart,
+  Area,
+  AreaChart,
   CartesianGrid,
   XAxis,
   YAxis,
@@ -13,8 +15,8 @@ import {
   Pie,
   Cell,
 } from 'recharts';
-import { motion } from 'framer-motion';
-import { ChevronLeft, ChevronRight, BarChart3, TrendingUp } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ChevronLeft, ChevronRight, BarChart3, TrendingUp, FolderKanban, ChevronRight as ChevRight, ArrowLeft, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -29,6 +31,7 @@ import { api } from '@/lib/api';
 import type { TimesheetWorkEntry } from '@/types';
 import { pageEnter } from '@/lib/motion';
 import { ZET, zetStackColor } from '@/lib/zet-charts';
+import { cn } from '@/lib/utils';
 import { subDays, format, eachDayOfInterval, parseISO, startOfWeek, endOfWeek, addWeeks } from 'date-fns';
 
 function localISODate(d: Date): string {
@@ -80,6 +83,10 @@ const TimeReportPage = () => {
   const [projectFilter, setProjectFilter] = useState<string>('all');
   const [entries, setEntries] = useState<TimesheetWorkEntry[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // Drill-down: project → section → entries
+  const [drillProject, setDrillProject] = useState<string | null>(null);
+  const [drillSection, setDrillSection] = useState<string | null>(null);
 
   const isManager = currentUser?.role === 'manager';
 
@@ -208,14 +215,46 @@ const TimeReportPage = () => {
     filteredEntries,
   ]);
 
-  const pieData = useMemo(
-    () =>
-      topProjects.map(p => ({
-        name: p.name,
-        value: p.seconds,
-      })),
-    [topProjects],
+  // ── Drill-down derived data ──────────────────────────────────────────────
+  const drillProjectName = useMemo(
+    () => (drillProject ? projectLabel(drillProject) : ''),
+    [drillProject, projectLabel],
   );
+
+  const sectionTotals = useMemo(() => {
+    if (!drillProject) return [] as { sectionId: string; name: string; seconds: number }[];
+    const proj = projects.find(p => p.id === drillProject);
+    const map = new Map<string, number>();
+    for (const e of filteredEntries) {
+      if (e.projectId !== drillProject) continue;
+      map.set(e.sectionId, (map.get(e.sectionId) ?? 0) + e.seconds);
+    }
+    return [...map.entries()]
+      .map(([sectionId, seconds]) => ({
+        sectionId,
+        name: proj?.sections.find(s => s.id === sectionId)?.name ?? 'No section',
+        seconds,
+      }))
+      .sort((a, b) => b.seconds - a.seconds);
+  }, [filteredEntries, drillProject, projects]);
+
+  const drillSectionName = useMemo(
+    () => sectionTotals.find(s => s.sectionId === drillSection)?.name ?? '',
+    [sectionTotals, drillSection],
+  );
+
+  const sectionEntries = useMemo(() => {
+    if (!drillProject || !drillSection) return [] as TimesheetWorkEntry[];
+    return filteredEntries
+      .filter(e => e.projectId === drillProject && e.sectionId === drillSection)
+      .sort((a, b) => a.workDate.localeCompare(b.workDate) || a.timeFrom.localeCompare(b.timeFrom));
+  }, [filteredEntries, drillProject, drillSection]);
+
+  // Reset drill-down whenever the data range / filter changes underneath it.
+  useEffect(() => {
+    setDrillProject(null);
+    setDrillSection(null);
+  }, [selectedUserId, projectFilter, weekOffset, tab]);
 
   const rangeTitle =
     tab === 'summary'
@@ -340,7 +379,15 @@ const TimeReportPage = () => {
                   </div>
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={barData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                    <AreaChart data={barData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                      <defs>
+                        {topProjects.map((p, i) => (
+                          <linearGradient key={p.projectId} id={`area-${p.projectId}`} x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor={zetStackColor(i)} stopOpacity={0.45} />
+                            <stop offset="100%" stopColor={zetStackColor(i)} stopOpacity={0.04} />
+                          </linearGradient>
+                        ))}
+                      </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                       <XAxis dataKey="label" tick={{ fontSize: 10 }} interval={0} />
                       <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${v}h`} width={40} />
@@ -350,91 +397,218 @@ const TimeReportPage = () => {
                       />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
                       {topProjects.map((p, i) => (
-                        <Bar
+                        <Area
                           key={p.projectId}
+                          type="monotone"
                           dataKey={p.projectId}
                           name={p.name}
                           stackId="day"
-                          fill={zetStackColor(i)}
-                          radius={i === topProjects.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                          stroke={zetStackColor(i)}
+                          strokeWidth={2}
+                          fill={`url(#area-${p.projectId})`}
+                          activeDot={{ r: 4 }}
                         />
                       ))}
-                    </BarChart>
+                    </AreaChart>
                   </ResponsiveContainer>
                 )}
               </div>
             </div>
 
-            <div className="grid gap-6 lg:grid-cols-2">
-              <div className="rounded-xl border border-border/80 bg-card p-5 shadow-sm">
-                <h2 className="text-sm font-semibold mb-2">By project</h2>
-                <div className="relative h-[280px] w-full">
-                  {pieData.length === 0 ? (
-                    <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
-                      No project split yet
-                    </div>
-                  ) : (
+            {/* ── Explore: project → section → entries ─────────────────── */}
+            <div className="rounded-xl border border-border/80 bg-card p-5 shadow-sm">
+              {/* Breadcrumb */}
+              <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+                <div className="flex items-center gap-1.5 text-sm min-w-0">
+                  {drillProject && (
+                    <button
+                      type="button"
+                      onClick={() => (drillSection ? setDrillSection(null) : setDrillProject(null))}
+                      className="mr-1 inline-flex items-center justify-center rounded-md border border-border/70 p-1 text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+                      aria-label="Back"
+                    >
+                      <ArrowLeft className="size-3.5" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => { setDrillProject(null); setDrillSection(null); }}
+                    className={drillProject ? 'text-muted-foreground hover:text-foreground transition-colors' : 'font-semibold text-foreground'}
+                  >
+                    Projects
+                  </button>
+                  {drillProject && (
                     <>
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie
-                            data={pieData}
-                            dataKey="value"
-                            nameKey="name"
-                            innerRadius={68}
-                            outerRadius={100}
-                            paddingAngle={2}
-                            stroke="hsl(var(--card))"
-                            strokeWidth={2}
-                          >
-                            {pieData.map((_, i) => (
-                              <Cell key={i} fill={zetStackColor(i)} />
-                            ))}
-                          </Pie>
-                          <Tooltip
-                            contentStyle={chartTooltipStyle}
-                            formatter={(v: number) => formatHMS(v)}
-                          />
-                        </PieChart>
-                      </ResponsiveContainer>
-                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-center">
-                        <div>
-                          <p className="text-xs text-muted-foreground">Timesheet</p>
-                          <p className="text-lg font-bold tabular-nums">{formatHMS(timesheetTotal)}</p>
-                        </div>
-                      </div>
+                      <ChevRight className="size-3.5 text-muted-foreground/50 shrink-0" />
+                      <button
+                        type="button"
+                        onClick={() => setDrillSection(null)}
+                        className={cn('truncate', drillSection ? 'text-muted-foreground hover:text-foreground transition-colors' : 'font-semibold text-foreground')}
+                      >
+                        {drillProjectName}
+                      </button>
+                    </>
+                  )}
+                  {drillSection && (
+                    <>
+                      <ChevRight className="size-3.5 text-muted-foreground/50 shrink-0" />
+                      <span className="truncate font-semibold text-foreground">{drillSectionName}</span>
                     </>
                   )}
                 </div>
+                <span className="text-xs text-muted-foreground">
+                  {!drillProject ? 'Click a project to explore'
+                    : !drillSection ? 'Click a section to see what you did'
+                    : `${sectionEntries.length} ${sectionEntries.length === 1 ? 'entry' : 'entries'}`}
+                </span>
               </div>
 
-              <div className="rounded-xl border border-border/80 bg-card p-5 shadow-sm space-y-4">
-                <h2 className="text-sm font-semibold">Project share</h2>
-                <div className="space-y-4">
-                  {topProjects.length === 0 && (
-                    <p className="text-sm text-muted-foreground">No timesheet data in this range.</p>
-                  )}
-                  {topProjects.map((p, i) => {
-                    const pct = timesheetTotal > 0 ? (p.seconds / timesheetTotal) * 100 : 0;
-                    return (
-                      <div key={p.projectId}>
-                        <div className="flex justify-between text-sm mb-1 gap-4">
-                          <span className="truncate font-medium">{p.name}</span>
-                          <span className="tabular-nums text-muted-foreground shrink-0">
-                            {formatHMS(p.seconds)} · {pct.toFixed(1)}%
-                          </span>
-                        </div>
-                        <div className="h-2.5 rounded-full bg-muted overflow-hidden">
-                          <div
-                            className="h-full rounded-full transition-all"
-                            style={{ width: `${pct}%`, backgroundColor: zetStackColor(i) }}
-                          />
-                        </div>
+              <AnimatePresence mode="wait">
+                {/* Level 1 — projects */}
+                {!drillProject && (
+                  <motion.div key="lvl-projects"
+                    initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+                    transition={pageEnter}
+                  >
+                    {projectTotals.length === 0 ? (
+                      <div className="h-[200px] flex items-center justify-center text-sm text-muted-foreground border border-dashed border-border rounded-lg">
+                        No timesheet data in this range.
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
+                    ) : (
+                      <div className="grid gap-2.5 sm:grid-cols-2">
+                        {projectTotals.map((p, i) => {
+                          const pct = timesheetTotal > 0 ? (p.seconds / timesheetTotal) * 100 : 0;
+                          return (
+                            <button
+                              key={p.projectId}
+                              type="button"
+                              onClick={() => { setDrillProject(p.projectId); setDrillSection(null); }}
+                              className="group text-left rounded-xl border border-border/70 bg-muted/10 p-4 hover:border-border hover:bg-muted/30 transition-all"
+                            >
+                              <div className="flex items-center gap-3">
+                                <span className="flex size-9 items-center justify-center rounded-lg" style={{ backgroundColor: `${zetStackColor(i)}1a` }}>
+                                  <FolderKanban className="size-4" style={{ color: zetStackColor(i) }} />
+                                </span>
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-sm font-semibold text-foreground">{p.name}</p>
+                                  <p className="text-xs text-muted-foreground tabular-nums">{formatHMS(p.seconds)} · {pct.toFixed(0)}%</p>
+                                </div>
+                                <ChevRight className="size-4 text-muted-foreground/40 group-hover:text-foreground group-hover:translate-x-0.5 transition-all" />
+                              </div>
+                              <div className="mt-3 h-1.5 rounded-full bg-muted overflow-hidden">
+                                <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: zetStackColor(i) }} />
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+
+                {/* Level 2 — sections (pie) */}
+                {drillProject && !drillSection && (
+                  <motion.div key="lvl-sections"
+                    initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+                    transition={pageEnter}
+                    className="grid gap-6 lg:grid-cols-2"
+                  >
+                    {sectionTotals.length === 0 ? (
+                      <div className="lg:col-span-2 h-[200px] flex items-center justify-center text-sm text-muted-foreground border border-dashed border-border rounded-lg">
+                        No sections logged for this project in range.
+                      </div>
+                    ) : (
+                      <>
+                        <div className="relative h-[260px] w-full">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie
+                                data={sectionTotals.map(s => ({ name: s.name, value: s.seconds, sectionId: s.sectionId }))}
+                                dataKey="value"
+                                nameKey="name"
+                                innerRadius={64}
+                                outerRadius={98}
+                                paddingAngle={2}
+                                stroke="hsl(var(--card))"
+                                strokeWidth={2}
+                                onClick={(d: { sectionId?: string }) => d?.sectionId && setDrillSection(d.sectionId)}
+                              >
+                                {sectionTotals.map((_, i) => (
+                                  <Cell key={i} fill={zetStackColor(i)} className="cursor-pointer outline-none" />
+                                ))}
+                              </Pie>
+                              <Tooltip contentStyle={chartTooltipStyle} formatter={(v: number) => formatHMS(v)} />
+                            </PieChart>
+                          </ResponsiveContainer>
+                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-center">
+                            <div>
+                              <p className="text-xs text-muted-foreground">Sections</p>
+                              <p className="text-lg font-bold tabular-nums">{sectionTotals.length}</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="space-y-2 self-center">
+                          {sectionTotals.map((s, i) => {
+                            const projSec = filteredEntries
+                              .filter(e => e.projectId === drillProject)
+                              .reduce((a, e) => a + e.seconds, 0);
+                            const pct = projSec > 0 ? (s.seconds / projSec) * 100 : 0;
+                            return (
+                              <button
+                                key={s.sectionId}
+                                type="button"
+                                onClick={() => setDrillSection(s.sectionId)}
+                                className="group flex w-full items-center gap-3 rounded-lg border border-border/60 bg-muted/10 px-3 py-2 hover:border-border hover:bg-muted/30 transition-all"
+                              >
+                                <span className="size-2.5 rounded-full shrink-0" style={{ backgroundColor: zetStackColor(i) }} />
+                                <span className="truncate text-sm font-medium text-foreground flex-1 text-left">{s.name}</span>
+                                <span className="text-xs tabular-nums text-muted-foreground shrink-0">{formatHMS(s.seconds)} · {pct.toFixed(0)}%</span>
+                                <ChevRight className="size-4 text-muted-foreground/40 group-hover:text-foreground transition-colors" />
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </motion.div>
+                )}
+
+                {/* Level 3 — entries in section */}
+                {drillProject && drillSection && (
+                  <motion.div key="lvl-entries"
+                    initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+                    transition={pageEnter}
+                    className="space-y-2"
+                  >
+                    {sectionEntries.length === 0 ? (
+                      <div className="h-[160px] flex items-center justify-center text-sm text-muted-foreground border border-dashed border-border rounded-lg">
+                        No entries in this section.
+                      </div>
+                    ) : (
+                      <ul className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
+                        {sectionEntries.map(e => (
+                          <li key={e.id} className="flex items-start justify-between gap-4 rounded-lg border border-border/60 bg-muted/10 px-4 py-3">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-foreground break-words">
+                                {e.description?.trim() || <span className="italic text-muted-foreground/50">No description</span>}
+                              </p>
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                <span className="font-mono">{format(parseISO(e.workDate), 'EEE, MMM d')}</span>
+                                <span className="inline-flex items-center gap-1 font-mono">
+                                  <Clock className="size-3" />{e.timeFrom}–{e.timeTo}
+                                </span>
+                              </div>
+                            </div>
+                            <span className="text-sm font-bold font-mono tabular-nums shrink-0 text-foreground/80">
+                              {formatHMS(e.seconds)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </TabsContent>
 

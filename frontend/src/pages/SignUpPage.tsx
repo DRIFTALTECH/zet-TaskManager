@@ -17,9 +17,9 @@ const SignUpPage = () => {
   return (
     <AnimatedCharactersSignupPage
       microsoftEnabled={isMicrosoftAuthConfigured()}
-      onMicrosoftSignup={async (role: Role) => {
+      onMicrosoftSignup={async (role: Role, jobTitle: string, experienceMonths: number) => {
         try {
-          await signUpWithMicrosoftRedirect(role);
+          await signUpWithMicrosoftRedirect(role, jobTitle, experienceMonths);
         } catch (e) {
           const msg = formatMsalAuthError(e);
           toast.error(msg || 'Microsoft sign-up failed.');

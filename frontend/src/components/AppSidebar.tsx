@@ -1,13 +1,20 @@
+import React from 'react';
 import { useAppStore } from '@/stores/appStore';
 import { useLocation, Link } from 'react-router-dom';
-import { LayoutDashboard, ListTodo, Clock, BarChart3, Users, FolderKanban, Settings, LogOut, ShieldCheck } from 'lucide-react';
+import { LayoutDashboard, ListTodo, Clock, BarChart3, Users, FolderKanban, Settings, LogOut, ShieldCheck, Sparkles } from 'lucide-react';
 import { ZetLogo } from '@/components/brand/ZetLogo';
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import UserAvatar from '@/components/UserAvatar';
 
-const navItems = [
+const navItems: Array<{
+  path: string;
+  label: string;
+  labelNode?: React.ReactNode;
+  icon: React.FC<React.SVGProps<SVGSVGElement>>;
+  managerOnly?: boolean;
+}> = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/tasks', label: 'My Tasks', icon: ListTodo },
   { path: '/timesheet', label: 'Timesheet', icon: Clock },
@@ -15,6 +22,12 @@ const navItems = [
   { path: '/users', label: 'Users', icon: Users, managerOnly: true },
   { path: '/manage', label: 'Manage projects', icon: FolderKanban, managerOnly: true },
   { path: '/audit', label: 'Audit', icon: ShieldCheck },
+  {
+    path: '/ai',
+    label: 'Zani',
+    labelNode: <><span className="text-violet-400 font-bold">Z</span>ani</>,
+    icon: Sparkles,
+  },
 ];
 
 const AppSidebar = () => {
@@ -69,7 +82,7 @@ const AppSidebar = () => {
                 )}
                 <item.icon className="relative z-10 h-4 w-4 shrink-0" />
                 <span className={`relative z-10 whitespace-nowrap transition-opacity duration-150 ${expanded ? 'opacity-100' : 'opacity-0'}`}>
-                  {item.label}
+                  {item.labelNode ?? item.label}
                 </span>
               </Link>
             );

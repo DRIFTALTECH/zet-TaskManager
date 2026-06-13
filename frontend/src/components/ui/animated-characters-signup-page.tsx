@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { User, Users } from "lucide-react";
@@ -21,7 +22,7 @@ function MicrosoftIcon({ className }: { className?: string }) {
 
 export interface AnimatedCharactersSignupPageProps {
   microsoftEnabled: boolean;
-  onMicrosoftSignup: (role: Role) => Promise<void>;
+  onMicrosoftSignup: (role: Role, jobTitle: string, experienceMonths: number) => Promise<void>;
 }
 
 export function AnimatedCharactersSignupPage({
@@ -30,6 +31,9 @@ export function AnimatedCharactersSignupPage({
 }: AnimatedCharactersSignupPageProps) {
   const [msLoading, setMsLoading] = useState(false);
   const [role, setRole] = useState<Role>("employee");
+  const [jobTitle, setJobTitle] = useState("");
+  const [expYears, setExpYears] = useState(0);
+  const [expMonths, setExpMonths] = useState(0);
 
   return (
     <div className="min-h-screen grid lg:grid-cols-2">
@@ -48,7 +52,7 @@ export function AnimatedCharactersSignupPage({
 
           <div className="text-center mb-10">
             <h1 className="text-3xl font-bold tracking-tight mb-2">Create your account</h1>
-            <p className="text-muted-foreground text-sm">Choose your role, then continue with Microsoft</p>
+            <p className="text-muted-foreground text-sm">Tell us about yourself, then continue with Microsoft</p>
           </div>
 
           {!microsoftEnabled && (
@@ -59,6 +63,50 @@ export function AnimatedCharactersSignupPage({
           )}
 
           <div className="space-y-6">
+            {/* Job title */}
+            <div className="space-y-2">
+              <Label htmlFor="job-title" className="text-sm font-medium">Job title</Label>
+              <Input
+                id="job-title"
+                placeholder="e.g. Frontend Developer"
+                value={jobTitle}
+                onChange={(e) => setJobTitle(e.target.value)}
+                disabled={!microsoftEnabled || msLoading}
+                maxLength={200}
+              />
+            </div>
+
+            {/* Experience */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Years of experience</Label>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={60}
+                    placeholder="Years"
+                    value={expYears || ""}
+                    onChange={(e) => setExpYears(Math.max(0, parseInt(e.target.value) || 0))}
+                    disabled={!microsoftEnabled || msLoading}
+                  />
+                  <p className="text-xs text-muted-foreground">Years</p>
+                </div>
+                <div className="space-y-1">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={11}
+                    placeholder="Months"
+                    value={expMonths || ""}
+                    onChange={(e) => setExpMonths(Math.min(11, Math.max(0, parseInt(e.target.value) || 0)))}
+                    disabled={!microsoftEnabled || msLoading}
+                  />
+                  <p className="text-xs text-muted-foreground">Months</p>
+                </div>
+              </div>
+            </div>
+
             <div className="space-y-3">
               <Label className="text-sm font-medium">Are you an employee or a manager?</Label>
               <RadioGroup
@@ -116,7 +164,7 @@ export function AnimatedCharactersSignupPage({
               onClick={async () => {
                 setMsLoading(true);
                 try {
-                  await onMicrosoftSignup(role);
+                  await onMicrosoftSignup(role, jobTitle.trim(), expYears * 12 + expMonths);
                 } finally {
                   setMsLoading(false);
                 }

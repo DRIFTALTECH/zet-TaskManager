@@ -16,6 +16,7 @@ const pageTitles: Record<string, string> = {
   '/manage': 'Manage projects',
   '/settings': 'Settings',
   '/audit': 'Audit',
+  '/ai': 'Zani',
 };
 
 const AppNavbar = () => {
@@ -34,8 +35,7 @@ const AppNavbar = () => {
 
       <header className="h-16 border-b border-border/60 glass flex items-center px-5 gap-4 sticky top-0 z-40">
         <div className="flex items-center gap-3 min-w-0">
-          <span className="font-display text-base font-bold tracking-tight text-foreground truncate">{pageTitle}</span>
-          <span className="hidden md:inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2.5 py-0.5 font-mono text-[10px] text-muted-foreground tracking-wide">
+          <span className="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2.5 py-0.5 font-mono text-[10px] text-muted-foreground tracking-wide">
             {today}
           </span>
         </div>

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 import crud.timesheet_entries as te_crud
 import crud.sections as sections_crud
+import crud.projects as projects_crud
 from database.init_db import new_id
 from database.models import TimesheetEntry
 from logic import project_logic, user_logic
@@ -83,6 +84,15 @@ def list_entries_as_manager(db: Session, manager_id: str, target_user_id: str, s
     project_logic.ensure_manager(db, manager_id)
     user_logic.get_user_or_404(db, target_user_id)
     return list_entries(db, target_user_id, start, end)
+
+
+def list_entries_for_project(db: Session, manager_id: str, project_id: str) -> list[TimesheetEntryOut]:
+    """Manager-only: all timesheet rows logged against a project, across every member."""
+    project_logic.ensure_manager(db, manager_id)
+    if not projects_crud.get_by_id(db, project_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+    rows = te_crud.list_for_project(db, project_id)
+    return [to_out(r) for r in rows]
 
 
 def create_entry(db: Session, user_id: str, body: TimesheetEntryCreate) -> TimesheetEntryOut:

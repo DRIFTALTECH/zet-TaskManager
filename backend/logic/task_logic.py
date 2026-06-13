@@ -233,10 +233,13 @@ def move_task(db: Session, current_user_id: str, task_id: str, body: TaskMoveBod
     project_logic.ensure_project_member(db, t.project_id, current_user_id)
     if t.status == "completed":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Completed tasks cannot be moved on the board")
-    if not _can_move_task_on_board(db, t, current_user_id):
+    # Assignees can always move their own tasks; managers can move any task on the
+    # board within projects they belong to (used by the manager project dashboard).
+    actor = user_logic.get_user_or_404(db, current_user_id)
+    if not (_can_move_task_on_board(db, t, current_user_id) or actor.role == "manager"):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
-            "Only the task's assignees can move it between columns",
+            "Only the task's assignees or a manager can move it between columns",
         )
     t.status = body.status
     # Moving to Done ends any active work session

@@ -1,10 +1,11 @@
 import { useAppStore } from '@/stores/appStore';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   ChevronLeft, ChevronRight, Download, Plus, Bell, Send,
   Trash2, MoreVertical, CalendarX2, Clock, CalendarDays,
-  Tag, DollarSign, List, X, Mail,
+  Tag, DollarSign, List, X, Mail, Sparkles, Check, Pencil,
+  AlertCircle, CheckCircle2, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import {
@@ -21,7 +22,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { snappy, pageEnter } from '@/lib/motion';
-import type { TimesheetWorkEntry } from '@/types';
+import type { TimesheetWorkEntry, AITimesheetRow } from '@/types';
 import { api } from '@/lib/api';
 import { acquireGraphToken, hasMicrosoftSession, isMicrosoftAuthConfigured } from '@/lib/microsoftAuth';
 import UserAvatar from '@/components/UserAvatar';
@@ -155,6 +156,346 @@ type EntryModalState = null | { mode: 'new'; date: string } | { mode: 'edit'; en
 const inputCls = 'w-full rounded-xl border border-border/50 bg-muted/40 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 transition-all placeholder:text-muted-foreground/40';
 const textareaCls = `${inputCls} resize-y min-h-[72px] break-words [overflow-wrap:anywhere] [word-break:break-word]`;
 
+// ── Timesheet AI Panel ────────────────────────────────────────────────────────
+
+function confidenceColor(c: number): string {
+  if (c >= 0.9) return 'border-green-500/20 bg-green-500/5';
+  if (c >= 0.7) return 'border-amber-500/20 bg-amber-500/5';
+  return 'border-red-500/20 bg-red-500/5';
+}
+
+function RowPreviewCard({
+  row,
+  idx,
+  projects,
+  onSave,
+  onRemove,
+}: {
+  row: AITimesheetRow;
+  idx: number;
+  projects: ReturnType<typeof useAppStore.getState>['projects'];
+  onSave: (updated: AITimesheetRow) => void;
+  onRemove: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [desc, setDesc] = useState(row.description);
+  const [timeFrom, setTimeFrom] = useState(row.time_from);
+  const [timeTo, setTimeTo]     = useState(row.time_to);
+  const [projectId, setProjectId]   = useState(row.project_id ?? '');
+  const [sectionId, setSectionId]   = useState(row.section_id ?? '');
+
+  const selProject = projects.find(p => p.id === projectId);
+  const sectionOpts = selProject?.sections ?? [];
+
+  const handleSave = () => {
+    const proj = projects.find(p => p.id === projectId);
+    const sec  = proj?.sections?.find(s => s.id === sectionId);
+    onSave({
+      ...row,
+      description: desc,
+      time_from: timeFrom,
+      time_to: timeTo,
+      project_id: projectId || null,
+      project_name: proj?.name ?? null,
+      section_id: sectionId || null,
+      section_name: sec?.name ?? null,
+      confidence: 1.0,
+      needs_clarification: false,
+      clarification_note: null,
+    });
+    setEditing(false);
+  };
+
+  const borderCls = confidenceColor(row.confidence);
+
+  if (editing) {
+    return (
+      <div className={`rounded-xl border p-3 space-y-2.5 ${borderCls}`}>
+        <input
+          autoFocus
+          value={desc}
+          onChange={e => setDesc(e.target.value)}
+          placeholder="Description"
+          className="w-full px-3 py-2 text-sm rounded-lg border border-border/60 bg-background focus:outline-none focus:border-violet-500/60"
+        />
+        <div className="flex gap-2">
+          <input value={timeFrom} onChange={e => setTimeFrom(e.target.value)} placeholder="09:00"
+            className="w-24 px-3 py-2 text-sm rounded-lg border border-border/60 bg-background focus:outline-none focus:border-violet-500/60 font-mono" />
+          <span className="self-center text-muted-foreground text-xs">→</span>
+          <input value={timeTo} onChange={e => setTimeTo(e.target.value)} placeholder="10:00"
+            className="w-24 px-3 py-2 text-sm rounded-lg border border-border/60 bg-background focus:outline-none focus:border-violet-500/60 font-mono" />
+        </div>
+        <select value={projectId} onChange={e => { setProjectId(e.target.value); setSectionId(''); }}
+          className="w-full px-3 py-2 text-sm rounded-lg border border-border/60 bg-background focus:outline-none">
+          <option value="">— No project —</option>
+          {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        {sectionOpts.length > 0 && (
+          <select value={sectionId} onChange={e => setSectionId(e.target.value)}
+            className="w-full px-3 py-2 text-sm rounded-lg border border-border/60 bg-background focus:outline-none">
+            <option value="">— No section —</option>
+            {sectionOpts.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        )}
+        <div className="flex gap-2 pt-1">
+          <button onClick={handleSave}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-semibold hover:bg-violet-500 transition-colors">
+            <Check className="h-3 w-3" /> Save
+          </button>
+          <button onClick={() => setEditing(false)}
+            className="px-3 py-1.5 rounded-lg border border-border/60 bg-muted/30 text-xs hover:bg-muted/60 transition-colors">
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={snappy}
+      className={`rounded-xl border p-3 space-y-1.5 ${borderCls}`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-medium leading-snug flex-1">{row.description}</p>
+        <div className="flex items-center gap-1 shrink-0">
+          <button onClick={() => setEditing(true)}
+            className="p-1.5 rounded-lg hover:bg-muted/60 text-muted-foreground hover:text-foreground transition-colors">
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+          <button onClick={onRemove}
+            className="p-1.5 rounded-lg hover:bg-red-500/10 text-muted-foreground hover:text-red-400 transition-colors">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+        <span className="font-mono font-semibold text-foreground/80">{row.time_from} – {row.time_to}</span>
+        {row.project_name && <span className="flex items-center gap-1"><Tag className="h-3 w-3" />{row.project_name}</span>}
+        {row.section_name && <span className="opacity-60">/ {row.section_name}</span>}
+      </div>
+
+      {row.needs_clarification && row.clarification_note && (
+        <div className="flex items-start gap-1.5 text-[11px] text-amber-400">
+          <AlertCircle className="h-3 w-3 shrink-0 mt-0.5" />
+          <span>{row.clarification_note}</span>
+        </div>
+      )}
+
+      {row.confidence < 0.9 && (
+        <div className="flex items-center gap-1.5 mt-0.5">
+          <div className="h-1 flex-1 rounded-full bg-muted/40 overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${row.confidence >= 0.7 ? 'bg-amber-400' : 'bg-red-400'}`}
+              style={{ width: `${Math.round(row.confidence * 100)}%` }}
+            />
+          </div>
+          <span className="text-[10px] text-muted-foreground/60 tabular-nums">{Math.round(row.confidence * 100)}% confidence</span>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+function TimesheetAIPanel({
+  date,
+  onClose,
+  onEntriesAdded,
+}: {
+  date: string;
+  onClose: () => void;
+  onEntriesAdded: () => Promise<void>;
+}) {
+  const { projects } = useAppStore();
+  const [summary, setSummary] = useState('');
+  const [parsing, setParsing]   = useState(false);
+  const [rows, setRows]         = useState<AITimesheetRow[] | null>(null);
+  const [message, setMessage]   = useState('');
+  const [gaps, setGaps]         = useState<string[]>([]);
+  const [totalHours, setTotalHours] = useState(0);
+  const [saving, setSaving]     = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => { textareaRef.current?.focus(); }, []);
+
+  const userProjects = projects.filter(p =>
+    p.members?.includes(useAppStore.getState().currentUser?.id ?? '')
+  );
+  const projectRefs = userProjects.map(p => ({
+    id: p.id, name: p.name,
+    sections: (p.sections ?? []).map(s => ({ id: s.id, name: s.name })),
+  }));
+
+  const handleParse = async () => {
+    if (!summary.trim()) return;
+    setParsing(true);
+    try {
+      const res = await api.aiParseTimesheet(summary, date, projectRefs);
+      setRows(res.rows);
+      setMessage(res.message);
+      setGaps(res.gaps);
+      setTotalHours(res.total_hours);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to parse timesheet');
+    } finally {
+      setParsing(false);
+    }
+  };
+
+  const updateRow = (idx: number, updated: AITimesheetRow) => {
+    setRows(prev => prev ? prev.map((r, i) => i === idx ? updated : r) : prev);
+  };
+
+  const removeRow = (idx: number) => {
+    setRows(prev => prev ? prev.filter((_, i) => i !== idx) : prev);
+  };
+
+  const handleAcceptAll = async () => {
+    if (!rows || rows.length === 0) return;
+    const valid = rows.filter(r => r.project_id && r.section_id);
+    const invalid = rows.length - valid.length;
+    if (valid.length === 0) {
+      toast.error('No rows have a project + section assigned. Edit them first.');
+      return;
+    }
+    setSaving(true);
+    let saved = 0;
+    const errors: string[] = [];
+    for (const row of valid) {
+      try {
+        await api.createTimesheetWorkEntry({
+          workDate: date,
+          projectId: row.project_id!,
+          sectionId: row.section_id!,
+          description: row.description,
+          timeFrom: row.time_from,
+          timeTo: row.time_to,
+        });
+        saved++;
+      } catch (err) {
+        errors.push(err instanceof Error ? err.message : 'Unknown error');
+      }
+    }
+    await onEntriesAdded();
+    setSaving(false);
+    if (saved > 0) toast.success(`${saved} entr${saved === 1 ? 'y' : 'ies'} added!`);
+    if (invalid > 0) toast.info(`${invalid} row${invalid > 1 ? 's' : ''} skipped — no project/section.`);
+    if (errors.length) toast.error(`${errors.length} entr${errors.length > 1 ? 'ies' : 'y'} failed.`);
+    if (saved > 0) onClose();
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, height: 0 }}
+      animate={{ opacity: 1, height: 'auto' }}
+      exit={{ opacity: 0, height: 0 }}
+      transition={snappy}
+      className="border-b border-violet-500/20 bg-violet-500/5 overflow-hidden"
+    >
+      <div className="px-5 py-4 space-y-3">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-sm font-semibold text-violet-400">
+            <Sparkles className="h-4 w-4" />
+            Fill with AI — describe your day
+          </div>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-muted/60 text-muted-foreground transition-colors">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Input area */}
+        {rows === null && (
+          <>
+            <textarea
+              ref={textareaRef}
+              value={summary}
+              onChange={e => setSummary(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void handleParse(); }}
+              placeholder={`e.g. "Spent the morning fixing the auth bug in Driffy backend, quick standup at 10, then worked on the CI/CD pipeline until 4pm, finished with code review for the frontend section"`}
+              rows={3}
+              className="w-full px-3.5 py-3 text-sm rounded-xl border border-violet-500/20 bg-background/60 focus:outline-none focus:border-violet-500/50 placeholder:text-muted-foreground/40 resize-none leading-relaxed"
+            />
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] text-muted-foreground/40">⌘ Enter to parse</span>
+              <button
+                onClick={() => void handleParse()}
+                disabled={!summary.trim() || parsing}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-violet-600 text-white text-sm font-semibold hover:bg-violet-500 transition-colors disabled:opacity-50"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                {parsing ? 'Parsing…' : 'Parse my day'}
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Preview */}
+        {rows !== null && (
+          <div className="space-y-3">
+            {/* AI message */}
+            {message && (
+              <div className="flex items-start gap-2 text-xs text-violet-400 bg-violet-500/10 border border-violet-500/20 rounded-lg px-3 py-2">
+                <Sparkles className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                <span>{message}</span>
+              </div>
+            )}
+
+            {/* Gaps */}
+            {gaps.length > 0 && (
+              <div className="flex items-start gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                <span>Unaccounted: {gaps.join(' · ')}</span>
+              </div>
+            )}
+
+            {/* Row cards */}
+            <div className="space-y-2">
+              {rows.map((row, i) => (
+                <RowPreviewCard
+                  key={i}
+                  row={row}
+                  idx={i}
+                  projects={userProjects}
+                  onSave={updated => updateRow(i, updated)}
+                  onRemove={() => removeRow(i)}
+                />
+              ))}
+            </div>
+
+            {rows.length === 0 && (
+              <p className="text-sm text-muted-foreground/50 text-center py-2">All rows removed.</p>
+            )}
+
+            {/* Footer */}
+            <div className="flex items-center justify-between pt-1 border-t border-violet-500/10">
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                <span className="font-semibold text-foreground">{rows.length} row{rows.length !== 1 ? 's' : ''}</span>
+                {totalHours > 0 && <span>{totalHours.toFixed(1)}h total</span>}
+                <button
+                  onClick={() => { setRows(null); setSummary(''); setGaps([]); setMessage(''); }}
+                  className="text-violet-400 hover:underline"
+                >
+                  ← Edit summary
+                </button>
+              </div>
+              <button
+                onClick={() => void handleAcceptAll()}
+                disabled={saving || rows.length === 0}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-violet-600 text-white text-sm font-semibold hover:bg-violet-500 transition-colors disabled:opacity-50"
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                {saving ? 'Saving…' : `Accept all (${rows.length})`}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 const TimesheetPage = () => {
   const { currentUser, projects, users, addSection } = useAppStore();
@@ -183,6 +524,7 @@ const TimesheetPage = () => {
   const [selectedDays, setSelectedDays] = useState<string[]>([]);
   const [entryToDelete, setEntryToDelete] = useState<TimesheetWorkEntry | null>(null);
   const [deletingEntry, setDeletingEntry] = useState(false);
+  const [aiOpenDay, setAiOpenDay] = useState<string | null>(null);
 
   // ── Inline section creation ────────────────────────────────────────────────
   const [showQuickNewSection, setShowQuickNewSection] = useState(false);
@@ -972,17 +1314,42 @@ const TimesheetPage = () => {
                         </button>
 
                         {!onLeaveDays.has(day.date) && (
-                          <button
-                            type="button"
-                            disabled={userProjects.length === 0}
-                            onClick={() => openNewModal(day.date)}
-                            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl font-semibold border border-border/40 bg-muted/30 hover:bg-primary/8 hover:border-primary/30 hover:text-primary text-muted-foreground transition-all disabled:opacity-40"
-                          >
-                            <Plus className="h-3.5 w-3.5" /> Add
-                          </button>
+                          <>
+                            <button
+                              type="button"
+                              disabled={userProjects.length === 0}
+                              onClick={() => setAiOpenDay(prev => prev === day.date ? null : day.date)}
+                              className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl font-semibold border transition-all disabled:opacity-40 ${
+                                aiOpenDay === day.date
+                                  ? 'border-violet-500/40 bg-violet-500/15 text-violet-400'
+                                  : 'border-violet-500/20 bg-violet-500/5 hover:bg-violet-500/15 text-violet-400'
+                              }`}
+                            >
+                              <Sparkles className="h-3.5 w-3.5" /> AI
+                            </button>
+                            <button
+                              type="button"
+                              disabled={userProjects.length === 0}
+                              onClick={() => openNewModal(day.date)}
+                              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl font-semibold border border-border/40 bg-muted/30 hover:bg-primary/8 hover:border-primary/30 hover:text-primary text-muted-foreground transition-all disabled:opacity-40"
+                            >
+                              <Plus className="h-3.5 w-3.5" /> Add
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>
+
+                    {/* AI Panel */}
+                    <AnimatePresence>
+                      {aiOpenDay === day.date && !onLeaveDays.has(day.date) && (
+                        <TimesheetAIPanel
+                          date={day.date}
+                          onClose={() => setAiOpenDay(null)}
+                          onEntriesAdded={reloadEntries}
+                        />
+                      )}
+                    </AnimatePresence>
 
                     {/* Entries */}
                     {onLeaveDays.has(day.date) ? (

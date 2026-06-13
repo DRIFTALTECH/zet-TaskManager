@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -7,8 +9,28 @@ from logic import auth_logic
 from logic.schemas import PasswordUpdate, ProfileUpdate, UserOut
 
 
+def _calc_current_experience(experience_months: int, joined_at: str) -> int:
+    """
+    Returns total months of experience today.
+    = experience at signup + months elapsed since signup.
+    """
+    if not joined_at:
+        return experience_months
+    try:
+        signup_dt = datetime.fromisoformat(joined_at)
+        now = datetime.now(timezone.utc)
+        if signup_dt.tzinfo is None:
+            signup_dt = signup_dt.replace(tzinfo=timezone.utc)
+        elapsed = (now.year - signup_dt.year) * 12 + (now.month - signup_dt.month)
+        return experience_months + max(0, elapsed)
+    except Exception:
+        return experience_months
+
+
 def to_user_out(db: Session, user: User, *, viewer_id: str | None = None) -> UserOut:
     pids = users_crud.project_ids_for_user(db, user.id)
+    exp_months = getattr(user, "experience_months", 0) or 0
+    joined = getattr(user, "joined_at", "") or ""
     return UserOut(
         id=user.id,
         name=user.name,
@@ -16,6 +38,10 @@ def to_user_out(db: Session, user: User, *, viewer_id: str | None = None) -> Use
         role=user.role,
         avatar=user.avatar,
         projectIds=pids,
+        jobTitle=getattr(user, "job_title", "") or "",
+        experienceMonths=exp_months,
+        joinedAt=joined,
+        currentExperienceMonths=_calc_current_experience(exp_months, joined),
     )
 
 

@@ -1,12 +1,56 @@
-from pydantic import BaseModel, Field
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+# ── Lenient scalar coercion ───────────────────────────────────────────────────
+# Some tool-calling models (e.g. Llama on Groq) emit numbers/booleans as quoted
+# strings ("1.0", "false"). The provider validates the tool call against the
+# JSON schema *before* our code runs, so the field types must accept strings;
+# these helpers then coerce them back to real numbers/bools.
+
+def _coerce_float(v: Any) -> Any:
+    if isinstance(v, str):
+        try:
+            return float(v.strip())
+        except ValueError:
+            return 0.0
+    return v
+
+
+def _coerce_bool(v: Any) -> Any:
+    if isinstance(v, str):
+        return v.strip().lower() in {"true", "1", "yes", "y"}
+    return v
+
+
+# ── Shared refs ───────────────────────────────────────────────────────────────
+
+class UserRef(BaseModel):
+    id: str
+    name: str
+    job_title: str = ""
+    current_experience_months: int = 0
+
+
+class SectionRef(BaseModel):
+    id: str
+    name: str
+
+
+class ProjectRef(BaseModel):
+    id: str
+    name: str
+    sections: list[SectionRef] = Field(default_factory=list)
 
 
 # ── Requests ──────────────────────────────────────────────────────────────────
 
 class GenerateDescriptionRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
-    context: str | None = Field(None, max_length=500,
-                                description="Optional extra context, e.g. project name or goal")
+    project_name: str | None = Field(None, max_length=200)
+    section_name: str | None = Field(None, max_length=200)
+    context: str | None = Field(None, max_length=500)
 
 
 class SummarizeTaskRequest(BaseModel):
@@ -14,8 +58,20 @@ class SummarizeTaskRequest(BaseModel):
 
 
 class ParseTaskRequest(BaseModel):
-    text: str = Field(..., min_length=1, max_length=2000,
-                      description="Natural language like: 'fix login bug for John, high priority, due Friday'")
+    text: str = Field(..., min_length=1, max_length=2000)
+    users: list[UserRef] = Field(default_factory=list)
+    projects: list[ProjectRef] = Field(default_factory=list)
+
+
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+
+class ChatRequest(BaseModel):
+    messages: list[ChatMessage] = Field(..., min_length=1)
+    users: list[UserRef] = Field(default_factory=list)
+    projects: list[ProjectRef] = Field(default_factory=list)
 
 
 # ── Responses ─────────────────────────────────────────────────────────────────
@@ -28,37 +84,179 @@ class SummarizeTaskResponse(BaseModel):
     summary: str
 
 
-# ── Structured output: single extracted task (used by parse + meeting feature) ─
+# ── Structured output: extracted task ─────────────────────────────────────────
 
 class ExtractedTask(BaseModel):
-    """
-    One task extracted from natural language or a meeting transcript.
-    All fields except title are optional — the user fills in what's missing.
-    """
+    """One task extracted from natural language or a meeting transcript."""
     title: str = Field(..., description="Short, actionable task title")
     description: str | None = Field(None, description="Detailed task description")
-    priority: str | None = Field(
-        None, description="One of: Urgent, High, Medium, Low"
+    priority: str | None = Field(None, description="One of: Urgent, High, Medium, Low")
+    due_date: str | None = Field(None, description="ISO 8601 date, e.g. 2026-06-20")
+    estimated_hours: float | None = Field(None, description="Rough estimate in hours")
+    assignee_id: str | None = Field(
+        None, description="User ID from the provided users list — pick the best match based on seniority and role"
     )
-    due_date: str | None = Field(
-        None, description="ISO 8601 date string, e.g. 2026-06-20"
+    assignee_name: str | None = Field(None, description="Display name of the assignee")
+    project_id: str | None = Field(
+        None, description="Project ID from the provided projects list — pick the best match"
     )
-    estimated_hours: float | None = Field(
-        None, description="Rough estimate of effort in hours"
+    section_id: str | None = Field(
+        None, description="Section ID from within the chosen project — pick the most relevant section, or null if none fits"
     )
-    suggested_assignee_name: str | None = Field(
-        None, description="Name of person mentioned in context as responsible"
+    section_name: str | None = Field(
+        None, description="Section name (for display). Set to null if no suitable section exists."
     )
-    tags: list[str] = Field(default_factory=list, description="Relevant tags")
+    suggest_create_section: bool = Field(
+        False, description="Set to true if no existing section fits this task and the user should create one"
+    )
+    tags: list[str] = Field(default_factory=list)
 
 
 class ParseTaskResponse(BaseModel):
     tasks: list[ExtractedTask]
 
 
+class AgentAction(BaseModel):
+    """A tool call the agent made during this turn."""
+    tool: str = Field(..., description="Tool name, e.g. 'create_task'")
+    status: str = Field(..., description="'proposed', 'already_exists', 'denied', 'error', or 'success'")
+    summary: str = Field(..., description="Clean human-readable result (prefix stripped)")
+
+
+class AICard(BaseModel):
+    """
+    A rich data card returned by personal data tools — displayed in the chat UI.
+    type: 'task' | 'stat' | 'project' | 'timesheet_summary'
+    data: arbitrary payload specific to the card type.
+    """
+    type: str
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class AIProposal(BaseModel):
+    """
+    A pending action the agent wants to take — rendered as a confirm card in the UI.
+    The user must Accept (or Edit) before anything is written to the database.
+    """
+    type: str = Field(..., description="'create_project' | 'create_section' | 'create_task' | 'add_member'")
+    # project
+    name: str | None = None
+    description: str | None = None
+    # section
+    project_id: str | None = None
+    project_name: str | None = None
+    section_name: str | None = None
+    # task
+    title: str | None = None
+    section_id: str | None = None
+    assignee_id: str | None = None
+    assignee_name: str | None = None
+    due_date: str | None = None
+    priority: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    # member
+    user_id: str | None = None
+    user_name: str | None = None
+
+
+class ChatResponse(BaseModel):
+    """Always returned by /ai/chat."""
+    message: str = Field(..., description="Conversational reply to show in the chat UI")
+    tasks: list[ExtractedTask] = Field(default_factory=list)
+    actions: list[AgentAction] = Field(default_factory=list)
+    proposals: list[AIProposal] = Field(
+        default_factory=list,
+        description="Pending actions the user must Accept or Edit before they execute",
+    )
+    cards: list[AICard] = Field(
+        default_factory=list,
+        description="Rich data cards from personal data tools — rendered in the chat UI",
+    )
+
+
+# ── Timesheet parser ──────────────────────────────────────────────────────────
+
+class TimesheetParseRequest(BaseModel):
+    summary: str = Field(..., min_length=1, max_length=3000,
+                         description="Natural language description of what the user did that day")
+    work_date: str = Field(..., description="YYYY-MM-DD")
+    projects: list[ProjectRef] = Field(default_factory=list)
+
+
+class ExtractedTimesheetRow(BaseModel):
+    project_id: str | None = Field(None, description="Matched project ID from the provided list")
+    project_name: str | None = Field(None, description="Matched project name (for display)")
+    section_id: str | None = Field(None, description="Matched section ID within the project")
+    section_name: str | None = Field(None, description="Matched section name (for display)")
+    description: str = Field(..., description="Professional, concise description (5-10 words, past tense)")
+    time_from: str = Field(..., description="Start time HH:MM in 24-hour format")
+    time_to: str = Field(..., description="End time HH:MM in 24-hour format")
+    confidence: float | str = Field(1.0,
+                                     description="Confidence 0-1. <0.7 = time or project uncertain")
+    needs_clarification: bool | str = Field(False, description="True if time range or project is ambiguous")
+    clarification_note: str | None = Field(None, description="What is unclear, shown to the user")
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _conf(cls, v: Any) -> Any:
+        v = _coerce_float(v)
+        if isinstance(v, (int, float)):
+            return min(1.0, max(0.0, float(v)))
+        return v
+
+    @field_validator("needs_clarification", mode="before")
+    @classmethod
+    def _needs(cls, v: Any) -> Any:
+        return _coerce_bool(v)
+
+
+class TimesheetParseResponse(BaseModel):
+    rows: list[ExtractedTimesheetRow]
+    gaps: list[str] = Field(default_factory=list,
+                            description="Unaccounted time blocks e.g. '12:00–13:00 unaccounted'")
+    total_hours: float | str = Field(0.0, description="Sum of all row durations in hours")
+    message: str = Field("", description="Brief AI note to display above the preview")
+
+    @field_validator("total_hours", mode="before")
+    @classmethod
+    def _total(cls, v: Any) -> Any:
+        return _coerce_float(v)
+
+
+# ── Timesheet parser: STRICT variant (constrained decoding) ───────────────────
+# Used with service.complete_structured_strict() → method="json_schema",
+# strict=True. For constrained decoding the JSON schema must be fully closed:
+# every field required (no defaults), no numeric bounds, extra="forbid". The
+# provider then guarantees output that already matches these types — no
+# stringified scalars to coerce. We map this back onto the lenient
+# TimesheetParseResponse afterwards so the rest of the app is unchanged.
+
+class StrictTimesheetRow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: str | None = Field(..., description="Matched project ID, or null")
+    project_name: str | None = Field(..., description="Matched project name, or null")
+    section_id: str | None = Field(..., description="Matched section ID, or null")
+    section_name: str | None = Field(..., description="Matched section name, or null")
+    description: str = Field(..., description="Professional, concise description (5-10 words, past tense)")
+    time_from: str = Field(..., description="Start time HH:MM in 24-hour format")
+    time_to: str = Field(..., description="End time HH:MM in 24-hour format")
+    confidence: float = Field(..., description="Confidence 0-1. <0.7 = time or project uncertain")
+    needs_clarification: bool = Field(..., description="True if time range or project is ambiguous")
+    clarification_note: str | None = Field(..., description="What is unclear, or null")
+
+
+class StrictTimesheetParseResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rows: list[StrictTimesheetRow] = Field(..., description="One row per work block")
+    gaps: list[str] = Field(..., description="Unaccounted time blocks e.g. '12:00-13:00 unaccounted'")
+    total_hours: float = Field(..., description="Sum of all row durations in hours")
+    message: str = Field(..., description="Brief AI note to display above the preview")
+
+
 # ── Future: meeting / document ingestion ──────────────────────────────────────
 
 class MeetingIngestResponse(BaseModel):
-    """Returned after processing a meeting recording or document."""
-    transcript: str | None = Field(None, description="Raw transcript (if audio was provided)")
-    tasks: list[ExtractedTask]
+    transcript: str | None = None
+    tasks: list[ExtractedTask] = Field(default_factory=list)

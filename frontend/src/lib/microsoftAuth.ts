@@ -56,6 +56,8 @@ export type PendingMicrosoftAuth = {
   flow: 'login' | 'signup';
   rememberMe: boolean;
   role?: Role;
+  jobTitle?: string;
+  experienceMonths?: number;
 };
 
 /**
@@ -78,13 +80,17 @@ export async function initializeMsalBeforeReact(): Promise<void> {
     let flow: PendingMicrosoftAuth['flow'] = 'login';
     let rememberMe = false;
     let role: Role | undefined;
+    let jobTitle: string | undefined;
+    let experienceMonths: number | undefined;
     try {
       const raw = sessionStorage.getItem(OPTIONS_KEY);
       if (raw) {
-        const o = JSON.parse(raw) as { flow?: string; rememberMe?: boolean; role?: Role };
+        const o = JSON.parse(raw) as { flow?: string; rememberMe?: boolean; role?: Role; jobTitle?: string; experienceMonths?: number };
         if (o.flow === 'signup') flow = 'signup';
         if (typeof o.rememberMe === 'boolean') rememberMe = o.rememberMe;
         if (o.role === 'manager' || o.role === 'employee') role = o.role;
+        if (typeof o.jobTitle === 'string') jobTitle = o.jobTitle;
+        if (typeof o.experienceMonths === 'number') experienceMonths = o.experienceMonths;
       }
     } catch {
       /* use defaults */
@@ -96,6 +102,8 @@ export async function initializeMsalBeforeReact(): Promise<void> {
       flow,
       rememberMe,
       role,
+      jobTitle,
+      experienceMonths,
     };
     sessionStorage.setItem(PENDING_KEY, JSON.stringify(pending));
   } catch (e) {
@@ -133,11 +141,15 @@ export async function signInWithMicrosoftRedirect(rememberMe: boolean): Promise<
   await pca.loginRedirect(redirectRequest());
 }
 
-export async function signUpWithMicrosoftRedirect(role: Role): Promise<void> {
+export async function signUpWithMicrosoftRedirect(
+  role: Role,
+  jobTitle = '',
+  experienceMonths = 0,
+): Promise<void> {
   if (!isMicrosoftAuthConfigured()) return;
   const pca = getMsalInstance();
   await pca.initialize();
-  sessionStorage.setItem(OPTIONS_KEY, JSON.stringify({ flow: 'signup', rememberMe: false, role }));
+  sessionStorage.setItem(OPTIONS_KEY, JSON.stringify({ flow: 'signup', rememberMe: false, role, jobTitle, experienceMonths }));
   await pca.loginRedirect(redirectRequest());
 }
 

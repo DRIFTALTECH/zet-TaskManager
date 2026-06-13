@@ -76,12 +76,16 @@ export const api = {
     idToken: string,
     rememberMe = false,
     role?: Role,
+    jobTitle?: string,
+    experienceMonths?: number,
   ): Promise<{ access_token: string; user: User }> {
     const body: Record<string, unknown> = {
       id_token: idToken,
       remember_me: rememberMe,
     };
     if (role) body.role = role;
+    if (jobTitle) body.job_title = jobTitle;
+    if (typeof experienceMonths === 'number') body.experience_months = experienceMonths;
     return request('/auth/microsoft', {
       method: 'POST',
       body: JSON.stringify(body),
@@ -215,6 +219,11 @@ export const api = {
   async getTimesheetWorkEntriesForUser(userId: string, start: string, end: string): Promise<TimesheetWorkEntry[]> {
     const q = new URLSearchParams({ start, end });
     return request(`/timesheet/users/${userId}/entries?${q.toString()}`);
+  },
+
+  /** Manager-only: every timesheet entry logged against a project, across all members. */
+  async getProjectTimesheetEntries(projectId: string): Promise<TimesheetWorkEntry[]> {
+    return request(`/timesheet/projects/${projectId}/entries`);
   },
 
   async createTimesheetWorkEntry(body: {
@@ -355,6 +364,54 @@ export const api = {
 
   async markAllNotificationsRead(): Promise<void> {
     await request('/notifications/read-all', { method: 'POST' });
+  },
+
+  // ── AI ────────────────────────────────────────────────────────────────────────
+  async aiChat(
+    messages: { role: 'user' | 'assistant'; content: string }[],
+    users: { id: string; name: string }[],
+    projects: { id: string; name: string }[],
+  ): Promise<import('@/types').AIChatResponse> {
+    return request('/ai/chat', {
+      method: 'POST',
+      body: JSON.stringify({ messages, users, projects }),
+    });
+  },
+
+  async aiGenerateDescription(
+    title: string,
+    projectName?: string,
+    sectionName?: string,
+    context?: string,
+  ): Promise<{ description: string }> {
+    return request('/ai/generate-description', {
+      method: 'POST',
+      body: JSON.stringify({
+        title,
+        project_name: projectName ?? null,
+        section_name: sectionName ?? null,
+        context: context ?? null,
+      }),
+    });
+  },
+
+  async aiSummarizeTask(taskId: string): Promise<{ summary: string }> {
+    return request(`/ai/summarize-task/${taskId}`, { method: 'POST' });
+  },
+
+  async aiHealth(): Promise<{ status: string; api_key_configured: boolean }> {
+    return request('/ai/health');
+  },
+
+  async aiParseTimesheet(
+    summary: string,
+    workDate: string,
+    projects: { id: string; name: string; sections: { id: string; name: string }[] }[],
+  ): Promise<import('@/types').AITimesheetParseResponse> {
+    return request('/ai/parse-timesheet', {
+      method: 'POST',
+      body: JSON.stringify({ summary, work_date: workDate, projects }),
+    });
   },
 };
 

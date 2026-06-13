@@ -79,6 +79,21 @@ def ensure_default_kanban(db: Session) -> None:
     db.commit()
 
 
+def migrate_user_experience_if_needed() -> None:
+    """Add job_title, experience_months, joined_at to users table for pre-existing DBs."""
+    insp = inspect(engine)
+    if not insp.has_table("users"):
+        return
+    cols = {c["name"] for c in insp.get_columns("users")}
+    with engine.begin() as conn:
+        if "job_title" not in cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN job_title VARCHAR NOT NULL DEFAULT ''"))
+        if "experience_months" not in cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN experience_months INTEGER NOT NULL DEFAULT 0"))
+        if "joined_at" not in cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN joined_at VARCHAR NOT NULL DEFAULT ''"))
+
+
 def create_notifications_if_missing() -> None:
     """Create the notifications table on databases that predate the feature."""
     insp = inspect(engine)
@@ -111,6 +126,7 @@ def create_notifications_if_missing() -> None:
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     migrate_timelogs_if_needed()
+    migrate_user_experience_if_needed()
     create_notifications_if_missing()
     db = SessionLocal()
     try:

@@ -13,6 +13,10 @@ class User(Base):
     password_hash = Column(String, nullable=False)
     role = Column(String, nullable=False)  # manager | employee
     avatar = Column(String, nullable=False, default="")
+    job_title = Column(String, nullable=False, default="")
+    # Total months of experience at the time of signup; combined with joined_at to compute current experience
+    experience_months = Column(Integer, nullable=False, default=0)
+    joined_at = Column(String, nullable=False, default="")  # ISO datetime of account creation
 
 
 class Project(Base):

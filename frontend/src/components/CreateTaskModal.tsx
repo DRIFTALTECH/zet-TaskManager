@@ -6,13 +6,16 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DateInput } from '@/components/ui/date-input';
 import { toast } from 'sonner';
 import type { Priority } from '@/types';
-import { Users, Layers, Tag, Plus, X } from 'lucide-react';
+import { Users, Layers, Tag, Plus, X, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { localTodayISO, localTomorrowISO } from '@/lib/due-date-utils';
+import { api } from '@/lib/api';
+import type { TaskPrefill } from '@/pages/AIPage';
 
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  prefill?: TaskPrefill;
 }
 
 const priorities: Priority[] = ['Low', 'Medium', 'High', 'Urgent'];
@@ -24,7 +27,7 @@ const priorityChoice: Record<Priority, string> = {
   Low: 'border-green-500/30 bg-green-500/15 text-green-400',
 };
 
-const CreateTaskModal = ({ open, onOpenChange }: Props) => {
+const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
   const { currentUser, projects, users, createTask, addSection, selectedProjectId } = useAppStore();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -37,6 +40,7 @@ const CreateTaskModal = ({ open, onOpenChange }: Props) => {
   const [showNewSection, setShowNewSection] = useState(false);
   const [newSectionName, setNewSectionName] = useState('');
   const [creatingSec, setCreatingSec] = useState(false);
+  const [generatingDesc, setGeneratingDesc] = useState(false);
 
   const userProjects = currentUser ? projects.filter(p => currentUser.projectIds.includes(p.id)) : [];
 
@@ -61,6 +65,38 @@ const CreateTaskModal = ({ open, onOpenChange }: Props) => {
   useEffect(() => {
     if (open) setDueDate(localTodayISO());
   }, [open]);
+
+  // Apply AI prefill when provided
+  useEffect(() => {
+    if (!prefill || !open) return;
+    if (prefill.title) setTitle(prefill.title);
+    if (prefill.description) setDescription(prefill.description);
+    if (prefill.priority) setPriority(prefill.priority);
+    if (prefill.dueDate) setDueDate(prefill.dueDate);
+    if (prefill.projectId) setManualProjectId(prefill.projectId);
+    if (prefill.sectionId) setSectionId(prefill.sectionId);
+    if (prefill.assigneeId) setAssigneeIds(new Set([prefill.assigneeId]));
+    if (prefill.tags?.length) setTagsStr(prefill.tags.join(', '));
+  }, [prefill, open]);
+
+  const handleGenerateDescription = async () => {
+    if (!title.trim()) return toast.error('Enter a title first');
+    setGeneratingDesc(true);
+    try {
+      const project = projects.find(p => p.id === effectiveProjectId);
+      const section = project?.sections.find(s => s.id === sectionId);
+      const res = await api.aiGenerateDescription(
+        title,
+        project?.name,
+        section?.name,
+      );
+      setDescription(res.description);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not generate description');
+    } finally {
+      setGeneratingDesc(false);
+    }
+  };
 
   if (!currentUser) return null;
 
@@ -177,7 +213,18 @@ const CreateTaskModal = ({ open, onOpenChange }: Props) => {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="ct-desc">Description</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="ct-desc">Description</Label>
+                <button
+                  type="button"
+                  onClick={() => void handleGenerateDescription()}
+                  disabled={!title.trim() || generatingDesc}
+                  className="flex items-center gap-1.5 text-xs text-primary font-semibold hover:text-primary/80 disabled:opacity-40 transition-colors"
+                >
+                  <Sparkles className="h-3 w-3" />
+                  {generatingDesc ? 'Generating…' : 'AI Generate'}
+                </button>
+              </div>
               <textarea
                 id="ct-desc"
                 value={description}

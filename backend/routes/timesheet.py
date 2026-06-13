@@ -20,6 +20,15 @@ def list_user_entries_as_manager(
     return timesheet_logic.list_entries_as_manager(db, user_id, target_user_id, start, end)
 
 
+@router.get("/projects/{project_id}/entries", response_model=list[TimesheetEntryOut])
+def list_project_entries_as_manager(
+    project_id: str,
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    return timesheet_logic.list_entries_for_project(db, user_id, project_id)
+
+
 @router.get("/entries", response_model=list[TimesheetEntryOut])
 def list_entries(
     start: str,

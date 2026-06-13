@@ -16,6 +16,16 @@ def list_for_user_range(db: Session, user_id: str, start_date: str, end_date: st
     )
 
 
+def list_for_project(db: Session, project_id: str) -> list[TimesheetEntry]:
+    """Every timesheet row logged against a project, across all users (manager view)."""
+    return (
+        db.query(TimesheetEntry)
+        .filter(TimesheetEntry.project_id == project_id)
+        .order_by(TimesheetEntry.work_date, TimesheetEntry.created_at)
+        .all()
+    )
+
+
 def get_by_id(db: Session, entry_id: str) -> TimesheetEntry | None:
     return db.query(TimesheetEntry).filter(TimesheetEntry.id == entry_id).first()
 

@@ -19,6 +19,18 @@ from pydantic import BaseModel
 
 # ── Client ────────────────────────────────────────────────────────────────────
 
+def get_llm_for_agent() -> ChatGroq:
+    """Return an LLM instance configured for tool-calling agent use."""
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY is not set. Add it to backend/.env")
+    return ChatGroq(
+        model="meta-llama/llama-4-scout-17b-16e-instruct",
+        temperature=0,   # 0 = deterministic; minimises hallucinated IDs / names
+        api_key=api_key,
+    )
+
+
 def _get_llm(temperature: float = 0.4) -> ChatGroq:
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
@@ -59,6 +71,35 @@ def complete_structured(
     """
     llm = _get_llm(temperature=0.1)   # lower temp for structured extraction
     structured_llm = llm.with_structured_output(schema)
+    chain = prompt | structured_llm
+    return chain.invoke(variables)
+
+
+def complete_structured_strict(
+    prompt: ChatPromptTemplate,
+    variables: dict,
+    schema: Type[T],
+    *,
+    model: str = "meta-llama/llama-4-scout-17b-16e-instruct",
+    temperature: float = 0,
+) -> T:
+    """
+    Like complete_structured(), but uses constrained decoding via
+    method="json_schema", strict=True. The provider forces the model output to
+    conform to the JSON schema during generation, so the result is guaranteed
+    valid against `schema` — no stringified scalars, no extra keys.
+
+    Requires a model that supports strict structured outputs on Groq
+    (llama-4-scout, gpt-oss, kimi-k2 — NOT llama-3.3-70b-versatile).
+
+    The schema must be "strict-clean": every field required (no defaults),
+    no numeric bounds (ge/le), and extra="forbid". See StrictTimesheet* schemas.
+    """
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY is not set. Add it to backend/.env")
+    llm = ChatGroq(model=model, temperature=temperature, api_key=api_key)
+    structured_llm = llm.with_structured_output(schema, method="json_schema", strict=True)
     chain = prompt | structured_llm
     return chain.invoke(variables)
 

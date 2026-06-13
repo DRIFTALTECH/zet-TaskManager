@@ -14,11 +14,13 @@ import TimesheetPage from "./pages/TimesheetPage";
 import TimeReportPage from "./pages/TimeReportPage";
 import UsersPage from "./pages/UsersPage";
 import UserDetailPage from "./pages/UserDetailPage";
-import ManageEmployeesPage from "./pages/ManageEmployeesPage";
+import ManageProjectsOverview from "./pages/ManageProjectsOverview";
+import ProjectDetailPage from "./pages/ProjectDetailPage";
 import SettingsPage from "./pages/SettingsPage";
 import AuditPage from "./pages/AuditPage";
 import AppSidebar from "./components/AppSidebar";
 import AppNavbar from "./components/AppNavbar";
+import AIPage from "./pages/AIPage";
 
 const queryClient = new QueryClient();
 
@@ -78,7 +80,7 @@ function MsalRedirectResume() {
     void (async () => {
       try {
         if (pending.flow === 'signup') {
-          const user = await loginWithMicrosoft(pending.idToken, false, pending.role ?? undefined);
+          const user = await loginWithMicrosoft(pending.idToken, false, pending.role ?? undefined, pending.jobTitle, pending.experienceMonths);
           if (user) {
             toast.success(`Welcome to ZET, ${user.name}!`);
             navigate("/", { replace: true });
@@ -91,7 +93,15 @@ function MsalRedirectResume() {
           }
         }
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Microsoft sign-in failed.");
+        const msg = e instanceof Error ? e.message : "";
+        // Backend returns "no_account" when a new Microsoft email hits the login flow.
+        // Redirect to /signup so the user can choose their role.
+        if (msg.includes("no_account")) {
+          toast.info("No account found. Please sign up and choose your role.");
+          navigate("/signup", { replace: true });
+          return;
+        }
+        toast.error(msg || "Microsoft sign-in failed.");
       }
     })();
   }, [loginWithMicrosoft, navigate]);
@@ -115,9 +125,11 @@ const App = () => (
           <Route path="/reports" element={<ProtectedRoute><TimeReportPage /></ProtectedRoute>} />
           <Route path="/users" element={<ProtectedRoute managerOnly><UsersPage /></ProtectedRoute>} />
           <Route path="/users/:userId" element={<ProtectedRoute managerOnly><UserDetailPage /></ProtectedRoute>} />
-          <Route path="/manage" element={<ProtectedRoute managerOnly><ManageEmployeesPage /></ProtectedRoute>} />
+          <Route path="/manage" element={<ProtectedRoute managerOnly><ManageProjectsOverview /></ProtectedRoute>} />
+          <Route path="/manage/:projectId" element={<ProtectedRoute managerOnly><ProjectDetailPage /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
           <Route path="/audit" element={<ProtectedRoute><AuditPage /></ProtectedRoute>} />
+          <Route path="/ai" element={<ProtectedRoute><AIPage /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </BrowserRouter>

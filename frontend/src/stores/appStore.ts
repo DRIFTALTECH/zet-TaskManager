@@ -23,7 +23,7 @@ interface AppState {
   currentUser: User | null;
   login: (email: string, password: string, rememberMe?: boolean) => Promise<User | null>;
   register: (name: string, email: string, password: string, role?: Role) => Promise<User | null>;
-  loginWithMicrosoft: (idToken: string, rememberMe?: boolean, role?: Role) => Promise<User | null>;
+  loginWithMicrosoft: (idToken: string, rememberMe?: boolean, role?: Role, jobTitle?: string, experienceMonths?: number) => Promise<User | null>;
   logout: () => void;
   updateProfile: (name: string, avatar: string) => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
@@ -185,8 +185,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     return user;
   },
 
-  loginWithMicrosoft: async (idToken, rememberMe = false, role) => {
-    const { access_token, user } = await api.loginMicrosoft(idToken, rememberMe, role);
+  loginWithMicrosoft: async (idToken, rememberMe = false, role, jobTitle, experienceMonths) => {
+    const { access_token, user } = await api.loginMicrosoft(idToken, rememberMe, role, jobTitle, experienceMonths);
     localStorage.setItem(TOKEN_KEY, access_token);
     const [users, projects, tasks, kanbanColumns] = await Promise.all([
       api.getUsers(),

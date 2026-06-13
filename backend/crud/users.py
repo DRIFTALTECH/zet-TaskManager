@@ -50,7 +50,11 @@ def create_user(
     password_hash: str,
     role: str,
     avatar: str = "",
+    job_title: str = "",
+    experience_months: int = 0,
+    joined_at: str = "",
 ) -> User:
+    from datetime import datetime, timezone
     u = User(
         id=user_id,
         name=name,
@@ -58,6 +62,9 @@ def create_user(
         password_hash=password_hash,
         role=role,
         avatar=avatar,
+        job_title=job_title,
+        experience_months=experience_months,
+        joined_at=joined_at or datetime.now(timezone.utc).isoformat(),
     )
     db.add(u)
     db.commit()

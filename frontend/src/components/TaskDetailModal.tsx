@@ -12,7 +12,7 @@ import {
   Calendar, Tag, Clock, AlertTriangle, Plus, X, Trash2,
   FolderOpen, Layers, Mail, UserCircle, CircleDot,
   MessageSquare, Send, User2, CheckCircle2, RotateCcw, ChevronRight,
-  CheckSquare, Square, Paperclip, Download, Upload,
+  CheckSquare, Square, Paperclip, Download, Upload, Sparkles,
 } from 'lucide-react';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { taskAssigneeIds, isTaskAssignedTo } from '@/lib/task-utils';
@@ -147,6 +147,8 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [reopening, setReopening] = useState(false);
+  const [aiSummary, setAiSummary] = useState<string | null>(null);
+  const [aiSummarizing, setAiSummarizing] = useState(false);
 
   // ── Checklists ──────────────────────────────────────────────────────────────
   const [checklists, setChecklists] = useState<TaskChecklist[]>([]);
@@ -829,11 +831,48 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
 
               {/* Comments */}
               <section>
-                <SectionLabel
-                  icon={MessageSquare}
-                  label={feedbackList.length > 0 ? `Comments (${feedbackList.length})` : 'Comments'}
-                  accent="text-emerald-400/70"
-                />
+                <div className="flex items-center justify-between mb-3">
+                  <SectionLabel
+                    icon={MessageSquare}
+                    label={feedbackList.length > 0 ? `Comments (${feedbackList.length})` : 'Comments'}
+                    accent="text-emerald-400/70"
+                  />
+                  {feedbackList.length > 1 && (
+                    <button
+                      onClick={async () => {
+                        setAiSummarizing(true);
+                        setAiSummary(null);
+                        try {
+                          const res = await api.aiSummarizeTask(task.id);
+                          setAiSummary(res.summary);
+                        } catch (e) {
+                          toast.error(e instanceof Error ? e.message : 'Could not summarize');
+                        } finally {
+                          setAiSummarizing(false);
+                        }
+                      }}
+                      disabled={aiSummarizing}
+                      className="flex items-center gap-1.5 text-xs text-primary font-semibold hover:text-primary/80 disabled:opacity-40 transition-colors"
+                    >
+                      <Sparkles className="h-3 w-3" />
+                      {aiSummarizing ? 'Summarizing…' : 'AI Summary'}
+                    </button>
+                  )}
+                </div>
+
+                {aiSummary && (
+                  <div className="mb-4 rounded-xl border border-primary/20 bg-primary/5 p-3 text-xs text-foreground leading-relaxed whitespace-pre-wrap">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="flex items-center gap-1.5 text-primary font-semibold text-[11px] uppercase tracking-wide">
+                        <Sparkles className="h-3 w-3" /> AI Summary
+                      </span>
+                      <button onClick={() => setAiSummary(null)} className="text-muted-foreground hover:text-foreground transition-colors">
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                    {aiSummary}
+                  </div>
+                )}
 
                 {feedbackLoading ? (
                   <div className="flex items-center justify-center py-10 gap-2 text-sm text-muted-foreground">

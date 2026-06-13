@@ -14,6 +14,8 @@ class RegisterBody(BaseModel):
     email: str
     password: str = Field(..., min_length=6, max_length=256)
     role: Literal["employee", "manager"] = "employee"
+    job_title: str = Field(default="", max_length=200)
+    experience_months: int = Field(default=0, ge=0)
 
 
 class MicrosoftAuthBody(BaseModel):
@@ -21,6 +23,8 @@ class MicrosoftAuthBody(BaseModel):
     remember_me: bool = False
     """Role for new accounts only; existing users keep their role."""
     role: Literal["employee", "manager"] | None = None
+    job_title: str = Field(default="", max_length=200)
+    experience_months: int = Field(default=0, ge=0)
 
 
 class TokenResponse(BaseModel):
@@ -35,6 +39,10 @@ class UserOut(BaseModel):
     role: str
     avatar: str
     projectIds: list[str]
+    jobTitle: str = ""
+    experienceMonths: int = 0
+    joinedAt: str = ""
+    currentExperienceMonths: int = 0
 
 
 class LoginResponse(BaseModel):

@@ -63,6 +63,8 @@ const PRIORITY_META: Record<Priority, { hex: string; label: string; bg: string; 
   Low:    { hex: '#22c55e', label: 'Low',    bg: 'bg-green-500/10',  text: 'text-green-400',  border: 'border-green-500/20'  },
 };
 
+const PRI_RANK: Record<Priority, number> = { Urgent: 0, High: 1, Medium: 2, Low: 3 };
+
 // ─── date utils ───────────────────────────────────────────────────────────────
 
 const DAY_SHORT = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
@@ -262,7 +264,7 @@ function DayTimelineDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl border-border/60 bg-card sm:rounded-2xl">
+      <DialogContent className="w-[70vw] max-w-[70vw] border-border/60 bg-card sm:rounded-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-xl">
             <CalendarDays className="h-5 w-5 text-primary" />
@@ -282,19 +284,25 @@ function DayTimelineDialog({
               style={{ height: totalH }}
             >
               <div
-                className="absolute left-0 right-0 top-0 flex border-b border-border/30 bg-muted/20"
+                className="absolute left-0 right-0 top-0 border-b border-border/30 bg-muted/20"
                 style={{ height: axisH }}
               >
-                {[6, 12, 18, 24].map(hour => (
-                  <div
-                    key={hour}
-                    className="flex-1 border-r border-border/20 last:border-r-0 flex items-end justify-center pb-1"
-                  >
-                    <span className="text-[10px] font-mono text-muted-foreground/45">
+                {[0, 6, 12, 18, 24].map(hour => {
+                  const pct = (hour / 24) * 100;
+                  const edge = hour === 0 ? 'left' : hour === 24 ? 'right' : null;
+                  return (
+                    <span
+                      key={hour}
+                      className={cn(
+                        'absolute bottom-1 text-[10px] font-mono text-muted-foreground/45',
+                        edge === null && '-translate-x-1/2',
+                      )}
+                      style={edge ? { [edge]: 4 } : { left: `${pct}%` }}
+                    >
                       {String(hour).padStart(2, '0')}:00
                     </span>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
               <div
                 className="absolute left-0 right-0 px-1 pointer-events-none z-0"
@@ -347,7 +355,7 @@ function DayTimelineDialog({
               </div>
             </div>
 
-            <ul className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+            <ul className="space-y-2 max-h-[40vh] overflow-y-auto pr-1">
               {dayEntries.map(e => {
                 const col = projColor(e.projectId);
                 const proj = projects.find(p => p.id === e.projectId);
@@ -448,19 +456,36 @@ export default function UserDetailPage() {
       .sort((a, b) => b.value - a.value);
   }, [userTasks, colLabel]);
 
-  const priorityData = useMemo(() =>
-    (['Urgent','High','Medium','Low'] as Priority[]).map(p => ({
-      priority: p, count: userTasks.filter(t => t.priority === p).length, ...PRIORITY_META[p],
-    })),
-  [userTasks]);
+  // Most recently completed work (compact glance; full history lives in "Completed tasks").
+  const recentActivity = useMemo(
+    () => [...doneTasks]
+      .filter(t => t.completedAt)
+      .sort((a, b) => (b.completedAt ?? '').localeCompare(a.completedAt ?? ''))
+      .slice(0, 6),
+    [doneTasks],
+  );
 
-  const projectStats = useMemo(() =>
-    userProjects.map((p, i) => {
-      const pt   = userTasks.filter(t => t.projectId === p.id);
-      const done = pt.filter(t => t.status === 'completed').length;
-      return { p, i, total: pt.length, done, rate: pt.length ? Math.round(done/pt.length*100) : 0 };
-    }),
-  [userProjects, userTasks]);
+  // Actively moving: started but not yet completed (everything past backlog).
+  const inFlight = useMemo(
+    () => active
+      .filter(t => t.status !== 'backlog')
+      .sort((a, b) => (PRI_RANK[a.priority] - PRI_RANK[b.priority]) || (a.dueDate || '').localeCompare(b.dueDate || '')),
+    [active],
+  );
+
+  // Open tasks already overdue, or due within the next 3 days — worst first.
+  const soon = useMemo(() => {
+    const d = new Date(`${TODAY}T12:00:00`);
+    d.setDate(d.getDate() + 3);
+    return d.toISOString().slice(0, 10);
+  }, [TODAY]);
+  const atRisk = useMemo(
+    () => active
+      .filter(t => t.dueDate && t.dueDate <= soon)
+      .map(t => ({ t, overdue: t.dueDate < TODAY }))
+      .sort((a, b) => (a.t.dueDate || '').localeCompare(b.t.dueDate || '')),
+    [active, soon, TODAY],
+  );
 
   const tasksByProject = useMemo(
     () =>
@@ -919,108 +944,126 @@ export default function UserDetailPage() {
                 <motion.div
                   initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }}
                   transition={{ ...pageEnter, delay: 0.16 }}
-                  className="rounded-2xl border border-border/60 bg-card p-6 flex flex-col justify-center"
+                  className="rounded-2xl border border-border/60 bg-card p-6 flex flex-col"
                 >
-                  <h2 className="text-sm font-semibold text-foreground mb-1">Timesheet snapshot</h2>
-                  <p className="text-xs text-muted-foreground/50 mb-6">For the week shown in Workload above</p>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="rounded-xl border border-border/35 bg-muted/10 p-4">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/45">Entries</p>
-                      <p className="text-2xl font-bold text-foreground mt-1 tabular-nums">{weekEntries.length}</p>
-                      <p className="text-[11px] text-muted-foreground/40 mt-1">logged blocks</p>
-                    </div>
-                    <div className="rounded-xl border border-border/35 bg-muted/10 p-4">
-                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/45">Avg / active day</p>
-                      <p className="text-2xl font-bold text-foreground mt-1 tabular-nums">
-                        {daysWithLogs ? fmtSecs(Math.round(weekHrs / daysWithLogs)) : '—'}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground/40 mt-1">when days have logs</p>
-                    </div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Flame className="h-4 w-4 text-blue-400" />
+                    <h2 className="text-sm font-semibold text-foreground">Currently in flight</h2>
                   </div>
+                  <p className="text-xs text-muted-foreground/50 mb-4">Tasks actively being worked — highest priority first</p>
+                  {inFlight.length === 0 ? (
+                    <div className="flex-1 flex items-center justify-center py-6">
+                      <p className="text-sm text-muted-foreground/30 italic">Nothing in progress right now</p>
+                    </div>
+                  ) : (
+                    <ul className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
+                      {inFlight.map(t => {
+                        const proj = projects.find(p => p.id === t.projectId);
+                        const col = proj ? projColor(proj.id) : PROJECT_PALETTE[0];
+                        const pm = PRIORITY_META[t.priority];
+                        return (
+                          <li key={t.id} className="flex items-center gap-3 rounded-xl border border-border/35 bg-muted/5 px-3 py-2.5">
+                            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: STATUS_META[t.status]?.hex ?? '#6366f1' }} />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-foreground truncate">{t.title}</p>
+                              <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                                {proj && (
+                                  <span className={cn('text-[10px] px-2 py-0.5 rounded-md font-semibold border', col.bg, col.text, col.border)}>{proj.name}</span>
+                                )}
+                                <span className="text-[10px] text-muted-foreground/45">{STATUS_META[t.status]?.label ?? t.status}</span>
+                              </div>
+                            </div>
+                            <span className={cn('text-[10px] px-2 py-0.5 rounded-md font-bold border shrink-0', pm.bg, pm.text, pm.border)}>{pm.label}</span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
                 </motion.div>
               </div>
 
-              {/* ── Row 3 : priority list + project list ──────────────── */}
+              {/* ── Row 3 : at-risk + recent activity ─────────────────── */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
-                {/* Priority distribution */}
+                {/* Overdue & at-risk */}
                 <motion.div
                   initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
                   transition={{ ...pageEnter, delay: 0.26 }}
-                  className="rounded-2xl border border-border/60 bg-card p-6"
+                  className="rounded-2xl border border-border/60 bg-card p-6 flex flex-col"
                 >
-                  <h2 className="text-sm font-semibold text-foreground mb-1">Priority distribution</h2>
-                  <p className="text-xs text-muted-foreground/50 mb-5">Breakdown of all assigned tasks</p>
-
-                  <div className="space-y-4">
-                    {priorityData.map((p, i) => (
-                      <div key={p.priority}>
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2.5">
-                            <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold border ${p.bg} ${p.text} ${p.border}`}>
-                              {p.label}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-bold text-foreground tabular-nums">{p.count}</span>
-                            <span className="text-xs text-muted-foreground/35 tabular-nums w-8 text-right">
-                              {userTasks.length ? `${Math.round(p.count/userTasks.length*100)}%` : '—'}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="h-1.5 rounded-full bg-muted/30 overflow-hidden">
-                          <motion.div
-                            initial={{ width: 0 }}
-                            animate={{ width: `${userTasks.length ? (p.count/userTasks.length)*100 : 0}%` }}
-                            transition={{ duration: 0.7, delay: 0.4 + i * 0.08, ease: [.34,1.56,.64,1] }}
-                            className="h-full rounded-full"
-                            style={{ background: p.hex }}
-                          />
-                        </div>
-                      </div>
-                    ))}
+                  <div className="flex items-center gap-2 mb-1">
+                    <AlertTriangle className="h-4 w-4 text-red-400" />
+                    <h2 className="text-sm font-semibold text-foreground">Overdue &amp; at-risk</h2>
                   </div>
+                  <p className="text-xs text-muted-foreground/50 mb-4">Open tasks past due or due within 3 days</p>
+                  {atRisk.length === 0 ? (
+                    <div className="flex-1 flex items-center justify-center py-6">
+                      <p className="text-sm text-muted-foreground/30 italic">All caught up — nothing overdue or due soon</p>
+                    </div>
+                  ) : (
+                    <ul className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
+                      {atRisk.map(({ t, overdue }) => {
+                        const proj = projects.find(p => p.id === t.projectId);
+                        const col = proj ? projColor(proj.id) : PROJECT_PALETTE[0];
+                        return (
+                          <li key={t.id} className={cn('flex items-center gap-3 rounded-xl border px-3 py-2.5', overdue ? 'border-red-500/25 bg-red-500/[0.06]' : 'border-border/35 bg-muted/5')}>
+                            <AlertTriangle className={cn('h-3.5 w-3.5 shrink-0', overdue ? 'text-red-400' : 'text-amber-400')} />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-foreground truncate">{t.title}</p>
+                              <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                                {proj && (
+                                  <span className={cn('text-[10px] px-2 py-0.5 rounded-md font-semibold border', col.bg, col.text, col.border)}>{proj.name}</span>
+                                )}
+                                <span className={cn('text-[10px] font-semibold', overdue ? 'text-red-400' : 'text-amber-400')}>
+                                  {overdue ? 'Overdue' : 'Due'} {fmtISO(t.dueDate)}
+                                </span>
+                              </div>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
                 </motion.div>
 
-                {/* Project contributions */}
+                {/* Recent activity */}
                 <motion.div
                   initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
                   transition={{ ...pageEnter, delay: 0.3 }}
-                  className="rounded-2xl border border-border/60 bg-card p-6"
+                  className="rounded-2xl border border-border/60 bg-card p-6 flex flex-col"
                 >
-                  <h2 className="text-sm font-semibold text-foreground mb-1">Project contributions</h2>
-                  <p className="text-xs text-muted-foreground/50 mb-5">Tasks done per project</p>
-
-                  {projectStats.length === 0 ? (
-                    <p className="text-sm text-muted-foreground/30 italic">Not in any project yet.</p>
+                  <div className="flex items-center gap-2 mb-1">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                    <h2 className="text-sm font-semibold text-foreground">Recent activity</h2>
+                  </div>
+                  <p className="text-xs text-muted-foreground/50 mb-4">Most recently completed work</p>
+                  {recentActivity.length === 0 ? (
+                    <div className="flex-1 flex items-center justify-center py-6">
+                      <p className="text-sm text-muted-foreground/30 italic">No completed tasks yet</p>
+                    </div>
                   ) : (
-                    <div className="space-y-4">
-                      {projectStats.map((ps, i) => {
-                        const col = projColor(ps.p.id);
+                    <ul className="space-y-2">
+                      {recentActivity.map(t => {
+                        const proj = projects.find(p => p.id === t.projectId);
+                        const col = proj ? projColor(proj.id) : PROJECT_PALETTE[0];
                         return (
-                          <div key={ps.p.id}>
-                            <div className="flex items-center justify-between mb-2">
-                              <span className={`text-xs font-semibold px-2.5 py-1 rounded-lg border ${col.bg} ${col.text} ${col.border} truncate max-w-[180px]`}>
-                                {ps.p.name}
-                              </span>
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-bold text-foreground tabular-nums">{ps.rate}%</span>
-                                <span className="text-xs text-muted-foreground/35">{ps.done}/{ps.total}</span>
+                          <li key={t.id} className="flex items-center gap-3 rounded-xl border border-border/35 bg-muted/5 px-3 py-2.5">
+                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-medium text-foreground truncate">{t.title}</p>
+                              <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                                {proj && (
+                                  <span className={cn('text-[10px] px-2 py-0.5 rounded-md font-semibold border', col.bg, col.text, col.border)}>{proj.name}</span>
+                                )}
+                                <span className="text-[10px] font-mono text-muted-foreground/40">
+                                  {t.completedAt ? fmtISO(t.completedAt.slice(0, 10)) : ''}
+                                </span>
                               </div>
                             </div>
-                            <div className="h-1.5 rounded-full bg-muted/30 overflow-hidden">
-                              <motion.div
-                                initial={{ width: 0 }}
-                                animate={{ width: `${ps.rate}%` }}
-                                transition={{ duration: 0.7, delay: 0.45 + i * 0.07, ease: [.34,1.56,.64,1] }}
-                                className="h-full rounded-full"
-                                style={{ background: col.hex }}
-                              />
-                            </div>
-                          </div>
+                          </li>
                         );
                       })}
-                    </div>
+                    </ul>
                   )}
                 </motion.div>
               </div>
