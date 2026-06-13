@@ -20,6 +20,7 @@ from ai.schemas import (
     GenerateDescriptionResponse,
     MeetingIngestResponse,
     ParseTaskResponse,
+    StrictTimesheetParseResponse,
     SummarizeTaskResponse,
     TimesheetParseResponse,
 )
@@ -235,17 +236,32 @@ def chat(req: ChatRequest, db: Session, current_user: User) -> ChatResponse:
 # ── Timesheet parser ──────────────────────────────────────────────────────────
 
 def parse_timesheet(summary: str, work_date: str, projects=None) -> TimesheetParseResponse:
-    """Convert a natural language day summary into structured timesheet rows."""
-    result = service.complete_structured(
-        prompts.TIMESHEET_PARSE_PROMPT,
-        {
-            "summary": summary,
-            "work_date": work_date,
-            "projects": _projects_str(projects or []),
-        },
-        TimesheetParseResponse,
-    )
-    return result
+    """Convert a natural language day summary into structured timesheet rows.
+
+    Primary path uses constrained decoding (strict json_schema) so the model
+    cannot emit stringified scalars or extra keys — this is what previously
+    triggered Groq 400 tool_use_failed errors. If the strict path fails for any
+    reason (model/provider hiccup), fall back to the lenient tool-calling path,
+    whose coercers tolerate stringified scalars.
+    """
+    variables = {
+        "summary": summary,
+        "work_date": work_date,
+        "projects": _projects_str(projects or []),
+    }
+    try:
+        strict = service.complete_structured_strict(
+            prompts.TIMESHEET_PARSE_PROMPT,
+            variables,
+            StrictTimesheetParseResponse,
+        )
+        return TimesheetParseResponse.model_validate(strict.model_dump())
+    except Exception:
+        return service.complete_structured(
+            prompts.TIMESHEET_PARSE_PROMPT,
+            variables,
+            TimesheetParseResponse,
+        )
 
 
 # ── Future: meeting ingestion ─────────────────────────────────────────────────

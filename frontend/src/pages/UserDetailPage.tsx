@@ -1042,7 +1042,7 @@ export default function UserDetailPage() {
                       <p className="text-sm text-muted-foreground/30 italic">No completed tasks yet</p>
                     </div>
                   ) : (
-                    <ul className="space-y-2">
+                    <ul className="space-y-2 max-h-[320px] overflow-y-auto pr-1">
                       {recentActivity.map(t => {
                         const proj = projects.find(p => p.id === t.projectId);
                         const col = proj ? projColor(proj.id) : PROJECT_PALETTE[0];

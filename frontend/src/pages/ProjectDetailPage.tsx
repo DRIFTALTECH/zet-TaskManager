@@ -291,7 +291,6 @@ const ProjectDetailPage = () => {
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={pageEnter}>
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="bg-gradient-to-b from-muted/20 to-transparent">
-        <div className={`h-1.5 w-full ${accent.bg}`} />
         <div className="px-8 pt-5 pb-6">
           <Link to="/manage" className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground/60 hover:text-foreground transition-colors mb-4">
             <ArrowLeft className="h-3.5 w-3.5" /> All projects

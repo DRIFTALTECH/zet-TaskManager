@@ -145,35 +145,39 @@ const ManageProjectsOverview = () => {
                   whileHover={{ scale: 1.005, x: 2, boxShadow: '0 4px 20px -4px hsl(var(--foreground) / 0.08)' }}
                   whileTap={{ scale: 0.995 }}
                   onClick={() => navigate(`/manage/${project.id}`)}
-                  className="text-left rounded-xl border bg-card p-4 cursor-pointer transition-shadow duration-100"
+                  className="group text-left rounded-2xl border-2 border-border/70 bg-gradient-to-br from-muted/70 via-card to-muted/40 dark:from-muted/50 dark:via-card dark:to-muted/30 p-6 min-h-[250px] flex flex-col cursor-pointer shadow-md transition-[transform,box-shadow] duration-200 ease-out"
                 >
-                  {/* Row 1 — icon + name + arrow */}
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-9 h-9 rounded-lg bg-muted/50 flex items-center justify-center shrink-0">
-                        <FolderOpen className="h-4 w-4 text-muted-foreground" />
-                      </div>
-                      <h3 className="text-sm font-semibold truncate">{projectPickerLabel(project)}</h3>
+                  {/* Top — icon + arrow */}
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="w-12 h-12 rounded-xl bg-muted/50 flex items-center justify-center shrink-0">
+                      <FolderOpen className="h-6 w-6 text-muted-foreground" />
                     </div>
-                    <ArrowUpRight className="h-4 w-4 text-muted-foreground/40 shrink-0" />
+                    <ArrowUpRight className="h-5 w-5 text-muted-foreground/40 shrink-0 mt-0.5" />
                   </div>
 
-                  {/* Row 2 — members · sections */}
-                  <div className="mt-2 flex items-center gap-4 text-[11px] text-muted-foreground ml-12">
-                    <span className="flex items-center gap-1">
-                      <Users className="h-3 w-3" />
-                      {s.memberCount} {s.memberCount === 1 ? 'member' : 'members'}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <LayoutGrid className="h-3 w-3" />
-                      {s.sectionCount} {s.sectionCount === 1 ? 'section' : 'sections'}
-                    </span>
-                  </div>
+                  {/* Title */}
+                  <h3 className="text-base font-bold leading-snug text-foreground line-clamp-2 shrink-0">
+                    {projectPickerLabel(project)}
+                  </h3>
 
-                  {/* Row 3 — description */}
-                  <p className="mt-2 text-xs text-muted-foreground line-clamp-1 ml-12">
-                    {project.description || 'No description'}
-                  </p>
+                  <div className="flex-1 min-h-0" aria-hidden />
+
+                  {/* Bottom — members · sections · description */}
+                  <div className="pt-2 mt-auto space-y-2 shrink-0">
+                    <div className="flex items-center gap-5 text-sm text-muted-foreground">
+                      <span className="flex items-center gap-1.5">
+                        <Users className="h-4 w-4" />
+                        {s.memberCount} {s.memberCount === 1 ? 'member' : 'members'}
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <LayoutGrid className="h-4 w-4" />
+                        {s.sectionCount} {s.sectionCount === 1 ? 'section' : 'sections'}
+                      </span>
+                    </div>
+                    <p className="text-sm text-muted-foreground/80 line-clamp-2">
+                      {project.description || 'No description'}
+                    </p>
+                  </div>
                 </motion.div>
               );
             })}

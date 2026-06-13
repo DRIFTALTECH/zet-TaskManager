@@ -1,8 +1,6 @@
 import { useAppStore } from '@/stores/appStore';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Bar,
-  BarChart,
   Area,
   AreaChart,
   CartesianGrid,
@@ -266,7 +264,12 @@ const TimeReportPage = () => {
   if (!currentUser) return null;
 
   return (
-    <motion.div className="min-h-full bg-background" {...pageEnter}>
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={pageEnter}
+      className="min-h-full bg-background"
+    >
       <div className="max-w-7xl mx-auto px-4 py-6">
         <Tabs value={tab} onValueChange={v => setTab(v as 'summary' | 'trend')} className="space-y-6">
         {/* Header */}
@@ -370,7 +373,7 @@ const TimeReportPage = () => {
             <div className="rounded-xl border border-border/80 bg-card p-5 shadow-sm">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-sm font-semibold">Daily breakdown</h2>
-                <span className="text-xs text-muted-foreground">Hours · stacked by project</span>
+                <span className="text-xs text-muted-foreground">Hours · per project</span>
               </div>
               <div className="h-[320px] w-full min-w-0">
                 {topProjects.length === 0 ? (
@@ -402,10 +405,10 @@ const TimeReportPage = () => {
                           type="monotone"
                           dataKey={p.projectId}
                           name={p.name}
-                          stackId="day"
                           stroke={zetStackColor(i)}
                           strokeWidth={2}
                           fill={`url(#area-${p.projectId})`}
+                          fillOpacity={0.85}
                           activeDot={{ r: 4 }}
                         />
                       ))}
@@ -616,7 +619,7 @@ const TimeReportPage = () => {
             <div className="rounded-xl border border-border/80 bg-card p-5 shadow-sm">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-sm font-semibold">Hours over time · by project</h2>
-                <span className="text-xs text-muted-foreground">Rolling 42 days</span>
+                <span className="text-xs text-muted-foreground">Rolling 42 days · per project</span>
               </div>
               <div className="h-[360px] w-full min-w-0">
                 {topProjects.length === 0 ? (
@@ -625,7 +628,15 @@ const TimeReportPage = () => {
                   </div>
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={barData} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
+                    <AreaChart data={barData} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
+                      <defs>
+                        {topProjects.map((p, i) => (
+                          <linearGradient key={p.projectId} id={`area-trend-${p.projectId}`} x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor={zetStackColor(i)} stopOpacity={0.45} />
+                            <stop offset="100%" stopColor={zetStackColor(i)} stopOpacity={0.04} />
+                          </linearGradient>
+                        ))}
+                      </defs>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                       <XAxis dataKey="label" tick={{ fontSize: 10 }} minTickGap={24} />
                       <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${v}h`} width={40} />
@@ -635,16 +646,19 @@ const TimeReportPage = () => {
                       />
                       <Legend wrapperStyle={{ fontSize: 12 }} verticalAlign="top" align="right" />
                       {topProjects.map((p, i) => (
-                        <Bar
+                        <Area
                           key={p.projectId}
+                          type="monotone"
                           dataKey={p.projectId}
                           name={p.name}
-                          stackId="day"
-                          fill={zetStackColor(i)}
-                          radius={i === topProjects.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                          stroke={zetStackColor(i)}
+                          strokeWidth={2}
+                          fill={`url(#area-trend-${p.projectId})`}
+                          fillOpacity={0.85}
+                          activeDot={{ r: 4 }}
                         />
                       ))}
-                    </BarChart>
+                    </AreaChart>
                   </ResponsiveContainer>
                 )}
               </div>
