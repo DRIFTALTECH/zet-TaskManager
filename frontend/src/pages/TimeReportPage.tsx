@@ -101,9 +101,12 @@ const TimeReportPage = () => {
     const end = new Date();
     const start = subDays(end, 41);
     return { start: localISODate(start), end: localISODate(end) };
-  }, [tab]);
+  }, []);
 
-  const activeRange = tab === 'summary' ? { start: rangeStart, end: rangeEnd } : trendBounds;
+  const activeRange = useMemo(
+    () => (tab === 'summary' ? { start: rangeStart, end: rangeEnd } : trendBounds),
+    [tab, rangeStart, rangeEnd, trendBounds],
+  );
 
   const loadEntries = useCallback(async () => {
     if (!currentUser || !selectedUserId) return;
@@ -125,7 +128,7 @@ const TimeReportPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [currentUser, selectedUserId, isManager, activeRange.start, activeRange.end]);
+  }, [currentUser, selectedUserId, isManager, activeRange]);
 
   useEffect(() => {
     void loadEntries();
