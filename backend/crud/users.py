@@ -41,6 +41,38 @@ def project_ids_for_user(db: Session, user_id: str) -> list[str]:
     return [r[0] for r in rows]
 
 
+def set_role(db: Session, user: User, role: str) -> User:
+    user.role = role
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def set_active(db: Session, user: User, is_active: bool) -> User:
+    user.is_active = is_active
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def set_project_membership(db: Session, user_id: str, project_ids: list[str]) -> None:
+    """Replace the set of projects this user belongs to with exactly `project_ids`."""
+    wanted = {p for p in project_ids if p}
+    existing = {
+        r[0] for r in db.query(ProjectMember.project_id)
+        .filter(ProjectMember.user_id == user_id).all()
+    }
+    for pid in existing - wanted:
+        db.query(ProjectMember).filter(
+            ProjectMember.user_id == user_id, ProjectMember.project_id == pid
+        ).delete(synchronize_session=False)
+    for pid in wanted - existing:
+        db.add(ProjectMember(user_id=user_id, project_id=pid))
+    db.commit()
+
+
 def create_user(
     db: Session,
     *,

@@ -607,7 +607,7 @@ export default function UserDetailPage() {
 
           <div className="flex items-end justify-between gap-4 flex-wrap">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight text-foreground">{user.name}</h1>
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">{user.name}</h1>
               <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground/60">
                 <span className="flex items-center gap-1.5"><Mail className="h-3.5 w-3.5" />{user.email}</span>
                 <span className="flex items-center gap-1.5"><Briefcase className="h-3.5 w-3.5" />{userProjects.length} project{userProjects.length !== 1 ? 's' : ''}</span>
@@ -871,7 +871,7 @@ export default function UserDetailPage() {
                       <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/50 mb-1">
                         {card.label}
                       </p>
-                      <p className="text-4xl font-bold tabular-nums text-foreground">
+                      <p className="text-3xl sm:text-4xl font-bold tabular-nums text-foreground">
                         <CountUp to={card.value} />
                       </p>
                       <p className="text-xs text-muted-foreground/40 mt-1">{card.sub}</p>

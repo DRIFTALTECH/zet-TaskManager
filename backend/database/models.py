@@ -17,6 +17,17 @@ class User(Base):
     # Total months of experience at the time of signup; combined with joined_at to compute current experience
     experience_months = Column(Integer, nullable=False, default=0)
     joined_at = Column(String, nullable=False, default="")  # ISO datetime of account creation
+    # Admin can deactivate accounts: deactivated users keep their data but cannot log in.
+    is_active = Column(Boolean, nullable=False, default=True)
+
+
+class AppSetting(Base):
+    """Tiny key/value store for app-level config (e.g. admin password override)."""
+
+    __tablename__ = "app_settings"
+
+    key = Column(String, primary_key=True)
+    value = Column(Text, nullable=False, default="")
 
 
 class Project(Base):

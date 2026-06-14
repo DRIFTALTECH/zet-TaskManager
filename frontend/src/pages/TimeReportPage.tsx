@@ -318,10 +318,10 @@ const TimeReportPage = () => {
 
           <div className="flex flex-wrap items-center gap-3">
             {isManager && (
-              <div className="flex items-center gap-2 min-w-[200px]">
+              <div className="flex items-center gap-2 w-full sm:w-auto sm:min-w-[200px]">
                 <span className="text-xs text-muted-foreground uppercase shrink-0">Person</span>
                 <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-                  <SelectTrigger className="h-9 w-[220px]">
+                  <SelectTrigger className="h-9 w-full sm:w-[220px]">
                     <SelectValue placeholder="User" />
                   </SelectTrigger>
                   <SelectContent>
@@ -335,10 +335,10 @@ const TimeReportPage = () => {
               </div>
             )}
 
-            <div className="flex items-center gap-2 min-w-[200px]">
+            <div className="flex items-center gap-2 w-full sm:w-auto sm:min-w-[200px]">
               <span className="text-xs text-muted-foreground uppercase shrink-0">Project</span>
               <Select value={projectFilter} onValueChange={setProjectFilter}>
-                <SelectTrigger className="h-9 w-[220px]">
+                <SelectTrigger className="h-9 w-full sm:w-[220px]">
                   <SelectValue placeholder="Filter" />
                 </SelectTrigger>
                 <SelectContent>

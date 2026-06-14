@@ -256,7 +256,7 @@ function KanbanColumnPanel({
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition: transition ?? undefined, opacity: isDragging ? 0.4 : 1 }}
-      className={`min-w-[380px] w-[380px] flex flex-col shrink-0 rounded-2xl transition-[box-shadow,background-color] duration-150 ease-out ${isDropTarget ? 'ring-2 ring-blue-500/50 bg-blue-500/5' : ''}`}
+      className={`min-w-[300px] w-[85vw] sm:min-w-[380px] sm:w-[380px] flex flex-col shrink-0 rounded-2xl transition-[box-shadow,background-color] duration-150 ease-out ${isDropTarget ? 'ring-2 ring-blue-500/50 bg-blue-500/5' : ''}`}
     >
       <div className="flex items-center justify-between mb-4 px-1">
         <div className="flex items-center gap-2">

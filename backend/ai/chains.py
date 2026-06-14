@@ -219,7 +219,8 @@ def chat(req: ChatRequest, db: Session, current_user: User) -> ChatResponse:
                 status = "error"
                 summary = raw[len("ERROR:"):].strip() if raw.startswith("ERROR:") else raw
 
-            actions.append(AgentAction(tool=tool_name, status=status, summary=summary))
+            if status != "error":
+                actions.append(AgentAction(tool=tool_name, status=status, summary=summary))
             messages.append(ToolMessage(content=raw, tool_call_id=tc["id"]))
 
     final_text = getattr(response, "content", "") if response is not None else ""

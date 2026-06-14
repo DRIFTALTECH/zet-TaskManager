@@ -42,6 +42,7 @@ def to_user_out(db: Session, user: User, *, viewer_id: str | None = None) -> Use
         experienceMonths=exp_months,
         joinedAt=joined,
         currentExperienceMonths=_calc_current_experience(exp_months, joined),
+        isActive=bool(getattr(user, "is_active", True)),
     )
 
 

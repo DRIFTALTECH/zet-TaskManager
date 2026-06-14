@@ -21,6 +21,9 @@ from routes.deps import get_current_user_id
 
 router = APIRouter()
 
+_USER_FACING_AI_ERROR = "Something went wrong. Please try again."
+_AI_UNAVAILABLE = "AI is temporarily unavailable. Please try again later."
+
 
 # ── Health ────────────────────────────────────────────────────────────────────
 
@@ -59,10 +62,10 @@ def ai_chat(
     current_user = user_logic.get_user_or_404(db, user_id)
     try:
         return chains.chat(body, db, current_user)
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI error: {e}")
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail=_AI_UNAVAILABLE)
+    except Exception:
+        raise HTTPException(status_code=500, detail=_USER_FACING_AI_ERROR)
 
 
 # ── Generate description ──────────────────────────────────────────────────────
@@ -77,10 +80,10 @@ def generate_description(
         return chains.generate_description(
             body.title, body.project_name, body.section_name, body.context
         )
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI error: {e}")
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail=_AI_UNAVAILABLE)
+    except Exception:
+        raise HTTPException(status_code=500, detail=_USER_FACING_AI_ERROR)
 
 
 # ── Summarize task thread ─────────────────────────────────────────────────────
@@ -96,10 +99,10 @@ def summarize_task(
         return chains.summarize_task(db, task_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI error: {e}")
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail=_AI_UNAVAILABLE)
+    except Exception:
+        raise HTTPException(status_code=500, detail=_USER_FACING_AI_ERROR)
 
 
 # ── Parse daily summary into timesheet rows ───────────────────────────────────
@@ -112,10 +115,10 @@ def parse_timesheet(
     """Convert a natural language day summary into structured timesheet row proposals."""
     try:
         return chains.parse_timesheet(body.summary, body.work_date, body.projects)
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI error: {e}")
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail=_AI_UNAVAILABLE)
+    except Exception:
+        raise HTTPException(status_code=500, detail=_USER_FACING_AI_ERROR)
 
 
 # ── Parse natural language into tasks ─────────────────────────────────────────
@@ -128,7 +131,7 @@ def parse_task(
     """Convert natural language into structured task objects, resolving users and projects."""
     try:
         return chains.parse_task(body.text, body.users, body.projects)
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI error: {e}")
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail=_AI_UNAVAILABLE)
+    except Exception:
+        raise HTTPException(status_code=500, detail=_USER_FACING_AI_ERROR)

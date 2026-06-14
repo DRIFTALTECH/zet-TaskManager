@@ -6,6 +6,7 @@ import { useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import GlobalSearchModal from '@/components/GlobalSearchModal';
 import NotificationBell from '@/components/NotificationBell';
+import MobileNav from '@/components/MobileNav';
 
 const pageTitles: Record<string, string> = {
   '/': 'Dashboard',
@@ -33,8 +34,15 @@ const AppNavbar = () => {
     <>
       <GlobalSearchModal open={searchOpen} onOpenChange={setSearchOpen} />
 
-      <header className="h-16 border-b border-border/60 glass flex items-center px-5 gap-4 sticky top-0 z-40">
-        <div className="flex items-center gap-3 min-w-0">
+      <header className="h-16 border-b border-border/60 glass flex items-center px-3 sm:px-5 gap-2 sm:gap-4 sticky top-0 z-40">
+        <MobileNav />
+
+        {/* Page title — mobile only (desktop shows it in the sidebar) */}
+        {hideProjectPicker && (
+          <span className="md:hidden text-sm font-semibold text-foreground truncate min-w-0">{pageTitle}</span>
+        )}
+
+        <div className="hidden sm:flex items-center gap-3 min-w-0">
           <span className="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2.5 py-0.5 font-mono text-[10px] text-muted-foreground tracking-wide">
             {today}
           </span>
@@ -44,7 +52,7 @@ const AppNavbar = () => {
           <select
             value={selectedProjectId || ''}
             onChange={e => selectProject(e.target.value)}
-            className="rounded-xl border border-border/70 bg-card/70 px-3 py-1.5 text-sm font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/50 min-w-[140px] hover:border-ring/40 transition-colors"
+            className="rounded-xl border border-border/70 bg-card/70 px-2.5 sm:px-3 py-1.5 text-sm font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/50 min-w-[110px] sm:min-w-[140px] max-w-[45vw] hover:border-ring/40 transition-colors"
           >
             {userProjects.length === 0 ? (
               <option value="">No projects</option>

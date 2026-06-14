@@ -93,7 +93,7 @@ export default function AuditPage() {
       className="flex flex-col h-[calc(100dvh-3.5rem)] min-h-0"
     >
       {/* Header */}
-      <div className="shrink-0 px-8 pt-7 pb-5 border-b border-border/30 bg-gradient-to-b from-muted/20 to-transparent">
+      <div className="shrink-0 px-4 sm:px-8 pt-6 sm:pt-7 pb-5 border-b border-border/30 bg-gradient-to-b from-muted/20 to-transparent">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <div className="flex items-center gap-2 mb-1">
@@ -102,7 +102,7 @@ export default function AuditPage() {
                 {isManager ? 'Team Audit' : 'My Activity'}
               </span>
             </div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
+            <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
               Audit Log
             </h1>
             <p className="text-sm text-muted-foreground/60 mt-1.5">
@@ -200,7 +200,7 @@ export default function AuditPage() {
                   initial={{ opacity: 0, x: -4 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ duration: 0.12, delay: Math.min(i * 0.02, 0.3) }}
-                  className="flex items-center gap-4 px-8 py-3.5 hover:bg-muted/20 transition-colors group"
+                  className="flex items-center gap-3 sm:gap-4 px-4 sm:px-8 py-3.5 hover:bg-muted/20 transition-colors group"
                 >
                   {/* Avatar */}
                   <div className="shrink-0">
@@ -242,7 +242,7 @@ export default function AuditPage() {
 
             {/* Load more */}
             {logs.length >= limit && (
-              <div className="px-8 py-5 text-center">
+              <div className="px-4 sm:px-8 py-5 text-center">
                 <button
                   onClick={() => { const nl = limit + 200; setLimit(nl); void load(nl); }}
                   className="text-sm text-primary/60 hover:text-primary font-medium transition-colors"

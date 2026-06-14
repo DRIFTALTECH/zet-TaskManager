@@ -39,14 +39,14 @@ const UsersPage = () => {
       className="flex flex-col h-[calc(100dvh-3.5rem)] min-h-0"
     >
       {/* ── Page header ──────────────────────────────────────────────────── */}
-      <div className="shrink-0 px-8 pt-7 pb-5 border-b border-border/30 bg-gradient-to-b from-muted/20 to-transparent">
+      <div className="shrink-0 px-4 sm:px-8 pt-6 sm:pt-7 pb-5 border-b border-border/30 bg-gradient-to-b from-muted/20 to-transparent">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <div className="flex items-center gap-2 mb-1">
               <Users className="h-4 w-4 text-primary/60" />
               <span className="text-xs font-bold text-muted-foreground/50 uppercase tracking-widest">Team</span>
             </div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
+            <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
               Team Members
             </h1>
             <p className="text-sm text-muted-foreground/60 mt-1.5">
@@ -104,7 +104,7 @@ const UsersPage = () => {
       </div>
 
       {/* ── Users grid ───────────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto min-h-0 p-8">
+      <div className="flex-1 overflow-y-auto min-h-0 p-4 sm:p-8">
         {filteredUsers.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full min-h-[300px] text-center">
             <div className="w-16 h-16 rounded-2xl bg-muted/40 flex items-center justify-center mb-4 border border-border/30">

@@ -219,7 +219,7 @@ const ProjectDetailPage = () => {
 
   if (!project || !accent) {
     return (
-      <div className="flex flex-col items-center justify-center h-[calc(100dvh-3.5rem)] text-center px-8">
+      <div className="flex flex-col items-center justify-center h-[calc(100dvh-3.5rem)] text-center px-4 sm:px-8">
         <div className="w-16 h-16 rounded-2xl bg-muted/40 flex items-center justify-center mb-4 border border-border/30">
           <FolderOpen className="h-7 w-7 text-muted-foreground/30" />
         </div>
@@ -291,7 +291,7 @@ const ProjectDetailPage = () => {
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={pageEnter}>
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="bg-gradient-to-b from-muted/20 to-transparent">
-        <div className="px-8 pt-5 pb-6">
+        <div className="px-4 sm:px-8 pt-5 pb-6">
           <Link to="/manage" className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground/60 hover:text-foreground transition-colors mb-4">
             <ArrowLeft className="h-3.5 w-3.5" /> All projects
           </Link>
@@ -325,7 +325,7 @@ const ProjectDetailPage = () => {
         </div>
       </div>
 
-      <div className="p-8 space-y-8">
+      <div className="p-4 sm:p-8 space-y-8">
         {/* ── Hours per day (full-width trend) ──────────────────────────── */}
         <ChartCard icon={<TrendingUp className="h-4 w-4" />} title="Hours logged per day" accent={accent}
           subtitle={`Daily timesheet hours across all members · total ${formatHM(projectSeconds)}`}>

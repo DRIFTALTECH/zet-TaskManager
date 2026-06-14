@@ -1,34 +1,12 @@
-import React from 'react';
 import { useAppStore } from '@/stores/appStore';
 import { useLocation, Link } from 'react-router-dom';
-import { LayoutDashboard, ListTodo, Clock, BarChart3, Users, FolderKanban, Settings, LogOut, ShieldCheck, Sparkles } from 'lucide-react';
+import { Settings, LogOut } from 'lucide-react';
 import { ZetLogo } from '@/components/brand/ZetLogo';
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import UserAvatar from '@/components/UserAvatar';
-
-const navItems: Array<{
-  path: string;
-  label: string;
-  labelNode?: React.ReactNode;
-  icon: React.FC<React.SVGProps<SVGSVGElement>>;
-  managerOnly?: boolean;
-}> = [
-  { path: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/tasks', label: 'My Tasks', icon: ListTodo },
-  { path: '/timesheet', label: 'Timesheet', icon: Clock },
-  { path: '/reports', label: 'Time report', icon: BarChart3 },
-  { path: '/users', label: 'Users', icon: Users, managerOnly: true },
-  { path: '/manage', label: 'Manage projects', icon: FolderKanban, managerOnly: true },
-  { path: '/audit', label: 'Audit', icon: ShieldCheck },
-  {
-    path: '/ai',
-    label: 'Zani',
-    labelNode: <><span className="text-violet-400 font-bold">Z</span>ani</>,
-    icon: Sparkles,
-  },
-];
+import { navItems } from '@/components/nav-items';
 
 const AppSidebar = () => {
   const [expanded, setExpanded] = useState(false);
@@ -40,16 +18,16 @@ const AppSidebar = () => {
 
   return (
     <>
-      {/* Invisible hover zone near left edge */}
+      {/* Invisible hover zone near left edge (desktop only) */}
       <div
-        className="fixed left-0 top-0 h-full w-5 z-50"
+        className="hidden md:block fixed left-0 top-0 h-full w-5 z-50"
         onMouseEnter={() => setExpanded(true)}
       />
 
       <aside
         onMouseEnter={() => setExpanded(true)}
         onMouseLeave={() => setExpanded(false)}
-        className={`${expanded ? 'w-60' : 'w-16'} transition-[width] duration-200 ease-out glass border-r border-sidebar-border flex flex-col h-screen sticky top-0 shrink-0 z-40 overflow-hidden`}
+        className={`${expanded ? 'w-60' : 'w-16'} transition-[width] duration-200 ease-out glass border-r border-sidebar-border hidden md:flex flex-col h-screen sticky top-0 shrink-0 z-40 overflow-hidden`}
       >
         {/* Logo */}
         <div className="flex items-center gap-2 px-4 h-16 border-b border-sidebar-border/70 shrink-0">

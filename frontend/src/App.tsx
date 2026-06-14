@@ -21,6 +21,8 @@ import AuditPage from "./pages/AuditPage";
 import AppSidebar from "./components/AppSidebar";
 import AppNavbar from "./components/AppNavbar";
 import AIPage from "./pages/AIPage";
+import AdminLoginPage from "./pages/AdminLoginPage";
+import AdminPage from "./pages/AdminPage";
 
 const queryClient = new QueryClient();
 
@@ -130,6 +132,8 @@ const App = () => (
           <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
           <Route path="/audit" element={<ProtectedRoute><AuditPage /></ProtectedRoute>} />
           <Route path="/ai" element={<ProtectedRoute><AIPage /></ProtectedRoute>} />
+          <Route path="/admin/login" element={<AdminLoginPage />} />
+          <Route path="/admin" element={<AdminPage />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </BrowserRouter>

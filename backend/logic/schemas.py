@@ -43,12 +43,54 @@ class UserOut(BaseModel):
     experienceMonths: int = 0
     joinedAt: str = ""
     currentExperienceMonths: int = 0
+    isActive: bool = True
 
 
 class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserOut
+
+
+# ── Admin console ─────────────────────────────────────────────────────────────
+
+class AdminLoginBody(BaseModel):
+    username: str
+    password: str
+
+
+class AdminTokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+class AdminRoleUpdate(BaseModel):
+    role: Literal["employee", "manager"]
+
+
+class AdminPasswordReset(BaseModel):
+    new_password: str = Field(..., min_length=6, max_length=256)
+
+
+class AdminProjectsUpdate(BaseModel):
+    project_ids: list[str] = Field(default_factory=list)
+
+
+class AdminUserDelete(BaseModel):
+    # When the user owns work (tasks/assignments/timesheets), a reassign target is
+    # required; otherwise the delete is rejected so nothing is silently orphaned.
+    reassign_to: str | None = None
+
+
+class AdminChangePassword(BaseModel):
+    current_password: str
+    new_password: str = Field(..., min_length=8, max_length=256)
+
+
+class AdminProjectOut(BaseModel):
+    id: str
+    name: str
+    memberIds: list[str] = Field(default_factory=list)
 
 
 class ProfileUpdate(BaseModel):

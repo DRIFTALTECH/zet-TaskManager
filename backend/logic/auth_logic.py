@@ -12,6 +12,7 @@ from jwt import PyJWKClient
 from sqlalchemy.orm import Session
 
 import crud.users as users_crud
+from database.models import AppSetting
 from logic import user_logic
 from logic.schemas import LoginBody, LoginResponse, MicrosoftAuthBody, RegisterBody
 
@@ -19,6 +20,16 @@ JWT_SECRET = os.environ.get("TASKMANAGER_JWT_SECRET", "dev-secret-change-me")
 JWT_ALGO = "HS256"
 JWT_EXPIRE_HOURS_DEFAULT = 24         # 1 day when "remember me" is off
 JWT_EXPIRE_HOURS_REMEMBER = 24 * 30   # 30 days when "remember me" is on
+
+# ── Admin console credentials ──────────────────────────────────────────────────
+# A standalone admin (NOT a normal user row) manages accounts at /admin.
+# Defaults to admin / Default@123; override via env. The password can also be
+# changed at runtime, which persists a bcrypt hash in app_settings that wins
+# over the env value.
+ADMIN_USERNAME = (os.environ.get("ADMIN_USERNAME", "").strip() or "admin")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "Default@123")
+ADMIN_SUBJECT = "__admin__"
+_ADMIN_PW_KEY = "admin_password_hash"
 
 MICROSOFT_CLIENT_ID = os.environ.get("MICROSOFT_CLIENT_ID", "").strip()
 MICROSOFT_TENANT_ID = os.environ.get("MICROSOFT_TENANT_ID", "").strip()
@@ -103,8 +114,71 @@ def login(db: Session, body: LoginBody) -> LoginResponse:
     user = users_crud.get_by_email(db, body.email)
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
+    if not getattr(user, "is_active", True):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "This account has been deactivated. Contact your administrator.",
+        )
     token = create_access_token(user.id, remember_me=body.remember_me)
     return LoginResponse(access_token=token, user=user_logic.to_user_out(db, user))
+
+
+# ── Admin console auth ─────────────────────────────────────────────────────────
+
+def create_admin_token() -> str:
+    expire = datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRE_HOURS_DEFAULT)
+    return jwt.encode(
+        {"sub": ADMIN_SUBJECT, "scope": "admin", "exp": expire},
+        JWT_SECRET,
+        algorithm=JWT_ALGO,
+    )
+
+
+def require_admin(token: str) -> None:
+    """Raise unless the token is a valid admin-scoped token."""
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Admin session expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid admin token")
+    if payload.get("scope") != "admin" or payload.get("sub") != ADMIN_SUBJECT:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin privileges required")
+
+
+def _get_setting(db: Session, key: str) -> str | None:
+    row = db.get(AppSetting, key)
+    return row.value if row else None
+
+
+def _set_setting(db: Session, key: str, value: str) -> None:
+    row = db.get(AppSetting, key)
+    if row:
+        row.value = value
+    else:
+        db.add(AppSetting(key=key, value=value))
+    db.commit()
+
+
+def _verify_admin_password(db: Session, password: str) -> bool:
+    override = _get_setting(db, _ADMIN_PW_KEY)
+    if override:
+        return verify_password(password, override)
+    return secrets.compare_digest(password, ADMIN_PASSWORD)
+
+
+def admin_login(db: Session, username: str, password: str) -> str:
+    if (username or "").strip() != ADMIN_USERNAME or not _verify_admin_password(db, password):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid admin username or password")
+    return create_admin_token()
+
+
+def change_admin_password(db: Session, current_password: str, new_password: str) -> None:
+    if not _verify_admin_password(db, current_password):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Current password is incorrect")
+    if len(new_password or "") < 8:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "New password must be at least 8 characters")
+    _set_setting(db, _ADMIN_PW_KEY, hash_password(new_password))
 
 
 def register(db: Session, body: RegisterBody) -> LoginResponse:
@@ -143,6 +217,11 @@ def microsoft_auth(db: Session, body: MicrosoftAuthBody) -> LoginResponse:
 
     user = users_crud.get_by_email(db, email)
     if user:
+        if not getattr(user, "is_active", True):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "This account has been deactivated. Contact your administrator.",
+            )
         token = create_access_token(user.id, remember_me=body.remember_me)
         return LoginResponse(access_token=token, user=user_logic.to_user_out(db, user))
 

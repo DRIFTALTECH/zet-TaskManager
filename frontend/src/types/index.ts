@@ -18,6 +18,8 @@ export interface User {
   experienceMonths: number;
   joinedAt: string;
   currentExperienceMonths: number;
+  /** Admin can deactivate accounts; deactivated users cannot log in. */
+  isActive?: boolean;
 }
 
 export interface Section {

@@ -143,7 +143,7 @@ function ProposalCard({
       onExecuted();
       toast.success(successMsg(p));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed');
+      toast.error('Something went wrong. Please try again.');
     } finally {
       setAccepting(false);
     }
@@ -421,7 +421,7 @@ function ExtractedTaskCard({ task, onEdit }: { task: AIExtractedTask; onEdit: (p
       setAccepted(true);
       toast.success(`"${task.title}" created!`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to create task');
+      toast.error('Could not create the task. Please try again.');
     } finally {
       setAccepting(false);
     }
@@ -684,6 +684,10 @@ function ActionBadge({ action }: { action: AIChatAction }) {
     // proposal cards are shown separately; skip badge for these
     return null;
   }
+  if (action.status === 'error') {
+    // Internal tool errors are for the agent only — never show in the UI
+    return null;
+  }
   if (action.status === 'success') {
     return (
       <motion.div initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={snappy}
@@ -721,9 +725,10 @@ function MessageBubble({
   const isUser = msg.role === 'user';
   const [executed, setExecuted] = useState<Set<number>>(new Set());
 
-  // filter: skip list_* and data tool badges (shown as cards or irrelevant)
+  // filter: skip list_* / data tool badges, and internal tool errors
   const visibleActions = (msg.actions ?? []).filter(
-    a => !((['list_projects', 'list_users'].includes(a.tool) && ['success', 'proposed'].includes(a.status))
+    a => a.status !== 'error'
+      && !((['list_projects', 'list_users'].includes(a.tool) && ['success', 'proposed'].includes(a.status))
       || (DATA_TOOLS.has(a.tool) && a.status === 'data'))
   );
 
@@ -953,7 +958,7 @@ const AIPage = () => {
       }
     } catch (err) {
       setMessages(prev => prev.slice(0, -1));
-      toast.error(err instanceof Error ? err.message : 'AI request failed');
+      toast.error('Something went wrong. Please try again.');
     } finally {
       setLoading(false);
     }

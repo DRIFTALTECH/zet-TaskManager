@@ -59,14 +59,14 @@ const ManageProjectsOverview = () => {
       className="min-h-full"
     >
       {/* ── Header ──────────────────────────────────────────────────────── */}
-      <div className="px-8 pt-7 pb-6 border-b border-border/30 bg-gradient-to-b from-muted/20 to-transparent">
+      <div className="px-4 sm:px-8 pt-6 sm:pt-7 pb-6 border-b border-border/30 bg-gradient-to-b from-muted/20 to-transparent">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 mb-1">
               <Sparkles className="h-4 w-4 text-primary/60" />
               <span className="text-xs font-semibold text-muted-foreground/60 uppercase tracking-widest">Manager Panel</span>
             </div>
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
+            <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
               Projects
             </h1>
             <p className="text-sm text-muted-foreground/60 mt-1.5">A health snapshot of every project — open one to dive in.</p>
@@ -111,7 +111,7 @@ const ManageProjectsOverview = () => {
       </div>
 
       {/* ── Card grid ───────────────────────────────────────────────────── */}
-      <div className="p-8">
+      <div className="p-4 sm:p-8">
         {projects.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 text-center">
             <div className="w-20 h-20 rounded-3xl bg-muted/40 flex items-center justify-center mb-5 border border-border/30">

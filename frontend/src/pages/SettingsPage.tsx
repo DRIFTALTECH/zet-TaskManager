@@ -72,19 +72,19 @@ export default function SettingsPage() {
       className="flex flex-col h-[calc(100dvh-3.5rem)] min-h-0"
     >
       {/* ── Header ──────────────────────────────────────────────── */}
-      <div className="shrink-0 px-8 pt-7 pb-5 border-b border-border/30 bg-gradient-to-b from-muted/20 to-transparent">
+      <div className="shrink-0 px-4 sm:px-8 pt-6 sm:pt-7 pb-5 border-b border-border/30 bg-gradient-to-b from-muted/20 to-transparent">
         <div className="flex items-center gap-2 mb-1">
           <Shield className="h-4 w-4 text-primary/60" />
           <span className="text-xs font-bold text-muted-foreground/50 uppercase tracking-widest">Account</span>
         </div>
-        <h1 className="text-3xl font-bold bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
+        <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
           Settings
         </h1>
         <p className="text-sm text-muted-foreground/60 mt-1.5">Manage your profile, appearance and security</p>
       </div>
 
       {/* ── Scrollable body ──────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto min-h-0 p-8">
+      <div className="flex-1 overflow-y-auto min-h-0 p-4 sm:p-8">
         <div className="max-w-2xl mx-auto space-y-6">
 
           {/* ── Profile Card ─────────────────────────────────────── */}

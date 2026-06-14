@@ -123,10 +123,23 @@ def create_notifications_if_missing() -> None:
         )
 
 
+def migrate_user_is_active_if_needed() -> None:
+    """Add is_active to users for pre-existing DBs (defaults everyone to active)."""
+    insp = inspect(engine)
+    if not insp.has_table("users"):
+        return
+    cols = {c["name"] for c in insp.get_columns("users")}
+    if "is_active" in cols:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1"))
+
+
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     migrate_timelogs_if_needed()
     migrate_user_experience_if_needed()
+    migrate_user_is_active_if_needed()
     create_notifications_if_missing()
     db = SessionLocal()
     try:
