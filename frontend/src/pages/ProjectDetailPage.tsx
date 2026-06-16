@@ -58,6 +58,22 @@ function ChartTooltip({ active, payload, label, unit }: {
   );
 }
 
+// Member-contribution tooltip — shows both tasks assigned and hours logged.
+function MemberTooltip({ active, payload }: {
+  active?: boolean; payload?: { payload?: { fullName?: string; total?: number; hours?: number } }[];
+}) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0].payload || {};
+  const total = p.total ?? 0;
+  return (
+    <div className="rounded-xl border border-border/60 bg-popover px-3 py-2 shadow-lg text-xs">
+      <p className="font-semibold text-foreground mb-0.5 max-w-[200px] truncate">{p.fullName}</p>
+      <p className="text-muted-foreground">{total} task{total !== 1 ? 's' : ''} · {p.hours ?? 0}h logged</p>
+      <p className="text-[10px] text-muted-foreground/50 mt-1">Click for breakdown</p>
+    </div>
+  );
+}
+
 const statusLabel = (id: string, columns: { id: string; label: string }[]) => {
   const c = columns.find(x => x.id === id);
   if (c) return c.label;
@@ -177,19 +193,50 @@ const ProjectDetailPage = () => {
     return rows;
   }, [projectTasks, kanbanColumns]);
 
-  // Member contribution: every task assigned to a person, regardless of status/column.
+  // Member contribution: every task assigned to a person (any status), plus the
+  // hours that person has logged on this project (from the timesheet).
   const memberContribution = useMemo(() => {
     if (!project) return [];
+    const secsByUser = new Map<string, number>();
+    for (const e of timesheet) secsByUser.set(e.userId, (secsByUser.get(e.userId) || 0) + (e.seconds || 0));
     return project.members
       .map(id => {
         const u = users.find(x => x.id === id);
         const name = u?.name || 'Unknown';
         const total = projectTasks.filter(t => isTaskAssignedTo(t, id)).length;
-        return { name: name.split(' ')[0], fullName: name, total };
+        const seconds = secsByUser.get(id) || 0;
+        return { userId: id, name: name.split(' ')[0], fullName: name, total, seconds, hours: hoursDecimal(seconds) };
       })
-      .sort((a, b) => b.total - a.total);
-  }, [project, users, projectTasks]);
-  const hasContribution = memberContribution.some(m => m.total > 0);
+      .sort((a, b) => b.total - a.total || b.seconds - a.seconds);
+  }, [project, users, projectTasks, timesheet]);
+  const hasContribution = memberContribution.some(m => m.total > 0 || m.seconds > 0);
+
+  // ── Member drill-down popup (per-section hours + tasks for one person) ──────
+  const [memberDetail, setMemberDetail] = useState<{ userId: string; name: string } | null>(null);
+
+  const memberSectionHours = useMemo(() => {
+    if (!memberDetail || !project) return [];
+    const byId = new Map<string, number>();
+    for (const e of timesheet) {
+      if (e.userId !== memberDetail.userId) continue;
+      byId.set(e.sectionId, (byId.get(e.sectionId) || 0) + (e.seconds || 0));
+    }
+    const known = new Set(project.sections.map(s => s.id));
+    const rows = project.sections.map(s => ({ id: s.id, name: s.name, seconds: byId.get(s.id) || 0 }));
+    let orphan = 0;
+    for (const [id, secs] of byId) if (!known.has(id)) orphan += secs;
+    if (orphan > 0) rows.push({ id: '__none__', name: 'Unsectioned', seconds: orphan });
+    return rows.filter(r => r.seconds > 0).sort((a, b) => b.seconds - a.seconds);
+  }, [memberDetail, project, timesheet]);
+
+  const memberTasks = useMemo(
+    () => (memberDetail ? projectTasks.filter(t => isTaskAssignedTo(t, memberDetail.userId)) : []),
+    [memberDetail, projectTasks],
+  );
+  const memberTotalSeconds = useMemo(
+    () => (memberDetail ? timesheet.reduce((a, e) => a + (e.userId === memberDetail.userId ? (e.seconds || 0) : 0), 0) : 0),
+    [memberDetail, timesheet],
+  );
 
   const completionTrend = useMemo(() => {
     const weeks = 8;
@@ -409,7 +456,7 @@ const ProjectDetailPage = () => {
 
           {/* Member contribution — every task assigned to a person (any status) */}
           <ChartCard icon={<Users className="h-4 w-4" />} title="Member contribution" accent={accent}
-            subtitle="Total tasks assigned per member (any status)">
+            subtitle="Tasks assigned & hours logged per member · click a bar for details">
             {!hasContribution ? (
               <ChartEmpty msg="No assigned tasks yet" />
             ) : (
@@ -418,8 +465,17 @@ const ProjectDetailPage = () => {
                   <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeOpacity={0.25} />
                   <XAxis dataKey="name" axisLine={false} tickLine={false} tick={axisTick} interval={0} />
                   <YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={axisTick} />
-                  <RTooltip content={<ChartTooltip unit="tasks" />} cursor={{ fill: 'hsl(var(--muted))', opacity: 0.2 }} />
-                  <Bar dataKey="total" radius={[6, 6, 0, 0]} barSize={34} fill={accent.hex} />
+                  <RTooltip content={<MemberTooltip />} cursor={{ fill: 'hsl(var(--muted))', opacity: 0.2 }} />
+                  <Bar
+                    dataKey="total"
+                    radius={[6, 6, 0, 0]}
+                    barSize={34}
+                    fill={accent.hex}
+                    className="cursor-pointer"
+                    onClick={(d: { userId?: string; fullName?: string }) => {
+                      if (d?.userId) setMemberDetail({ userId: d.userId, name: d.fullName || 'Member' });
+                    }}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -721,6 +777,82 @@ const ProjectDetailPage = () => {
                 </AreaChart>
               </ResponsiveContainer>
             )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Member work breakdown */}
+      <Dialog open={!!memberDetail} onOpenChange={o => !o && setMemberDetail(null)}>
+        <DialogContent className="sm:max-w-lg rounded-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold break-words [overflow-wrap:anywhere]">
+              {memberDetail?.name} — work breakdown
+            </DialogTitle>
+          </DialogHeader>
+          <div className="pt-1 space-y-5">
+            {/* Summary chips */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl bg-muted/50 border border-border/40 text-foreground">
+                <ListTodo className="h-3.5 w-3.5 opacity-60" /> {memberTasks.length} task{memberTasks.length !== 1 ? 's' : ''}
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl bg-muted/50 border border-border/40 text-foreground">
+                <Clock className="h-3.5 w-3.5 opacity-60" /> {formatHM(memberTotalSeconds)} logged
+              </span>
+            </div>
+
+            {/* Hours per section */}
+            <div>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground/60 mb-2.5">Hours per section</h4>
+              {memberSectionHours.length === 0 ? (
+                <div className="text-sm text-muted-foreground/40 italic py-3">No time logged on this project yet.</div>
+              ) : (
+                <div className="space-y-2">
+                  {(() => {
+                    const max = Math.max(...memberSectionHours.map(r => r.seconds), 1);
+                    return memberSectionHours.map(r => (
+                      <div key={r.id} className="flex items-center gap-3">
+                        <span className="text-sm text-foreground/80 w-1/3 truncate shrink-0">{r.name}</span>
+                        <div className="flex-1 h-2.5 rounded-full bg-muted/50 overflow-hidden">
+                          <div className="h-full rounded-full" style={{ width: `${(r.seconds / max) * 100}%`, backgroundColor: accent.hex }} />
+                        </div>
+                        <span className="text-xs font-mono tabular-nums text-muted-foreground w-14 text-right shrink-0">{formatHM(r.seconds)}</span>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              )}
+            </div>
+
+            {/* Tasks worked */}
+            <div>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground/60 mb-2.5">
+                Tasks ({memberTasks.length})
+              </h4>
+              {memberTasks.length === 0 ? (
+                <div className="text-sm text-muted-foreground/40 italic py-3">No tasks assigned.</div>
+              ) : (
+                <div className="space-y-1.5">
+                  {memberTasks.map(t => {
+                    const secName = project.sections.find(s => s.id === t.sectionId)?.name ?? 'Unsectioned';
+                    return (
+                      <button
+                        key={t.id}
+                        onClick={() => { setMemberDetail(null); setSelectedTask(t); }}
+                        className="w-full flex items-center gap-3 rounded-xl border border-border/35 bg-card hover:bg-primary/5 hover:border-primary/30 transition-all p-2.5 text-left"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-foreground truncate">{t.title}</p>
+                          <p className="text-[11px] text-muted-foreground/55 truncate">{secName}</p>
+                        </div>
+                        <span className={`shrink-0 text-[10px] px-2 py-0.5 rounded-full font-bold border ${statusChipCls(t.status)}`}>
+                          {statusLabel(t.status, kanbanColumns)}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </DialogContent>
       </Dialog>

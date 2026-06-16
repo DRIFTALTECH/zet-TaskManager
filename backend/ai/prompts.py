@@ -185,10 +185,32 @@ CHAT_PROMPT = ChatPromptTemplate.from_messages([
 
 TIMESHEET_PARSE_SYSTEM = (
     "You are a professional timesheet assistant. "
-    "Convert a user's natural language day summary into a structured list of work log entries.\n\n"
+    "Convert a user's natural language day summary into a structured list of work log entries. "
+    "Every entry MUST be attributable to exactly one project AND one section — a row is "
+    "never valid with an empty project or empty section.\n\n"
 
     "Available projects and their sections:\n{projects}\n\n"
     "Date being logged: {work_date}\n\n"
+
+    "── PROJECT + SECTION ASSIGNMENT (MANDATORY) ─────────────────────────────\n"
+    "For EVERY row you MUST resolve a project and a section. Follow this exactly:\n"
+    "1. PROJECT: choose the single best-matching project from the list above by case-insensitive "
+    "and partial-name match against what the user wrote. If the user clearly names no project but "
+    "only one project is available, use it. Only set project_id=null if the list is empty or the "
+    "work genuinely cannot belong to any listed project — in that case set needs_clarification=true.\n"
+    "2. SECTION: once a project is chosen, pick the most relevant EXISTING section within THAT "
+    "project (match by meaning, not just exact words — e.g. 'fixed login bug' → a 'Backend' or "
+    "'Auth' section). Set section_id and section_name to that section.\n"
+    "3. NEW SECTION: if — and only if — none of the chosen project's existing sections is a "
+    "reasonable fit (nothing similar in meaning), DO NOT force a wrong section and DO NOT leave it "
+    "blank. Instead set section_id=null, suggest_create_section=true, and suggested_section_name to "
+    "a short, professional section name that fits the work (e.g. 'Code Review', 'CI/CD', "
+    "'Documentation', 'Bug Fixes'). Always provide suggested_section_name whenever "
+    "suggest_create_section is true.\n"
+    "4. If a project has NO sections at all, you must always suggest_create_section=true with a "
+    "suggested_section_name.\n"
+    "Never set both section_id=null and suggest_create_section=false. One of a real section or a "
+    "suggested new section is always required.\n\n"
 
     "── TIME INFERENCE RULES ─────────────────────────────────────────────────\n"
     "When the user gives explicit times, use them exactly (convert to 24h HH:MM).\n"
@@ -213,11 +235,6 @@ TIMESHEET_PARSE_SYSTEM = (
     "  'worked on ci/cd'               → 'Configured CI/CD pipeline for automated deployment'\n"
     "  'docs'                          → 'Authored technical documentation for API endpoints'\n\n"
 
-    "── PROJECT MATCHING ─────────────────────────────────────────────────────\n"
-    "Match project/section names case-insensitively and by partial name.\n"
-    "If you match a project, also pick the most relevant section within it.\n"
-    "If no project matches, set project_id and section_id to null.\n\n"
-
     "── CONFIDENCE ───────────────────────────────────────────────────────────\n"
     "Set confidence to 1.0 when time is explicit and project is matched.\n"
     "Set confidence to 0.7-0.9 when time is inferred but reasonable.\n"
@@ -231,11 +248,13 @@ TIMESHEET_PARSE_SYSTEM = (
 
     "── OUTPUT ───────────────────────────────────────────────────────────────\n"
     "Return a JSON with:\n"
-    "  rows: list of entries (chronological)\n"
+    "  rows: list of entries (chronological). Each row has project_id, project_name, section_id, "
+    "section_name, description, time_from, time_to, confidence, needs_clarification, "
+    "clarification_note, suggest_create_section, suggested_section_name.\n"
     "  gaps: list of gap strings\n"
     "  total_hours: sum of all row durations in hours (float, 1 decimal)\n"
-    "  message: one friendly sentence summarising what you found "
-    "(e.g. 'Found 4 work blocks totalling 6.5h — 2 entries have uncertain times.')\n"
+    "  message: one friendly sentence summarising what you found. If any row needs a new section, "
+    "mention it (e.g. 'Found 4 blocks totalling 6.5h — 1 needs a new \"Code Review\" section.').\n"
 )
 
 TIMESHEET_PARSE_PROMPT = ChatPromptTemplate.from_messages([

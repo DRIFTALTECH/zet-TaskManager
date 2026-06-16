@@ -170,12 +170,15 @@ function RowPreviewCard({
   projects,
   onSave,
   onRemove,
+  onCreateSection,
 }: {
   row: AITimesheetRow;
   idx: number;
   projects: ReturnType<typeof useAppStore.getState>['projects'];
   onSave: (updated: AITimesheetRow) => void;
   onRemove: () => void;
+  /** Creates a section in the given project and resolves to its new id (or null on failure). */
+  onCreateSection: (projectId: string, name: string) => Promise<string | null>;
 }) {
   const [editing, setEditing] = useState(false);
   const [desc, setDesc] = useState(row.description);
@@ -183,6 +186,9 @@ function RowPreviewCard({
   const [timeTo, setTimeTo]     = useState(row.time_to);
   const [projectId, setProjectId]   = useState(row.project_id ?? '');
   const [sectionId, setSectionId]   = useState(row.section_id ?? '');
+  const [showNewSec, setShowNewSec] = useState(false);
+  const [newSecName, setNewSecName] = useState(row.suggested_section_name ?? '');
+  const [busy, setBusy] = useState(false);
 
   const selProject = projects.find(p => p.id === projectId);
   const sectionOpts = selProject?.sections ?? [];
@@ -202,8 +208,35 @@ function RowPreviewCard({
       confidence: 1.0,
       needs_clarification: false,
       clarification_note: null,
+      suggest_create_section: !sectionId,
     });
     setEditing(false);
+  };
+
+  // Create a brand-new section (in the editor) and select it immediately.
+  const handleCreateInEditor = async () => {
+    if (!projectId || !newSecName.trim()) return;
+    setBusy(true);
+    const newId = await onCreateSection(projectId, newSecName.trim());
+    setBusy(false);
+    if (newId) { setSectionId(newId); setShowNewSec(false); }
+  };
+
+  // One-click accept of the AI's suggested section (from the non-editing card).
+  const acceptSuggestedSection = async () => {
+    if (!row.project_id || !row.suggested_section_name) return;
+    setBusy(true);
+    const newId = await onCreateSection(row.project_id, row.suggested_section_name);
+    setBusy(false);
+    if (newId) {
+      onSave({
+        ...row,
+        section_id: newId,
+        section_name: row.suggested_section_name,
+        suggest_create_section: false,
+        needs_clarification: false,
+      });
+    }
   };
 
   const borderCls = confidenceColor(row.confidence);
@@ -225,17 +258,39 @@ function RowPreviewCard({
           <input value={timeTo} onChange={e => setTimeTo(e.target.value)} placeholder="10:00"
             className="w-24 px-3 py-2 text-sm rounded-lg border border-border/60 bg-background focus:outline-none focus:border-violet-500/60 font-mono" />
         </div>
-        <select value={projectId} onChange={e => { setProjectId(e.target.value); setSectionId(''); }}
+        <select value={projectId} onChange={e => { setProjectId(e.target.value); setSectionId(''); setShowNewSec(false); }}
           className="w-full px-3 py-2 text-sm rounded-lg border border-border/60 bg-background focus:outline-none">
           <option value="">— No project —</option>
           {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
-        {sectionOpts.length > 0 && (
-          <select value={sectionId} onChange={e => setSectionId(e.target.value)}
-            className="w-full px-3 py-2 text-sm rounded-lg border border-border/60 bg-background focus:outline-none">
-            <option value="">— No section —</option>
-            {sectionOpts.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
+        {projectId && !showNewSec && (
+          <div className="flex gap-2">
+            <select value={sectionId} onChange={e => setSectionId(e.target.value)}
+              className="flex-1 px-3 py-2 text-sm rounded-lg border border-border/60 bg-background focus:outline-none">
+              <option value="">{sectionOpts.length ? '— Select a section —' : '— No sections yet —'}</option>
+              {sectionOpts.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            <button onClick={() => { setShowNewSec(true); setNewSecName(row.suggested_section_name ?? ''); }}
+              className="shrink-0 flex items-center gap-1 px-2.5 py-2 rounded-lg border border-violet-500/40 text-violet-400 text-xs font-semibold hover:bg-violet-500/10 transition-colors">
+              <Plus className="h-3 w-3" /> New
+            </button>
+          </div>
+        )}
+        {projectId && showNewSec && (
+          <div className="flex gap-2">
+            <input autoFocus value={newSecName} onChange={e => setNewSecName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') void handleCreateInEditor(); }}
+              placeholder="New section name"
+              className="flex-1 px-3 py-2 text-sm rounded-lg border border-violet-500/40 bg-background focus:outline-none focus:border-violet-500/60" />
+            <button onClick={() => void handleCreateInEditor()} disabled={!newSecName.trim() || busy}
+              className="shrink-0 px-3 py-2 rounded-lg bg-violet-600 text-white text-xs font-semibold hover:bg-violet-500 transition-colors disabled:opacity-50">
+              {busy ? '…' : 'Create'}
+            </button>
+            <button onClick={() => setShowNewSec(false)}
+              className="shrink-0 px-2.5 py-2 rounded-lg border border-border/60 bg-muted/30 text-xs hover:bg-muted/60 transition-colors">
+              Cancel
+            </button>
+          </div>
         )}
         <div className="flex gap-2 pt-1">
           <button onClick={handleSave}
@@ -272,9 +327,29 @@ function RowPreviewCard({
 
       <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
         <span className="font-mono font-semibold text-foreground/80">{row.time_from} – {row.time_to}</span>
-        {row.project_name && <span className="flex items-center gap-1"><Tag className="h-3 w-3" />{row.project_name}</span>}
+        {row.project_name
+          ? <span className="flex items-center gap-1"><Tag className="h-3 w-3" />{row.project_name}</span>
+          : <span className="flex items-center gap-1 text-red-400"><AlertCircle className="h-3 w-3" />No project — edit to pick one</span>}
         {row.section_name && <span className="opacity-60">/ {row.section_name}</span>}
       </div>
+
+      {/* Missing section → require a section before this row can be saved */}
+      {row.project_id && !row.section_id && (
+        <div className="flex items-center gap-2 text-[11px] text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2.5 py-1.5">
+          <AlertCircle className="h-3 w-3 shrink-0" />
+          {row.suggested_section_name ? (
+            <>
+              <span className="flex-1">No matching section. Suggested: <span className="font-semibold">“{row.suggested_section_name}”</span></span>
+              <button onClick={() => void acceptSuggestedSection()} disabled={busy}
+                className="shrink-0 flex items-center gap-1 px-2 py-1 rounded-md bg-violet-600 text-white text-[10px] font-bold hover:bg-violet-500 transition-colors disabled:opacity-50">
+                <Plus className="h-2.5 w-2.5" /> {busy ? 'Creating…' : 'Create section'}
+              </button>
+            </>
+          ) : (
+            <span className="flex-1">No section selected — edit this row to pick or create one.</span>
+          )}
+        </div>
+      )}
 
       {row.needs_clarification && row.clarification_note && (
         <div className="flex items-start gap-1.5 text-[11px] text-amber-400">
@@ -307,7 +382,7 @@ function TimesheetAIPanel({
   onClose: () => void;
   onEntriesAdded: () => Promise<void>;
 }) {
-  const { projects } = useAppStore();
+  const { projects, addSection } = useAppStore();
   const [summary, setSummary] = useState('');
   const [parsing, setParsing]   = useState(false);
   const [rows, setRows]         = useState<AITimesheetRow[] | null>(null);
@@ -351,14 +426,39 @@ function TimesheetAIPanel({
     setRows(prev => prev ? prev.filter((_, i) => i !== idx) : prev);
   };
 
+  // Create a section inside a project and return its new id (used by the row cards).
+  const handleCreateSection = async (projectId: string, name: string): Promise<string | null> => {
+    if (!projectId || !name.trim()) { toast.error('A project and a section name are required'); return null; }
+    try {
+      await addSection(projectId, name.trim());
+      const proj = useAppStore.getState().projects.find(p => p.id === projectId);
+      const sec = proj?.sections.find(s => s.name.trim().toLowerCase() === name.trim().toLowerCase());
+      if (!sec) { toast.error('Section created but could not be located — reload and try again'); return null; }
+      toast.success(`Section “${name.trim()}” created`);
+      return sec.id;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not create section');
+      return null;
+    }
+  };
+
   const handleAcceptAll = async () => {
     if (!rows || rows.length === 0) return;
-    const valid = rows.filter(r => r.project_id && r.section_id);
-    const invalid = rows.length - valid.length;
-    if (valid.length === 0) {
-      toast.error('No rows have a project + section assigned. Edit them first.');
+
+    // ── Validation harness: every row MUST have a project AND a section ──────
+    // Nothing is saved while any row is incomplete — the user is told exactly
+    // what to fix (and, for sections, to create one).
+    const needProject = rows.filter(r => !r.project_id).length;
+    const needSection = rows.filter(r => r.project_id && !r.section_id).length;
+    if (needProject || needSection) {
+      const parts: string[] = [];
+      if (needProject) parts.push(`${needProject} row${needProject > 1 ? 's' : ''} need a project`);
+      if (needSection) parts.push(`${needSection} row${needSection > 1 ? 's' : ''} need a section — create the section first`);
+      toast.error(`Can't save yet: ${parts.join(' and ')}.`);
       return;
     }
+    const valid = rows;
+
     setSaving(true);
     let saved = 0;
     const errors: string[] = [];
@@ -380,7 +480,6 @@ function TimesheetAIPanel({
     await onEntriesAdded();
     setSaving(false);
     if (saved > 0) toast.success(`${saved} entr${saved === 1 ? 'y' : 'ies'} added!`);
-    if (invalid > 0) toast.info(`${invalid} row${invalid > 1 ? 's' : ''} skipped — no project/section.`);
     if (errors.length) toast.error(`${errors.length} entr${errors.length > 1 ? 'ies' : 'y'} failed.`);
     if (saved > 0) onClose();
   };
@@ -460,6 +559,7 @@ function TimesheetAIPanel({
                   projects={userProjects}
                   onSave={updated => updateRow(i, updated)}
                   onRemove={() => removeRow(i)}
+                  onCreateSection={handleCreateSection}
                 />
               ))}
             </div>

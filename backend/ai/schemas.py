@@ -195,6 +195,14 @@ class ExtractedTimesheetRow(BaseModel):
                                      description="Confidence 0-1. <0.7 = time or project uncertain")
     needs_clarification: bool | str = Field(False, description="True if time range or project is ambiguous")
     clarification_note: str | None = Field(None, description="What is unclear, shown to the user")
+    suggest_create_section: bool | str = Field(
+        False,
+        description="True when NO existing section is a good fit and the user should create a new one",
+    )
+    suggested_section_name: str | None = Field(
+        None,
+        description="A concise, professional section name to create when suggest_create_section is true (else null)",
+    )
 
     @field_validator("confidence", mode="before")
     @classmethod
@@ -204,7 +212,7 @@ class ExtractedTimesheetRow(BaseModel):
             return min(1.0, max(0.0, float(v)))
         return v
 
-    @field_validator("needs_clarification", mode="before")
+    @field_validator("needs_clarification", "suggest_create_section", mode="before")
     @classmethod
     def _needs(cls, v: Any) -> Any:
         return _coerce_bool(v)
@@ -244,6 +252,10 @@ class StrictTimesheetRow(BaseModel):
     confidence: float = Field(..., description="Confidence 0-1. <0.7 = time or project uncertain")
     needs_clarification: bool = Field(..., description="True if time range or project is ambiguous")
     clarification_note: str | None = Field(..., description="What is unclear, or null")
+    suggest_create_section: bool = Field(
+        ..., description="True when NO existing section fits and the user should create a new one")
+    suggested_section_name: str | None = Field(
+        ..., description="Concise professional section name to create when suggest_create_section is true, else null")
 
 
 class StrictTimesheetParseResponse(BaseModel):

@@ -11,12 +11,12 @@ import { Link, useParams } from 'react-router-dom';
 import {
   ArrowLeft, Mail, Briefcase, ChevronLeft, ChevronRight,
   Clock, AlertTriangle, CheckCircle2, Circle, BarChart2,
-  CalendarDays, ListChecks, Flame, FolderKanban, Trophy,
+  CalendarDays, ListChecks, Flame, FolderKanban,
   Sparkles,
 } from 'lucide-react';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip,
-  Cell, PieChart, Pie,
+  Cell, PieChart, Pie, AreaChart, Area, CartesianGrid,
 } from 'recharts';
 import { pageEnter, snappy } from '@/lib/motion';
 import { isTaskAssignedTo } from '@/lib/task-utils';
@@ -87,6 +87,24 @@ function weekOf(offset: number): string[] {
 function fmtISO(iso: string): string {
   const [y, m, d] = iso.split('-');
   return y ? `${d}-${m}-${y}` : iso;
+}
+/** ISO dates for the last `n` days, oldest → newest, ending today. */
+function lastNDays(n: number): string[] {
+  const out: string[] = [];
+  const now = new Date();
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(now.getDate() - i);
+    out.push(isoOf(d));
+  }
+  return out;
+}
+const MON_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+/** "5 Jun" style short label for chart ticks. */
+function fmtDayShort(iso: string): string {
+  const [, m, d] = iso.split('-');
+  const mi = parseInt(m, 10) - 1;
+  return `${parseInt(d, 10)} ${MON_SHORT[mi] ?? ''}`.trim();
 }
 function fmtSecs(s: number): string {
   if (s <= 0) return '—';
@@ -230,6 +248,41 @@ function WeeklyBarTooltip({
       )}
       {dayEntries.length > 1 && (
         <p className="text-[10px] text-muted-foreground/40 mt-2">{dayEntries.length} blocks · click bar for timeline</p>
+      )}
+    </div>
+  );
+}
+
+// Tooltip for the per-project daily-hours area chart.
+function ProjectTrendTooltip({ active, payload, label }: {
+  active?: boolean;
+  payload?: { value?: number; name?: string; color?: string; dataKey?: string }[];
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+  const rows = payload.filter(p => (p.value ?? 0) > 0).sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+  const total = rows.reduce((a, r) => a + (r.value ?? 0), 0);
+  return (
+    <div className="bg-popover border border-border/60 rounded-xl shadow-xl px-3.5 py-3 text-xs min-w-[180px] max-w-[260px]">
+      <p className="font-semibold text-foreground mb-2">{label}</p>
+      {rows.length === 0 ? (
+        <p className="text-muted-foreground/40 italic">No time logged</p>
+      ) : (
+        <div className="space-y-1.5">
+          {rows.map(r => (
+            <div key={r.dataKey} className="flex items-center justify-between gap-3">
+              <span className="flex items-center gap-1.5 min-w-0">
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: r.color }} />
+                <span className="truncate">{r.name}</span>
+              </span>
+              <span className="tabular-nums font-semibold shrink-0">{r.value}h</span>
+            </div>
+          ))}
+          <div className="flex items-center justify-between gap-3 pt-1.5 mt-1 border-t border-border/40">
+            <span className="text-muted-foreground/60">Total</span>
+            <span className="tabular-nums font-bold">{Math.round(total * 100) / 100}h</span>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -410,6 +463,12 @@ export default function UserDetailPage() {
   const [loadingWeek, setLoadingWeek] = useState(false);
   const [dayDetailDate, setDayDetailDate] = useState<string | null>(null);
 
+  // ── Per-project daily-hours trend (filterable range + project toggles) ──────
+  const [trendDays, setTrendDays] = useState<number>(30);
+  const [trendEntries, setTrendEntries] = useState<TimesheetWorkEntry[]>([]);
+  const [loadingTrend, setLoadingTrend] = useState(false);
+  const [hiddenProjects, setHiddenProjects] = useState<Set<string>>(() => new Set());
+
   const TODAY = isoToday();
   const WD    = useMemo(() => weekOf(wkOff), [wkOff]);
   const visWD = useMemo(() => {
@@ -554,6 +613,59 @@ export default function UserDetailPage() {
       cancel = true;
     };
   }, [userId, WD]);
+
+  // Fetch a wider window for the project-hours trend chart.
+  const trendDates = useMemo(() => lastNDays(trendDays), [trendDays]);
+  useEffect(() => {
+    if (!userId) return;
+    let cancel = false;
+    setLoadingTrend(true);
+    void (async () => {
+      try {
+        const list = await api.getTimesheetWorkEntriesForUser(userId, trendDates[0], trendDates[trendDates.length - 1]);
+        if (!cancel) setTrendEntries(list);
+      } catch {
+        if (!cancel) setTrendEntries([]);
+      } finally {
+        if (!cancel) setLoadingTrend(false);
+      }
+    })();
+    return () => { cancel = true; };
+  }, [userId, trendDates]);
+
+  // Projects this user logged any time on within the window (one line each).
+  const trendProjects = useMemo(() => {
+    const secsById = new Map<string, number>();
+    for (const e of trendEntries) secsById.set(e.projectId, (secsById.get(e.projectId) ?? 0) + e.seconds);
+    return [...secsById.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([id]) => ({ id, name: projects.find(p => p.id === id)?.name ?? 'Project', hex: projColor(id).hex }));
+  }, [trendEntries, projects]);
+
+  // One row per day: { date, label, [projectId]: hours }.
+  const trendData = useMemo(() => {
+    const byDay = new Map<string, Map<string, number>>();
+    for (const e of trendEntries) {
+      let m = byDay.get(e.workDate);
+      if (!m) { m = new Map(); byDay.set(e.workDate, m); }
+      m.set(e.projectId, (m.get(e.projectId) ?? 0) + e.seconds);
+    }
+    return trendDates.map(iso => {
+      const row: Record<string, number | string> = { date: iso, label: fmtDayShort(iso) };
+      const m = byDay.get(iso);
+      for (const p of trendProjects) row[p.id] = m ? Math.round(((m.get(p.id) ?? 0) / 3600) * 100) / 100 : 0;
+      return row;
+    });
+  }, [trendDates, trendProjects, trendEntries]);
+
+  const trendHasData = trendProjects.length > 0;
+  const visibleTrendProjects = trendProjects.filter(p => !hiddenProjects.has(p.id));
+  const toggleTrendProject = (id: string) =>
+    setHiddenProjects(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
 
   const dayView = visWD
     .map(date => {
@@ -1172,60 +1284,101 @@ export default function UserDetailPage() {
                 )}
               </motion.div>
 
-              {/* ── Completed work ─────────────────────────────────────── */}
+              {/* ── Hours per day, by project ──────────────────────────── */}
               <motion.div
                 initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }}
                 transition={{ ...pageEnter, delay: 0.36 }}
-                className="rounded-2xl border border-border/60 bg-gradient-to-br from-emerald-500/[0.04] via-card to-card p-6 sm:p-7"
+                className="rounded-2xl border border-border/60 bg-card p-6 sm:p-7"
               >
                 <div className="flex items-start justify-between gap-4 flex-wrap mb-5">
                   <div>
-                    <div className="flex items-center gap-2 text-emerald-500/80 mb-1">
-                      <Trophy className="h-4 w-4" />
-                      <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/50">Shipped</span>
+                    <div className="flex items-center gap-2 text-primary/80 mb-1">
+                      <BarChart2 className="h-4 w-4" />
+                      <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/50">Trend</span>
                     </div>
-                    <h2 className="text-lg font-semibold text-foreground">Completed tasks</h2>
+                    <h2 className="text-lg font-semibold text-foreground">Hours per day, by project</h2>
                     <p className="text-xs text-muted-foreground/50 mt-1">
-                      Work this teammate has already finished — newest completions first.
+                      Daily hours logged across projects — one line per project.
                     </p>
                   </div>
-                  <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">
-                    {doneTasks.length}
-                  </span>
+
+                  {/* Range filter */}
+                  <div className="flex items-center gap-1 rounded-xl border border-border/50 bg-muted/30 p-0.5">
+                    {[14, 30, 90].map(n => (
+                      <button
+                        key={n}
+                        onClick={() => setTrendDays(n)}
+                        className={cn(
+                          'px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors',
+                          trendDays === n ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                        )}
+                      >
+                        {n}d
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
-                {doneTasks.length === 0 ? (
-                  <p className="text-sm text-muted-foreground/35 italic py-6 text-center">No completed tasks yet.</p>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {[...doneTasks]
-                      .sort((a, b) => (b.completedAt ?? '').localeCompare(a.completedAt ?? ''))
-                      .map((t, i) => {
-                        const proj = projects.find(p => p.id === t.projectId);
-                        const col = proj ? projColor(proj.id) : PROJECT_PALETTE[0];
-                        return (
-                          <motion.div
-                            key={t.id}
-                            initial={{ opacity: 0, scale: 0.98 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            transition={{ ...pageEnter, delay: Math.min(i * 0.03, 0.35) }}
-                            className="rounded-2xl border border-border/50 bg-card/90 p-4 flex flex-col gap-2 shadow-sm"
-                          >
-                            <p className="text-sm font-semibold text-foreground leading-snug">{t.title}</p>
-                            <div className="flex flex-wrap items-center gap-2">
-                              {proj && (
-                                <span className={cn('text-[10px] px-2 py-0.5 rounded-md font-semibold border', col.bg, col.text, col.border)}>
-                                  {proj.name}
-                                </span>
-                              )}
-                              <span className="text-[10px] font-mono text-muted-foreground/40">
-                                {t.completedAt ? `Completed ${fmtISO(t.completedAt.slice(0, 10))}` : `Due ${fmtISO(t.dueDate)}`}
-                              </span>
-                            </div>
-                          </motion.div>
-                        );
-                      })}
+                {/* Project filter chips */}
+                {trendHasData && (
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {trendProjects.map(p => {
+                      const off = hiddenProjects.has(p.id);
+                      return (
+                        <button
+                          key={p.id}
+                          onClick={() => toggleTrendProject(p.id)}
+                          className={cn(
+                            'flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-lg border transition-all',
+                            off ? 'border-border/40 text-muted-foreground/40 bg-transparent' : 'border-border/60 text-foreground bg-muted/40',
+                          )}
+                        >
+                          <span className="w-2 h-2 rounded-full" style={{ background: off ? 'hsl(var(--muted-foreground))' : p.hex, opacity: off ? 0.4 : 1 }} />
+                          {p.name}
+                        </button>
+                      );
+                    })}
                   </div>
+                )}
+
+                {loadingTrend ? (
+                  <div className="h-[300px] flex items-center justify-center text-sm text-muted-foreground/40">Loading…</div>
+                ) : !trendHasData ? (
+                  <p className="text-sm text-muted-foreground/35 italic py-16 text-center">No time logged in this period.</p>
+                ) : (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <AreaChart data={trendData} margin={{ top: 8, right: 12, bottom: 4, left: -18 }}>
+                      <defs>
+                        {visibleTrendProjects.map(p => (
+                          <linearGradient key={p.id} id={`trend-${p.id}`} x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor={p.hex} stopOpacity={0.25} />
+                            <stop offset="100%" stopColor={p.hex} stopOpacity={0.02} />
+                          </linearGradient>
+                        ))}
+                      </defs>
+                      <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeOpacity={0.25} />
+                      <XAxis dataKey="label" axisLine={false} tickLine={false}
+                        tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))', opacity: 0.55 }}
+                        interval="preserveStartEnd" minTickGap={28} />
+                      <YAxis axisLine={false} tickLine={false}
+                        tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))', opacity: 0.55 }}
+                        tickFormatter={v => `${v}h`} />
+                      <RTooltip content={<ProjectTrendTooltip />} cursor={{ stroke: 'hsl(var(--border))' }} />
+                      {visibleTrendProjects.map(p => (
+                        <Area
+                          key={p.id}
+                          type="monotone"
+                          dataKey={p.id}
+                          name={p.name}
+                          stroke={p.hex}
+                          strokeWidth={2}
+                          fill={`url(#trend-${p.id})`}
+                          dot={false}
+                          activeDot={{ r: 3 }}
+                        />
+                      ))}
+                    </AreaChart>
+                  </ResponsiveContainer>
                 )}
               </motion.div>
 

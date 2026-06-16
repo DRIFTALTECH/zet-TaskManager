@@ -237,6 +237,8 @@ export interface AITimesheetRow {
   confidence: number;  // 0–1
   needs_clarification: boolean;
   clarification_note: string | null;
+  suggest_create_section: boolean;
+  suggested_section_name: string | null;
 }
 
 export interface AITimesheetParseResponse {
