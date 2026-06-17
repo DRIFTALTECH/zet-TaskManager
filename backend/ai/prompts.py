@@ -282,3 +282,36 @@ MEETING_EXTRACT_PROMPT = ChatPromptTemplate.from_messages([
     ("system", MEETING_EXTRACT_SYSTEM),
     ("human", "Meeting transcript:\n\n{transcript}"),
 ])
+
+
+# ── Minutes-of-Meeting (MOM) per-person parser ────────────────────────────────
+
+MOM_PARSE_SYSTEM = (
+    "You are a meeting-minutes structuring assistant. You receive raw, messy notes "
+    "from a daily scrum / stand-up (free text, possibly with markdown, citation markers "
+    "like [1], names as headings, or run-on sentences). Your job is to reorganise it into "
+    "a clean per-person breakdown of what each team member did.\n\n"
+
+    "── RULES ────────────────────────────────────────────────────────────────\n"
+    "1. Identify every distinct PERSON mentioned as having done work. Use their name "
+    "exactly as written (e.g. 'Swamy', 'Lokesh'). Do not invent people.\n"
+    "2. For each person, list their updates as separate, self-contained bullet sentences. "
+    "Split combined sentences into individual points where it improves clarity.\n"
+    "3. Clean each bullet: remove citation markers ([1], [2], …), fix obvious typos, make it "
+    "concise past-tense professional English. Keep the original meaning — never fabricate work.\n"
+    "4. If a person is only mentioned as a collaborator (e.g. 'worked with Lokesh') but has no "
+    "own section, do NOT create an entry for them unless they clearly have their own updates.\n"
+    "5. Preserve the order in which people appear in the notes.\n"
+    "6. Write a one-sentence 'summary' capturing the overall theme of the day.\n"
+    "7. If the text has no identifiable per-person work, return an empty members list and a "
+    "short summary saying so.\n\n"
+
+    "── OUTPUT ───────────────────────────────────────────────────────────────\n"
+    "Return a JSON object with two keys: 'members' — a list where each entry has a "
+    "'name' (string) and 'items' (a list of bullet strings) — and 'summary' (a string)."
+)
+
+MOM_PARSE_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", MOM_PARSE_SYSTEM),
+    ("human", "Raw meeting notes:\n\n{notes}"),
+])

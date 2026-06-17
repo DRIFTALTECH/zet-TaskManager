@@ -3,10 +3,12 @@ from datetime import datetime, timezone
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+import crud.task_assignees as assignees_crud
 import crud.task_feedback as feedback_crud
 import crud.tasks as tasks_crud
+import crud.users as users_crud
 from database.init_db import new_id
-from database.models import TaskFeedback, User
+from database.models import TaskFeedback
 from logic import project_logic
 from logic.schemas import TaskFeedbackCreate, TaskFeedbackOut, TaskFeedbackPatch
 
@@ -20,7 +22,7 @@ def _ensure_task_member(db: Session, task_id: str, user_id: str):
 
 
 def to_out(db: Session, row: TaskFeedback) -> TaskFeedbackOut:
-    author = db.get(User, row.user_id)
+    author = users_crud.get_by_id(db, row.user_id)
     return TaskFeedbackOut(
         id=row.id,
         taskId=row.task_id,
@@ -54,6 +56,37 @@ def create_feedback(db: Session, user_id: str, task_id: str, body: TaskFeedbackC
     )
     feedback_crud.create_row(db, row)
     return to_out(db, row)
+
+
+def create_feedback_action(db: Session, user_id: str, task_id: str, body: TaskFeedbackCreate) -> TaskFeedbackOut:
+    """Create feedback + audit + notify creator/assignees/mentions + commit."""
+    from logic import notification_logic
+    from logic.audit import log_audit
+
+    result = create_feedback(db, user_id, task_id, body)
+    task = tasks_crud.get_by_id(db, task_id)
+    title = task.title if task else "a task"
+    actor = users_crud.get_by_id(db, user_id)
+    actor_name = actor.name if actor else "Someone"
+
+    log_audit(db, user_id, "task.comment_added", "task", task_id, task.title if task else "", {})
+
+    assignee_ids = assignees_crud.list_user_ids_ordered(db, task_id)
+    creator_id = task.created_by if task else ""
+    notification_logic.notify_users(
+        db, user_ids=list(set(assignee_ids) | {creator_id}),
+        type="task_commented", title="New comment",
+        message=f'{actor_name} commented on "{title}"',
+        entity_type="task", entity_id=task_id, triggered_by=user_id,
+    )
+    notification_logic.notify_users(
+        db, user_ids=body.mentionedUserIds,
+        type="task_mentioned", title="You were mentioned",
+        message=f'{actor_name} mentioned you in "{title}"',
+        entity_type="task", entity_id=task_id, triggered_by=user_id,
+    )
+    db.commit()
+    return result
 
 
 def patch_feedback(db: Session, user_id: str, task_id: str, feedback_id: str, body: TaskFeedbackPatch) -> TaskFeedbackOut:

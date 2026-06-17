@@ -289,6 +289,7 @@ const AdminPage = () => {
                           <SelectContent>
                             <SelectItem value="employee">Employee</SelectItem>
                             <SelectItem value="manager">Manager</SelectItem>
+                            <SelectItem value="admin">Admin</SelectItem>
                           </SelectContent>
                         </Select>
                       </TableCell>
@@ -351,6 +352,7 @@ const AdminPage = () => {
                       <SelectContent>
                         <SelectItem value="employee">Employee</SelectItem>
                         <SelectItem value="manager">Manager</SelectItem>
+                        <SelectItem value="admin">Admin</SelectItem>
                       </SelectContent>
                     </Select>
                     <span className="text-xs text-muted-foreground whitespace-nowrap">

@@ -56,7 +56,7 @@ def build_tools(db: Session, current_user: User) -> list:
             name: Short project name (required)
             description: Optional description
         """
-        if current_user.role != "manager":
+        if current_user.role not in ("manager", "admin"):
             return "ACCESS DENIED: Only managers can create projects."
 
         existing = db.query(ProjectModel).filter(
@@ -184,7 +184,7 @@ def build_tools(db: Session, current_user: User) -> list:
             project_id: ID of the project
             user_id: ID of the user to add
         """
-        if current_user.role != "manager":
+        if current_user.role not in ("manager", "admin"):
             return "ACCESS DENIED: Only managers can add members to projects."
 
         project = db.get(ProjectModel, project_id)

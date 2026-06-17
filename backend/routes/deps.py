@@ -19,7 +19,8 @@ def get_current_user_id(
 
 def require_admin(
     token: str = Depends(get_token),
+    db: Session = Depends(get_db),
 ) -> None:
     """Dependency guarding admin-only routes. Raises 401/403 unless the bearer
-    token is an admin-scoped token issued by /auth/admin/login."""
-    auth_logic.require_admin(token)
+    token is an admin-scoped token (master admin or an app user with the admin role)."""
+    auth_logic.require_admin(token, db)

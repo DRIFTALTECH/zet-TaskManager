@@ -6,6 +6,7 @@ import { useAppStore } from "@/stores/appStore";
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { consumePendingMicrosoftAuth } from "@/lib/microsoftAuth";
+import { adminApi } from "@/lib/adminApi";
 import LoginPage from "./pages/LoginPage";
 import SignUpPage from "./pages/SignUpPage";
 import DashboardPage from "./pages/DashboardPage";
@@ -21,6 +22,7 @@ import AuditPage from "./pages/AuditPage";
 import AppSidebar from "./components/AppSidebar";
 import AppNavbar from "./components/AppNavbar";
 import AIPage from "./pages/AIPage";
+import MeetingNotesPage from "./pages/MeetingNotesPage";
 import AdminLoginPage from "./pages/AdminLoginPage";
 import AdminPage from "./pages/AdminPage";
 import { useLiveSync } from "./hooks/useTaskSync";
@@ -43,7 +45,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 function ProtectedRoute({ children, managerOnly }: { children: React.ReactNode; managerOnly?: boolean }) {
   const currentUser = useAppStore(s => s.currentUser);
   if (!currentUser) return <Navigate to="/login" />;
-  if (managerOnly && currentUser.role !== 'manager') return <Navigate to="/" />;
+  if (managerOnly && currentUser.role !== 'manager' && currentUser.role !== 'admin') return <Navigate to="/" />;
   return <AppLayout>{children}</AppLayout>;
 }
 
@@ -83,6 +85,12 @@ function MsalRedirectResume() {
     ran.current = true;
     void (async () => {
       try {
+        if (pending.flow === 'admin') {
+          await adminApi.loginMicrosoft(pending.idToken);
+          toast.success('Welcome, admin');
+          navigate("/admin", { replace: true });
+          return;
+        }
         if (pending.flow === 'signup') {
           const user = await loginWithMicrosoft(pending.idToken, false, pending.role ?? undefined, pending.jobTitle, pending.experienceMonths);
           if (user) {
@@ -126,6 +134,7 @@ const App = () => (
           <Route path="/" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
           <Route path="/tasks" element={<ProtectedRoute><MyTasksPage /></ProtectedRoute>} />
           <Route path="/timesheet" element={<ProtectedRoute><TimesheetPage /></ProtectedRoute>} />
+          <Route path="/meeting-notes" element={<ProtectedRoute><MeetingNotesPage /></ProtectedRoute>} />
           <Route path="/reports" element={<ProtectedRoute><TimeReportPage /></ProtectedRoute>} />
           <Route path="/users" element={<ProtectedRoute managerOnly><UsersPage /></ProtectedRoute>} />
           <Route path="/users/:userId" element={<ProtectedRoute managerOnly><UserDetailPage /></ProtectedRoute>} />

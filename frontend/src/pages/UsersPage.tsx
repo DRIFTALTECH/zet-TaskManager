@@ -118,7 +118,9 @@ const UsersPage = () => {
             {filteredUsers.map((user, i) => {
               const activeTasks = tasks.filter(t => isTaskAssignedTo(t, user.id) && t.status !== 'completed').length;
               const userProjects = projects.filter(p => p.members.includes(user.id));
-              const isManager = user.role === 'manager';
+              const isAdmin = user.role === 'admin';
+              const isManager = user.role === 'manager' || isAdmin;
+              const roleLabel = isAdmin ? 'Admin' : user.role === 'manager' ? 'Manager' : 'Employee';
 
               return (
                 <motion.div
@@ -150,7 +152,7 @@ const UsersPage = () => {
                             ? 'bg-primary/10 text-primary border-primary/20'
                             : 'bg-muted/60 text-muted-foreground border-border/40'
                         }`}>
-                          {isManager ? 'Manager' : 'Employee'}
+                          {roleLabel}
                         </span>
                       </div>
                     </div>

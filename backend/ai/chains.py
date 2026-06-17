@@ -19,7 +19,9 @@ from ai.schemas import (
     ExtractedTask,
     GenerateDescriptionResponse,
     MeetingIngestResponse,
+    MomParseResult,
     ParseTaskResponse,
+    StrictMomParseResult,
     StrictTimesheetParseResponse,
     SummarizeTaskResponse,
     TimesheetParseResponse,
@@ -285,3 +287,27 @@ def extract_tasks_from_transcript(transcript: str, users=None, projects=None) ->
 def extract_tasks_from_audio(audio_bytes: bytes, filename: str, users=None, projects=None) -> MeetingIngestResponse:
     transcript = service.transcribe(audio_bytes, filename)
     return extract_tasks_from_transcript(transcript, users, projects)
+
+
+# ── Minutes-of-Meeting per-person parser ──────────────────────────────────────
+
+def parse_meeting_notes(notes: str) -> MomParseResult:
+    """Turn raw scrum/MOM text into a clean per-person breakdown.
+
+    Tries constrained decoding first (guaranteed-valid JSON); falls back to the
+    lenient structured path if the strict model/provider hiccups.
+    """
+    variables = {"notes": notes}
+    try:
+        strict = service.complete_structured_strict(
+            prompts.MOM_PARSE_PROMPT,
+            variables,
+            StrictMomParseResult,
+        )
+        return MomParseResult.model_validate(strict.model_dump())
+    except Exception:
+        return service.complete_structured(
+            prompts.MOM_PARSE_PROMPT,
+            variables,
+            MomParseResult,
+        )

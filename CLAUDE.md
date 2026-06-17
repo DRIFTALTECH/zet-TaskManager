@@ -53,16 +53,44 @@ All server state lives in Zustand (`frontend/src/stores/appStore.ts`). The store
 ### Backend Layers
 
 ```
-routes/    → HTTP endpoint definitions (auth, users, projects, tasks, kanban, timesheet)
-logic/     → Business logic and validations
-crud/      → SQLAlchemy database operations
+routes/    → HTTP endpoint definitions only — parse input, call ONE logic function, return
+logic/     → ALL business logic, validation, orchestration, audit, notifications, transaction boundaries
+crud/      → EVERY SQLAlchemy / SQL query — no exceptions
 database/  → ORM models and DB connection setup
 main.py    → FastAPI app with CORS (all origins allowed)
 ```
 
+## ⛔ ARCHITECTURE RULES — MANDATORY, NON-NEGOTIABLE
+
+This project follows a strict `routes → logic → crud` layering. Every change MUST obey:
+
+1. **Every SQL/ORM query lives in `crud/` — and nowhere else.** Any `db.query(...)`,
+   `db.get(...)`, `db.execute(text(...))`, `db.add(...)`, `db.delete(...)`, `.update(...)`,
+   `.flush()`, raw SQL, or model read/write belongs in a `crud/` function. `routes/` and
+   `logic/` must NEVER contain these. If you need data, add or call a `crud/` function.
+2. **`routes/` only trigger logic.** An endpoint takes the request input + the
+   `db`/`user_id` dependencies and calls exactly one `logic/` function, then returns its
+   result. No queries, no business rules, no audit calls, no notifications in routes.
+   (Returning a `FileResponse`/`Response` and reading an `UploadFile` is allowed — those
+   are pure HTTP concerns.)
+3. **`logic/` holds all business logic** — validation, permissions, orchestration, audit
+   logging, notifications, and transaction boundaries (`db.commit()` is allowed in logic).
+   Logic may construct model instances (not a query) but delegates all persistence to `crud/`.
+4. **One CRUD module per table/domain** (e.g. `crud/tasks.py`, `crud/notifications.py`).
+   Name functions for intent: `get_by_id`, `list_for_member`, `create`, `update`, `delete`.
+5. **Filtering happens in SQL, not Python.** Do not fetch everything and filter in a loop —
+   add a filtered query to `crud/` (e.g. `projects.list_for_member`).
+
+When adding a feature: define the query in `crud/`, the rules in `logic/`, and a thin
+endpoint in `routes/`. If you catch yourself importing a model or `text` into `routes/` or
+`logic/` for a query, stop and move it to `crud/`.
+
 ### Key Domain Concepts
 
-- **Roles**: `manager` and `employee` — managers can approve tasks, manage users, and access protected routes (`/users`, `/manage-employees`)
+- **Roles**: `admin`, `manager`, `employee`.
+  - `admin` — full access to everything **plus** the standalone `/admin` console; sees ALL projects and tasks. The admin role can only be granted from the admin console.
+  - `manager` — all in-app manager powers (create projects, assign members, approve, move any task) but **no** admin console; sees only the projects they are a member of.
+  - `employee` — own work only; cannot create projects or assign members; sees only projects they belong to.
 - **Projects → Sections → Tasks**: Tasks belong to sections within projects
 - **Multi-assignee tasks**: `task_assignees` table with position ordering
 - **Time tracking**: Per-user, per-task, per-date via `task_time_logs`; separate manual `timesheet_entries`

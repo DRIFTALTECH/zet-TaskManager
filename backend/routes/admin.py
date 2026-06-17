@@ -14,6 +14,7 @@ from logic.audit import get_audit_logs
 from logic.schemas import (
     AdminChangePassword,
     AdminLoginBody,
+    AdminMicrosoftLoginBody,
     AdminPasswordReset,
     AdminProjectOut,
     AdminProjectsUpdate,
@@ -31,6 +32,12 @@ router = APIRouter()
 @router.post("/login", response_model=AdminTokenResponse)
 def admin_login(body: AdminLoginBody, db: Session = Depends(get_db)):
     token = auth_logic.admin_login(db, body.username, body.password)
+    return AdminTokenResponse(access_token=token)
+
+
+@router.post("/login/microsoft", response_model=AdminTokenResponse)
+def admin_login_microsoft(body: AdminMicrosoftLoginBody, db: Session = Depends(get_db)):
+    token = auth_logic.admin_microsoft_login(db, body.id_token)
     return AdminTokenResponse(access_token=token)
 
 

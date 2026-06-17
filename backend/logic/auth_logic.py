@@ -11,8 +11,8 @@ from fastapi import HTTPException, status
 from jwt import PyJWKClient
 from sqlalchemy.orm import Session
 
+import crud.settings as settings_crud
 import crud.users as users_crud
-from database.models import AppSetting
 from logic import user_logic
 from logic.schemas import LoginBody, LoginResponse, MicrosoftAuthBody, RegisterBody
 
@@ -128,39 +128,49 @@ def login(db: Session, body: LoginBody) -> LoginResponse:
 
 # ── Admin console auth ─────────────────────────────────────────────────────────
 
-def create_admin_token() -> str:
+def create_admin_token(subject: str = ADMIN_SUBJECT) -> str:
+    """Admin-scoped token. `subject` is the master admin by default, or a user id
+    for an app user who holds the 'admin' role."""
     expire = datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRE_HOURS_DEFAULT)
     return jwt.encode(
-        {"sub": ADMIN_SUBJECT, "scope": "admin", "exp": expire},
+        {"sub": subject, "scope": "admin", "exp": expire},
         JWT_SECRET,
         algorithm=JWT_ALGO,
     )
 
 
-def require_admin(token: str) -> None:
-    """Raise unless the token is a valid admin-scoped token."""
+def require_admin(token: str, db: Session | None = None) -> None:
+    """Raise unless the token is a valid admin-scoped token.
+
+    Accepts both the standalone master admin (sub=__admin__) and any app user
+    whose token was issued with admin scope — re-checking that the user still
+    holds the 'admin' role and is active (so revoking the role takes effect).
+    """
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
     except jwt.ExpiredSignatureError:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Admin session expired")
     except jwt.InvalidTokenError:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid admin token")
-    if payload.get("scope") != "admin" or payload.get("sub") != ADMIN_SUBJECT:
+    if payload.get("scope") != "admin":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin privileges required")
+    sub = payload.get("sub")
+    if sub == ADMIN_SUBJECT:
+        return
+    # App-user admin token — confirm the user still qualifies.
+    if db is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin privileges required")
+    user = users_crud.get_by_id(db, sub) if sub else None
+    if not user or user.role != "admin" or not getattr(user, "is_active", True):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin privileges required")
 
 
 def _get_setting(db: Session, key: str) -> str | None:
-    row = db.get(AppSetting, key)
-    return row.value if row else None
+    return settings_crud.get(db, key)
 
 
 def _set_setting(db: Session, key: str, value: str) -> None:
-    row = db.get(AppSetting, key)
-    if row:
-        row.value = value
-    else:
-        db.add(AppSetting(key=key, value=value))
-    db.commit()
+    settings_crud.set(db, key, value)
 
 
 def _verify_admin_password(db: Session, password: str) -> bool:
@@ -171,9 +181,30 @@ def _verify_admin_password(db: Session, password: str) -> bool:
 
 
 def admin_login(db: Session, username: str, password: str) -> str:
-    if (username or "").strip() != ADMIN_USERNAME or not _verify_admin_password(db, password):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid admin username or password")
-    return create_admin_token()
+    uname = (username or "").strip()
+    # 1) Standalone master admin.
+    if uname == ADMIN_USERNAME and _verify_admin_password(db, password):
+        return create_admin_token()
+    # 2) App user with the 'admin' role, logging in with their own email + password.
+    user = users_crud.get_by_email(db, uname)
+    if user and verify_password(password, user.password_hash) and user.role == "admin":
+        if not getattr(user, "is_active", True):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "This account has been deactivated.")
+        return create_admin_token(subject=user.id)
+    raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid admin credentials")
+
+
+def admin_microsoft_login(db: Session, id_token: str) -> str:
+    """Admin-console login via Microsoft — only for existing app users with the
+    'admin' role."""
+    claims = _decode_microsoft_id_token((id_token or "").strip())
+    email = (claims.get("email") or claims.get("preferred_username") or "").strip().lower()
+    user = users_crud.get_by_email(db, email) if email else None
+    if not user or user.role != "admin":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This Microsoft account is not an admin.")
+    if not getattr(user, "is_active", True):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This account has been deactivated.")
+    return create_admin_token(subject=user.id)
 
 
 def change_admin_password(db: Session, current_password: str, new_password: str) -> None:

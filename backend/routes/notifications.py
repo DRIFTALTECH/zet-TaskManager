@@ -31,7 +31,6 @@ def mark_all_read(
     db: Session = Depends(get_db),
 ):
     notification_logic.mark_all_read(db, user_id)
-    db.commit()
     return Response(status_code=204)
 
 
@@ -42,5 +41,4 @@ def mark_read(
     db: Session = Depends(get_db),
 ):
     notification_logic.mark_read(db, user_id, notification_id)
-    db.commit()
     return Response(status_code=204)

@@ -201,13 +201,16 @@ class Notification(Base):
     created_at = Column(String, nullable=False)
 
 
-class MeetingNote(Base):
-    """One day's meeting minutes: raw pasted text + AI-parsed per-person breakdown."""
+class Scrum(Base):
+    """One scrum / meeting entry. A day can hold many of these (standup, sync, etc.).
+    Stores raw pasted text + the AI-parsed per-person breakdown."""
 
-    __tablename__ = "meeting_notes"
+    __tablename__ = "scrums"
 
     id = Column(String, primary_key=True)
-    work_date = Column(String, nullable=False, unique=True, index=True)  # YYYY-MM-DD
+    work_date = Column(String, nullable=False, index=True)  # YYYY-MM-DD (NOT unique — many per day)
+    title = Column(String, nullable=False, default="Scrum")
+    position = Column(Integer, nullable=False, default=0)
     raw_text = Column(Text, nullable=False, default="")
     parsed_json = Column(Text, nullable=False, default="")  # JSON: {members:[{name,items[]}], summary}
     parse_status = Column(String, nullable=False, default="empty")  # empty|ok|failed

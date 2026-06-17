@@ -153,12 +153,37 @@ def create_perf_indexes() -> None:
             conn.execute(text(s))
 
 
+def migrate_meeting_notes_to_scrums() -> None:
+    """Carry forward the original one-note-per-day rows into the multi-scrum table."""
+    insp = inspect(engine)
+    if not insp.has_table("meeting_notes") or not insp.has_table("scrums"):
+        return
+    with engine.begin() as conn:
+        already = conn.execute(text("SELECT COUNT(*) FROM scrums")).scalar() or 0
+        if already:
+            return
+        rows = conn.execute(text(
+            "SELECT id, work_date, raw_text, parsed_json, parse_status, updated_by, updated_at, created_at "
+            "FROM meeting_notes"
+        )).fetchall()
+        for r in rows:
+            conn.execute(text(
+                "INSERT INTO scrums (id, work_date, title, position, raw_text, parsed_json, "
+                "parse_status, updated_by, updated_at, created_at) VALUES "
+                "(:id, :wd, 'Scrum', 0, :raw, :pj, :ps, :ub, :ua, :ca)"
+            ), {
+                "id": r[0], "wd": r[1], "raw": r[2], "pj": r[3],
+                "ps": r[4], "ub": r[5], "ua": r[6], "ca": r[7],
+            })
+
+
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     migrate_timelogs_if_needed()
     migrate_user_experience_if_needed()
     migrate_user_is_active_if_needed()
     create_notifications_if_missing()
+    migrate_meeting_notes_to_scrums()
     create_perf_indexes()
     db = SessionLocal()
     try:

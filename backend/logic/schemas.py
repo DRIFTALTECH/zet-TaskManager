@@ -59,13 +59,17 @@ class AdminLoginBody(BaseModel):
     password: str
 
 
+class AdminMicrosoftLoginBody(BaseModel):
+    id_token: str = Field(..., min_length=20)
+
+
 class AdminTokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
 
 
 class AdminRoleUpdate(BaseModel):
-    role: Literal["employee", "manager"]
+    role: Literal["employee", "manager", "admin"]
 
 
 class AdminPasswordReset(BaseModel):
@@ -321,3 +325,46 @@ class NotificationOut(BaseModel):
     triggeredByName: str
     triggeredByAvatar: str
     createdAt: str
+
+
+# ── Scrums / meeting notes (MOM) ──────────────────────────────────────────────
+
+class MomMemberOut(BaseModel):
+    name: str
+    items: list[str] = []
+
+
+class ScrumCreate(BaseModel):
+    title: str = Field("Scrum", max_length=120)
+    rawText: str = Field("", max_length=20000)
+
+
+class ScrumUpdate(BaseModel):
+    """Either edit raw text (re-parses) or hand-edit the parsed members/summary."""
+    title: str | None = Field(None, max_length=120)
+    rawText: str | None = Field(None, max_length=20000)
+    members: list[MomMemberOut] | None = None
+    summary: str | None = Field(None, max_length=2000)
+
+
+class ScrumOut(BaseModel):
+    id: str
+    date: str
+    title: str
+    rawText: str
+    members: list[MomMemberOut] = []
+    summary: str = ""
+    parseStatus: str = "empty"  # empty | ok | failed
+    updatedBy: str | None = None
+    updatedByName: str = ""
+    updatedAt: str = ""
+
+
+class ScrumDaySummary(BaseModel):
+    """Lightweight row for the calendar grid (no raw text)."""
+    date: str
+    scrumCount: int
+    memberCount: int
+    summary: str = ""
+    parseStatus: str = "empty"
+    updatedByName: str = ""

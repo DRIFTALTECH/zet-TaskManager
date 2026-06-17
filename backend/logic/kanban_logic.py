@@ -4,6 +4,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 import crud.kanban as kanban_crud
+import crud.tasks as tasks_crud
 from logic.schemas import KanbanColumnCreate, KanbanColumnOut, KanbanColumnRename, KanbanReorderBody
 
 # These 4 IDs are permanent — they cannot be deleted (tasks use them as status values)
@@ -58,9 +59,7 @@ def delete_column(db: Session, column_id: str) -> list[KanbanColumnOut]:
     if not col:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Column not found")
     # Move any tasks in this column back to backlog before deleting
-    from database.models import Task
-    db.query(Task).filter(Task.status == column_id).update({"status": "backlog"})
-    db.commit()
+    tasks_crud.reassign_status(db, column_id, "backlog")
     kanban_crud.delete_column(db, column_id)
     return list_columns(db)
 

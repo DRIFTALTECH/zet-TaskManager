@@ -6,6 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { adminApi, getAdminToken } from '@/lib/adminApi';
+import {
+  formatMsalAuthError,
+  isMicrosoftAuthConfigured,
+  signInWithMicrosoftAdminRedirect,
+} from '@/lib/microsoftAuth';
 
 const AdminLoginPage = () => {
   const navigate = useNavigate();
@@ -46,13 +51,13 @@ const AdminLoginPage = () => {
 
         <form onSubmit={submit} className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="admin-username">Username</Label>
+            <Label htmlFor="admin-username">Username or email</Label>
             <Input
               id="admin-username"
               autoComplete="username"
               value={username}
               onChange={e => setUsername(e.target.value)}
-              placeholder="admin"
+              placeholder="admin or you@company.com"
             />
           </div>
           <div className="space-y-1.5">
@@ -70,6 +75,35 @@ const AdminLoginPage = () => {
             {loading ? 'Signing in…' : 'Sign in'}
           </Button>
         </form>
+
+        {isMicrosoftAuthConfigured() && (
+          <>
+            <div className="flex items-center gap-3 my-4">
+              <div className="h-px flex-1 bg-border" />
+              <span className="text-[11px] uppercase tracking-wider text-muted-foreground/50">or</span>
+              <div className="h-px flex-1 bg-border" />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              disabled={loading}
+              onClick={async () => {
+                try {
+                  await signInWithMicrosoftAdminRedirect();
+                } catch (e) {
+                  const msg = formatMsalAuthError(e);
+                  if (msg) toast.error(msg);
+                }
+              }}
+            >
+              Sign in with Microsoft
+            </Button>
+            <p className="text-[11px] text-muted-foreground/50 text-center mt-3">
+              Microsoft sign-in works only for accounts with the admin role.
+            </p>
+          </>
+        )}
       </div>
     </div>
   );

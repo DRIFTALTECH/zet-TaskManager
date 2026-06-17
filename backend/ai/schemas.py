@@ -272,3 +272,31 @@ class StrictTimesheetParseResponse(BaseModel):
 class MeetingIngestResponse(BaseModel):
     transcript: str | None = None
     tasks: list[ExtractedTask] = Field(default_factory=list)
+
+
+# ── Meeting minutes (MOM) parser ──────────────────────────────────────────────
+
+class MomMember(BaseModel):
+    name: str = Field(..., description="Team member's name exactly as written in the notes")
+    items: list[str] = Field(
+        default_factory=list,
+        description="That person's updates as clean, self-contained bullet sentences",
+    )
+
+
+class MomParseResult(BaseModel):
+    members: list[MomMember] = Field(default_factory=list)
+    summary: str = Field("", description="One-sentence overview of the day's meeting")
+
+
+# Strict variant for constrained decoding (all required, extra forbidden).
+class StrictMomMember(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(..., description="Team member's name exactly as written")
+    items: list[str] = Field(..., description="That person's updates as clean bullet sentences")
+
+
+class StrictMomParseResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    members: list[StrictMomMember] = Field(..., description="One entry per person mentioned")
+    summary: str = Field(..., description="One-sentence overview of the day's meeting")

@@ -163,7 +163,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
   const [attachmentsLoading, setAttachmentsLoading] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
 
-  const isManager = currentUser?.role === 'manager';
+  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'admin';
   const isCompleted = task?.status === 'completed';
   const canReopenToBacklog = Boolean(
     currentUser && task && isCompleted &&

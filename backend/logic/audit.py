@@ -1,18 +1,19 @@
-"""Lightweight audit-log helper used by all mutation routes."""
+"""Lightweight audit-log helper used by all mutation flows.
+
+Holds the formatting/business logic only — every DB query lives in crud/audit.py."""
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from database.models import AuditLog, User
+import crud.audit as audit_crud
+import crud.users as users_crud
+from database.models import AuditLog
 
 
 def purge_old_audit_logs(db: Session) -> None:
-    """Delete audit rows older than 7 days. Commits immediately."""
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
-    db.query(AuditLog).filter(AuditLog.created_at < cutoff).delete(synchronize_session=False)
-    db.commit()
+    audit_crud.purge_old(db)
 
 
 def log_audit(
@@ -35,27 +36,24 @@ def log_audit(
             details=json.dumps(details or {}),
             created_at=datetime.now(timezone.utc).isoformat(),
         )
-        db.add(row)
-        db.flush()   # persist within the current transaction
+        audit_crud.insert(db, row)
     except Exception:
         pass  # never let audit failure surface to the caller
+
+
+def list_for_viewer(db: Session, user_id: str, limit: int = 200):
+    """Audit rows scoped to the viewer: managers/admins see all, employees their own."""
+    caller = users_crud.get_by_id(db, user_id)
+    is_manager = caller is not None and caller.role in ("manager", "admin")
+    return get_audit_logs(db, user_id, is_manager, limit=limit)
 
 
 def get_audit_logs(db: Session, user_id: str, is_manager: bool, limit: int = 200):
     """Return audit rows. Managers see all; employees see only their own.
     Purges rows older than 7 days before querying."""
-    purge_old_audit_logs(db)
-
-    from database.models import User as UserModel
-
-    q = db.query(AuditLog)
-    if not is_manager:
-        q = q.filter(AuditLog.user_id == user_id)
-    rows = q.order_by(AuditLog.id.desc()).limit(limit).all()
-
-    # Build userId → name map for the returned rows
-    user_ids = list({r.user_id for r in rows})
-    users = {u.id: u.name for u in db.query(UserModel).filter(UserModel.id.in_(user_ids)).all()}
+    audit_crud.purge_old(db)
+    rows = audit_crud.list_recent(db, user_id=None if is_manager else user_id, limit=limit)
+    names = users_crud.names_for_ids(db, list({r.user_id for r in rows}))
 
     result = []
     for r in rows:
@@ -66,7 +64,7 @@ def get_audit_logs(db: Session, user_id: str, is_manager: bool, limit: int = 200
         result.append({
             "id": r.id,
             "userId": r.user_id,
-            "userName": users.get(r.user_id, r.user_id),
+            "userName": names.get(r.user_id, r.user_id),
             "action": r.action,
             "entityType": r.entity_type,
             "entityId": r.entity_id,

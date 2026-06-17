@@ -75,6 +75,15 @@ export const adminApi = {
     return r.access_token;
   },
 
+  async loginMicrosoft(idToken: string): Promise<string> {
+    const r = await request<{ access_token: string }>('/admin/login/microsoft', {
+      method: 'POST',
+      body: JSON.stringify({ id_token: idToken }),
+    });
+    setAdminToken(r.access_token);
+    return r.access_token;
+  },
+
   listUsers(): Promise<User[]> {
     return request('/admin/users');
   },

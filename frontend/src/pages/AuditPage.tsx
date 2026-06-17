@@ -46,7 +46,7 @@ function timeAgo(iso: string) {
 
 export default function AuditPage() {
   const { currentUser, users } = useAppStore();
-  const isManager = currentUser?.role === 'manager';
+  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'admin';
 
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);

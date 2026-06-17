@@ -18,6 +18,14 @@ def list_all(db: Session) -> list[User]:
     return db.query(User).order_by(User.name).all()
 
 
+def names_for_ids(db: Session, user_ids: list[str]) -> dict[str, str]:
+    """Map of user_id → name for the given ids (one query)."""
+    if not user_ids:
+        return {}
+    rows = db.query(User.id, User.name).filter(User.id.in_(user_ids)).all()
+    return {r[0]: r[1] for r in rows}
+
+
 def update_user(db: Session, user: User, *, name: str | None = None, avatar: str | None = None) -> User:
     if name is not None:
         user.name = name

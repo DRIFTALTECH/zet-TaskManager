@@ -12,6 +12,17 @@ def list_all(db: Session) -> list[Project]:
     return db.query(Project).order_by(Project.name).all()
 
 
+def list_for_member(db: Session, user_id: str) -> list[Project]:
+    """Projects the user is a member of — filtered in SQL via a join."""
+    return (
+        db.query(Project)
+        .join(ProjectMember, ProjectMember.project_id == Project.id)
+        .filter(ProjectMember.user_id == user_id)
+        .order_by(Project.name)
+        .all()
+    )
+
+
 def create_project(
     db: Session,
     *,

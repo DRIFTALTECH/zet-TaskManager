@@ -29,35 +29,51 @@ def to_project_out(db: Session, p: Project) -> ProjectOut:
     )
 
 
+def is_managerial(db: Session, user_id: str) -> bool:
+    """True for manager and admin — both have full access to every project."""
+    from logic import user_logic
+
+    u = user_logic.get_user_or_404(db, user_id)
+    return u.role in ("manager", "admin")
+
+
 def ensure_project_member(db: Session, project_id: str, user_id: str) -> None:
     p = projects_crud.get_by_id(db, project_id)
     if not p:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+    # Admins can access any project; managers and employees must be members.
+    if is_admin(db, user_id):
+        return
     mids = projects_crud.member_ids(db, project_id)
     if user_id not in mids:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a member of this project")
 
 
 def ensure_manager(db: Session, user_id: str) -> None:
-    from logic import user_logic
-
-    u = user_logic.get_user_or_404(db, user_id)
-    if u.role != "manager":
+    if not is_managerial(db, user_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Manager only")
 
 
+def is_admin(db: Session, user_id: str) -> bool:
+    from logic import user_logic
+
+    return user_logic.get_user_or_404(db, user_id).role == "admin"
+
+
 def list_projects(db: Session, current_user_id: str) -> list[ProjectOut]:
-    all_p = projects_crud.list_all(db)
-    visible = []
-    for p in all_p:
-        if current_user_id not in projects_crud.member_ids(db, p.id):
-            continue
-        visible.append(p)
-    visible.sort(key=lambda x: (x.name or "").lower())
-    return [to_project_out(db, p) for p in visible]
+    # Only admins see every project; managers and employees see the projects
+    # they have been added to (filtered in SQL by the CRUD layer).
+    projects = (
+        projects_crud.list_all(db)
+        if is_admin(db, current_user_id)
+        else projects_crud.list_for_member(db, current_user_id)
+    )
+    return [to_project_out(db, p) for p in projects]
 
 
 def create_project(db: Session, current_user_id: str, body: ProjectCreate) -> ProjectOut:
+    # Only managers and admins may create projects — employees cannot.
+    ensure_manager(db, current_user_id)
     pid = new_id("p")
     today = date.today().isoformat()
     p = projects_crud.create_project(

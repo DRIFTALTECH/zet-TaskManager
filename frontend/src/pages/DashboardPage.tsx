@@ -372,7 +372,7 @@ const DashboardPage = () => {
     () => (currentUser ? projects.filter(p => currentUser.projectIds.includes(p.id)) : []),
     [currentUser, projects],
   );
-  const isManager = currentUser?.role === 'manager';
+  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'admin';
   const isAllProjects = selectedProjectId === 'all';
   const projectSelected = isAllProjects || (!!selectedProjectId && userProjects.some(p => p.id === selectedProjectId));
   const projectTasks = useMemo(() => {

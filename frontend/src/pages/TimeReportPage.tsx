@@ -86,7 +86,7 @@ const TimeReportPage = () => {
   const [drillProject, setDrillProject] = useState<string | null>(null);
   const [drillSection, setDrillSection] = useState<string | null>(null);
 
-  const isManager = currentUser?.role === 'manager';
+  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'admin';
 
   useEffect(() => {
     if (currentUser && !selectedUserId) setSelectedUserId(currentUser.id);

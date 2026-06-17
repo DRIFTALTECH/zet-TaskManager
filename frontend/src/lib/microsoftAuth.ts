@@ -47,7 +47,7 @@ const PENDING_KEY = '__zet_msal_pending_token';
 
 export type PendingMicrosoftAuth = {
   idToken: string;
-  flow: 'login' | 'signup';
+  flow: 'login' | 'signup' | 'admin';
   rememberMe: boolean;
   role?: Role;
   jobTitle?: string;
@@ -81,6 +81,7 @@ export async function initializeMsalBeforeReact(): Promise<void> {
       if (raw) {
         const o = JSON.parse(raw) as { flow?: string; rememberMe?: boolean; role?: Role; jobTitle?: string; experienceMonths?: number };
         if (o.flow === 'signup') flow = 'signup';
+        if (o.flow === 'admin') flow = 'admin';
         if (typeof o.rememberMe === 'boolean') rememberMe = o.rememberMe;
         if (o.role === 'manager' || o.role === 'employee') role = o.role;
         if (typeof o.jobTitle === 'string') jobTitle = o.jobTitle;
@@ -132,6 +133,15 @@ export async function signInWithMicrosoftRedirect(rememberMe: boolean): Promise<
   const pca = getMsalInstance();
   await pca.initialize();
   sessionStorage.setItem(OPTIONS_KEY, JSON.stringify({ flow: 'login', rememberMe }));
+  await pca.loginRedirect(redirectRequest());
+}
+
+/** Full-page redirect to Microsoft for the ADMIN console login. */
+export async function signInWithMicrosoftAdminRedirect(): Promise<void> {
+  if (!isMicrosoftAuthConfigured()) return;
+  const pca = getMsalInstance();
+  await pca.initialize();
+  sessionStorage.setItem(OPTIONS_KEY, JSON.stringify({ flow: 'admin', rememberMe: false }));
   await pca.loginRedirect(redirectRequest());
 }
 

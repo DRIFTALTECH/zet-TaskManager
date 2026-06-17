@@ -95,7 +95,7 @@ const MyTasksPage = () => {
     t.status === 'completed' &&
     (t.createdBy === currentUser.id ||
       isTaskAssignedTo(t, currentUser.id) ||
-      currentUser.role === 'manager');
+      currentUser.role === 'manager' || currentUser.role === 'admin');
 
   const myTasks = tasks.filter(t => isMyActiveTask(t) || isMyCompletedTask(t));
   const userProjects = projects.filter(p => myTasks.some(t => t.projectId === p.id));

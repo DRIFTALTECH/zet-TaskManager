@@ -1,4 +1,4 @@
-export type Role = 'manager' | 'employee';
+export type Role = 'manager' | 'employee' | 'admin';
 export type Priority = 'Low' | 'Medium' | 'High' | 'Urgent';
 export type TaskStatus = string;
 
@@ -246,6 +246,34 @@ export interface AITimesheetParseResponse {
   gaps: string[];
   total_hours: number;
   message: string;
+}
+
+/** Minutes-of-Meeting (MOM) — raw daily notes parsed per person by the AI agent. */
+export interface MomMember {
+  name: string;
+  items: string[];
+}
+
+export interface Scrum {
+  id: string;
+  date: string;
+  title: string;
+  rawText: string;
+  members: MomMember[];
+  summary: string;
+  parseStatus: 'empty' | 'ok' | 'failed';
+  updatedBy: string | null;
+  updatedByName: string;
+  updatedAt: string;
+}
+
+export interface ScrumDaySummary {
+  date: string;
+  scrumCount: number;
+  memberCount: number;
+  summary: string;
+  parseStatus: 'empty' | 'ok' | 'failed';
+  updatedByName: string;
 }
 
 /** Manual day rows on the Timesheet page (project, section, description, time range). */

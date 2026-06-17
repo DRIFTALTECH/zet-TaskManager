@@ -42,7 +42,7 @@ const AppSidebar = () => {
             </p>
           )}
           {navItems.map(item => {
-            if ('managerOnly' in item && item.managerOnly && currentUser.role !== 'manager') return null;
+            if ('managerOnly' in item && item.managerOnly && currentUser.role !== 'manager' && currentUser.role !== 'admin') return null;
             const active = location.pathname === item.path;
             return (
               <Link key={item.path} to={item.path}

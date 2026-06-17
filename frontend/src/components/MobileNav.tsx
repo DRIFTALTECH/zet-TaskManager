@@ -38,7 +38,7 @@ const MobileNav = () => {
             Workspace
           </p>
           {navItems.map(item => {
-            if (item.managerOnly && currentUser.role !== 'manager') return null;
+            if (item.managerOnly && currentUser.role !== 'manager' && currentUser.role !== 'admin') return null;
             const active = location.pathname === item.path;
             return (
               <Link

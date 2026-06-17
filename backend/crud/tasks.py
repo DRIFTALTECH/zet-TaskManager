@@ -14,6 +14,18 @@ def list_all(db: Session) -> list[Task]:
     return db.query(Task).all()
 
 
+def list_for_member_projects(db: Session, user_id: str) -> list[Task]:
+    """Tasks in any project the user is a member of — filtered in SQL via a join."""
+    from database.models import ProjectMember
+
+    return (
+        db.query(Task)
+        .join(ProjectMember, ProjectMember.project_id == Task.project_id)
+        .filter(ProjectMember.user_id == user_id)
+        .all()
+    )
+
+
 def list_for_project(db: Session, project_id: str) -> list[Task]:
     return db.query(Task).filter(Task.project_id == project_id).all()
 
@@ -82,5 +94,12 @@ def update_task(db: Session, task: Task) -> Task:
 
 def delete_task(db: Session, task_id: str) -> None:
     db.query(Task).filter(Task.id == task_id).delete()
+    db.commit()
+    realtime.bump("tasks")
+
+
+def reassign_status(db: Session, from_status: str, to_status: str) -> None:
+    """Bulk-move every task in one status/column to another (e.g. on column delete)."""
+    db.query(Task).filter(Task.status == from_status).update({"status": to_status})
     db.commit()
     realtime.bump("tasks")

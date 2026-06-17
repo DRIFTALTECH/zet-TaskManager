@@ -9,10 +9,21 @@ import crud.sections as sections_crud
 import crud.task_assignees as assignees_crud
 import crud.tasks as tasks_crud
 import crud.timelog as timelog_crud
+import crud.users as users_crud
 from database.models import Task
 from database.init_db import new_id
 from logic.schemas import LogTimeBody, TaskCreate, TaskMoveBody, TaskOut, TaskPatch
-from logic import project_logic, user_logic
+from logic import project_logic, user_logic, notification_logic
+from logic.audit import log_audit
+
+
+def _actor_name(db: Session, user_id: str, default: str = "Someone") -> str:
+    u = users_crud.get_by_id(db, user_id)
+    return u.name if u else default
+
+
+def _commit(db: Session) -> None:
+    db.commit()
 
 
 def _unique_ordered(ids: list[str]) -> list[str]:
@@ -108,9 +119,14 @@ def to_task_out(db: Session, t: Task, viewer_user_id: str) -> TaskOut:
 
 
 def list_tasks(db: Session, current_user_id: str) -> list[TaskOut]:
-    # Batched: 4 queries total regardless of task count (was ~4 per task).
-    member_pids = projects_crud.project_ids_for_user(db, current_user_id)
-    visible = [t for t in tasks_crud.list_all(db) if t.project_id in member_pids]
+    # Only admins see every task; managers and employees see tasks in the
+    # projects they belong to (filtered in SQL by the CRUD layer).
+    actor = user_logic.get_user_or_404(db, current_user_id)
+    visible = (
+        tasks_crud.list_all(db)
+        if actor.role == "admin"
+        else tasks_crud.list_for_member_projects(db, current_user_id)
+    )
     ids = [t.id for t in visible]
     assignee_map = assignees_crud.map_user_ids_for_tasks(db, ids)
     timelog_map = timelog_crud.time_log_maps_for_user(db, ids, current_user_id)
@@ -273,7 +289,7 @@ def move_task(db: Session, current_user_id: str, task_id: str, body: TaskMoveBod
     # Assignees can always move their own tasks; managers can move any task on the
     # board within projects they belong to (used by the manager project dashboard).
     actor = user_logic.get_user_or_404(db, current_user_id)
-    if not (_can_move_task_on_board(db, t, current_user_id) or actor.role == "manager"):
+    if not (_can_move_task_on_board(db, t, current_user_id) or actor.role in ("manager", "admin")):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             "Only the task's assignees or a manager can move it between columns",
@@ -293,7 +309,7 @@ def _can_reopen_completed_task(db: Session, t: Task, user_id: str) -> bool:
     if assignees_crud.is_assignee(db, t.id, user_id):
         return True
     actor = user_logic.get_user_or_404(db, user_id)
-    return actor.role == "manager"
+    return actor.role in ("manager", "admin")
 
 
 def reopen_completed_to_backlog(db: Session, current_user_id: str, task_id: str) -> TaskOut:
@@ -358,3 +374,95 @@ def delete_task(db: Session, current_user_id: str, task_id: str) -> None:
             "Only the user who created this task can delete it",
         )
     tasks_crud.delete_task(db, task_id)
+
+
+# ── Orchestration actions (audit + notifications + commit) ────────────────────
+# Routes call these directly; they own the side-effects so endpoints stay thin.
+
+def create_task_action(db: Session, user_id: str, body: TaskCreate) -> TaskOut:
+    result = create_task(db, user_id, body)
+    log_audit(db, user_id, "task.created", "task", result.id, result.title,
+              {"projectId": result.projectId, "priority": result.priority})
+    notification_logic.notify_users(
+        db, user_ids=result.assigneeIds, type="task_assigned", title="New task assigned",
+        message=f'{_actor_name(db, user_id)} assigned you to "{result.title}"',
+        entity_type="task", entity_id=result.id, triggered_by=user_id,
+    )
+    _commit(db)
+    return result
+
+
+def patch_task_action(db: Session, user_id: str, task_id: str, body: TaskPatch) -> TaskOut:
+    old_assignee_ids = set(assignees_crud.list_user_ids_ordered(db, task_id))
+    result = patch_task(db, user_id, task_id, body)
+    details: dict = {}
+    if body.status is not None:
+        details["status"] = body.status
+    if body.priority is not None:
+        details["priority"] = body.priority
+    log_audit(db, user_id, "task.updated", "task", task_id, result.title, details)
+    actor_name = _actor_name(db, user_id)
+    if body.assigneeIds is not None:
+        new_assignees = set(result.assigneeIds) - old_assignee_ids
+        notification_logic.notify_users(
+            db, user_ids=list(new_assignees), type="task_assigned", title="New task assigned",
+            message=f'{actor_name} assigned you to "{result.title}"',
+            entity_type="task", entity_id=task_id, triggered_by=user_id,
+        )
+    if body.status is not None:
+        notification_logic.notify_users(
+            db, user_ids=list(set(result.assigneeIds) | {result.createdBy}),
+            type="task_status_changed", title="Task status updated",
+            message=f'{actor_name} moved "{result.title}" to {body.status}',
+            entity_type="task", entity_id=task_id, triggered_by=user_id,
+        )
+    _commit(db)
+    return result
+
+
+def delete_task_action(db: Session, user_id: str, task_id: str) -> None:
+    t = tasks_crud.get_by_id(db, task_id)
+    title = t.title if t else task_id
+    delete_task(db, user_id, task_id)
+    log_audit(db, user_id, "task.deleted", "task", task_id, title, {})
+    _commit(db)
+
+
+def start_task_action(db: Session, user_id: str, task_id: str) -> TaskOut:
+    result = start_task(db, user_id, task_id)
+    log_audit(db, user_id, "task.started", "task", task_id, result.title, {})
+    _commit(db)
+    return result
+
+
+def move_task_action(db: Session, user_id: str, task_id: str, body: TaskMoveBody) -> TaskOut:
+    result = move_task(db, user_id, task_id, body)
+    log_audit(db, user_id, "task.status_changed", "task", task_id, result.title, {"status": body.status})
+    notification_logic.notify_users(
+        db, user_ids=list(set(result.assigneeIds) | {result.createdBy}),
+        type="task_status_changed", title="Task status updated",
+        message=f'{_actor_name(db, user_id)} moved "{result.title}" to {body.status}',
+        entity_type="task", entity_id=task_id, triggered_by=user_id,
+    )
+    _commit(db)
+    return result
+
+
+def reopen_to_backlog_action(db: Session, user_id: str, task_id: str) -> TaskOut:
+    result = reopen_completed_to_backlog(db, user_id, task_id)
+    log_audit(db, user_id, "task.reopened", "task", task_id, result.title, {})
+    _commit(db)
+    return result
+
+
+def approve_task_action(db: Session, user_id: str, task_id: str) -> TaskOut:
+    result = approve_task(db, user_id, task_id)
+    log_audit(db, user_id, "task.approved", "task", task_id, result.title, {})
+    notification_logic.notify_users(
+        db, user_ids=list(set(result.assigneeIds) | {result.createdBy}),
+        type="task_approved", title="Task approved",
+        message=f'{_actor_name(db, user_id, "Manager")} approved "{result.title}"',
+        entity_type="task", entity_id=task_id, triggered_by=user_id,
+    )
+    _commit(db)
+    return result

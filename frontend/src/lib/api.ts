@@ -139,6 +139,34 @@ export const api = {
     return request('/sync/version');
   },
 
+  // ── Scrums / meeting notes (MOM) ─────────────────────────────────────────
+  async getScrumDays(start: string, end: string): Promise<import('@/types').ScrumDaySummary[]> {
+    return request(`/meeting-notes?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
+  },
+
+  async getScrumsForDay(date: string): Promise<import('@/types').Scrum[]> {
+    return request(`/meeting-notes/day/${date}`);
+  },
+
+  async createScrum(date: string, title: string, rawText: string): Promise<import('@/types').Scrum> {
+    return request(`/meeting-notes/day/${date}`, { method: 'POST', body: JSON.stringify({ title, rawText }) });
+  },
+
+  async updateScrum(
+    id: string,
+    patch: { title?: string; rawText?: string; members?: import('@/types').MomMember[]; summary?: string },
+  ): Promise<import('@/types').Scrum> {
+    return request(`/meeting-notes/scrum/${id}`, { method: 'PUT', body: JSON.stringify(patch) });
+  },
+
+  async reparseScrum(id: string): Promise<import('@/types').Scrum> {
+    return request(`/meeting-notes/scrum/${id}/reparse`, { method: 'POST' });
+  },
+
+  async deleteScrum(id: string): Promise<{ ok: boolean }> {
+    return request(`/meeting-notes/scrum/${id}`, { method: 'DELETE' });
+  },
+
   async createTask(body: {
     title: string;
     description: string;
