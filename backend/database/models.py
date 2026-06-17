@@ -199,3 +199,18 @@ class Notification(Base):
     is_read = Column(Boolean, nullable=False, default=False)
     triggered_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)
+
+
+class MeetingNote(Base):
+    """One day's meeting minutes: raw pasted text + AI-parsed per-person breakdown."""
+
+    __tablename__ = "meeting_notes"
+
+    id = Column(String, primary_key=True)
+    work_date = Column(String, nullable=False, unique=True, index=True)  # YYYY-MM-DD
+    raw_text = Column(Text, nullable=False, default="")
+    parsed_json = Column(Text, nullable=False, default="")  # JSON: {members:[{name,items[]}], summary}
+    parse_status = Column(String, nullable=False, default="empty")  # empty|ok|failed
+    updated_by = Column(String, ForeignKey("users.id"), nullable=True)
+    updated_at = Column(String, nullable=False, default="")
+    created_at = Column(String, nullable=False, default="")

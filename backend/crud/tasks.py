@@ -2,6 +2,7 @@ import json
 
 from sqlalchemy.orm import Session
 
+import realtime
 from database.models import Task
 
 
@@ -67,6 +68,7 @@ def create_task(
     db.add(t)
     db.commit()
     db.refresh(t)
+    realtime.bump("tasks")
     return t
 
 
@@ -74,9 +76,11 @@ def update_task(db: Session, task: Task) -> Task:
     db.add(task)
     db.commit()
     db.refresh(task)
+    realtime.bump("tasks")
     return task
 
 
 def delete_task(db: Session, task_id: str) -> None:
     db.query(Task).filter(Task.id == task_id).delete()
     db.commit()
+    realtime.bump("tasks")

@@ -135,12 +135,31 @@ def migrate_user_is_active_if_needed() -> None:
         conn.execute(text("ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1"))
 
 
+def create_perf_indexes() -> None:
+    """Indexes on hot foreign-key columns not already covered by a PK/unique index.
+
+    task_assignees (PK task_id,user_id), task_time_logs (uniq task_id,log_date,user_id)
+    and timesheet_entries (user_id, work_date) are already indexed; these fill the gaps
+    that the task-list and visibility queries hit on every load.
+    """
+    stmts = [
+        "CREATE INDEX IF NOT EXISTS ix_tasks_project_id ON tasks (project_id)",
+        "CREATE INDEX IF NOT EXISTS ix_project_members_user_id ON project_members (user_id)",
+        "CREATE INDEX IF NOT EXISTS ix_task_time_logs_user_id ON task_time_logs (user_id)",
+        "CREATE INDEX IF NOT EXISTS ix_sections_project_id ON sections (project_id)",
+    ]
+    with engine.begin() as conn:
+        for s in stmts:
+            conn.execute(text(s))
+
+
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     migrate_timelogs_if_needed()
     migrate_user_experience_if_needed()
     migrate_user_is_active_if_needed()
     create_notifications_if_missing()
+    create_perf_indexes()
     db = SessionLocal()
     try:
         backfill_task_assignees(db)

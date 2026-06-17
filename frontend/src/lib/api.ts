@@ -1,13 +1,10 @@
 import type { AuditLog, KanbanColumn, Notification, Project, Role, Task, TaskAttachment, TaskChecklist, TaskFeedback, TimesheetWorkEntry, User } from '@/types';
+import { getApiUrl } from '@/lib/env';
 
 const TOKEN_KEY = 'tm_token';
 
 function baseUrl(): string {
-  const raw = import.meta.env.VITE_API_URL as string | undefined;
-  if (!raw?.trim()) {
-    throw new Error('VITE_API_URL is missing. Set it in frontend/.env (see Vite env docs).');
-  }
-  return raw.replace(/\/+$/, '');
+  return getApiUrl();
 }
 
 function headers(json = true): HeadersInit {
@@ -132,6 +129,14 @@ export const api = {
 
   async getTasks(): Promise<Task[]> {
     return request('/tasks');
+  },
+
+  async getTasksVersion(): Promise<{ version: number }> {
+    return request('/tasks/version');
+  },
+
+  async getSyncVersion(): Promise<{ tasks: number; projects: number; users: number }> {
+    return request('/sync/version');
   },
 
   async createTask(body: {

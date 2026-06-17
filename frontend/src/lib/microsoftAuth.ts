@@ -7,29 +7,23 @@ import {
   type Configuration,
 } from '@azure/msal-browser';
 import type { Role } from '@/types';
+import {
+  getMicrosoftClientId,
+  getMicrosoftTenantId,
+  isMicrosoftAuthConfigured,
+} from '@/lib/env';
 
-/** Must match the Application (client) ID in Azure Entra / App registrations. */
-export function isMicrosoftAuthConfigured(): boolean {
-  const id = import.meta.env.VITE_MICROSOFT_CLIENT_ID as string | undefined;
-  return Boolean(id?.trim());
-}
+export { isMicrosoftAuthConfigured };
 
 function clientId(): string {
-  const id = (import.meta.env.VITE_MICROSOFT_CLIENT_ID as string | undefined)?.trim();
-  if (!id) throw new Error('VITE_MICROSOFT_CLIENT_ID is not set');
-  return id;
+  return getMicrosoftClientId();
 }
 
 let instance: PublicClientApplication | null = null;
 
 function getMsalInstance(): PublicClientApplication {
   if (!instance) {
-    const tenantId = (import.meta.env.VITE_MICROSOFT_TENANT_ID as string | undefined)?.trim();
-    if (!tenantId) {
-      throw new Error(
-        'VITE_MICROSOFT_TENANT_ID is not set. Add your directory (tenant) ID to frontend/.env.',
-      );
-    }
+    const tenantId = getMicrosoftTenantId();
     const config: Configuration = {
       auth: {
         clientId: clientId(),

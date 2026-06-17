@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 
+import realtime
 from database.models import Section
 
 
@@ -16,6 +17,7 @@ def create_section(db: Session, *, section_id: str, name: str, project_id: str) 
     db.add(s)
     db.commit()
     db.refresh(s)
+    realtime.bump("projects")
     return s
 
 
@@ -24,3 +26,4 @@ def delete_section(db: Session, section_id: str) -> None:
     if s:
         db.delete(s)
         db.commit()
+        realtime.bump("projects")

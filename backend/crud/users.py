@@ -1,6 +1,7 @@
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+import realtime
 from database.models import ProjectMember, User
 
 
@@ -25,6 +26,7 @@ def update_user(db: Session, user: User, *, name: str | None = None, avatar: str
     db.add(user)
     db.commit()
     db.refresh(user)
+    realtime.bump("users")
     return user
 
 
@@ -46,6 +48,7 @@ def set_role(db: Session, user: User, role: str) -> User:
     db.add(user)
     db.commit()
     db.refresh(user)
+    realtime.bump("users")
     return user
 
 
@@ -54,6 +57,7 @@ def set_active(db: Session, user: User, is_active: bool) -> User:
     db.add(user)
     db.commit()
     db.refresh(user)
+    realtime.bump("users")
     return user
 
 
@@ -71,6 +75,7 @@ def set_project_membership(db: Session, user_id: str, project_ids: list[str]) ->
     for pid in wanted - existing:
         db.add(ProjectMember(user_id=user_id, project_id=pid))
     db.commit()
+    realtime.bump("projects", "users")
 
 
 def create_user(
@@ -101,4 +106,5 @@ def create_user(
     db.add(u)
     db.commit()
     db.refresh(u)
+    realtime.bump("users")
     return u

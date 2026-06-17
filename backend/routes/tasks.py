@@ -17,6 +17,7 @@ from logic.schemas import (
 )
 from routes.deps import get_current_user_id
 import crud.task_assignees as assignees_crud
+import realtime
 
 router = APIRouter()
 
@@ -24,6 +25,16 @@ router = APIRouter()
 @router.get("", response_model=list[TaskOut])
 def list_tasks(user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
     return task_logic.list_tasks(db, user_id)
+
+
+@router.get("/version")
+def tasks_version(user_id: str = Depends(get_current_user_id)):
+    """Tiny endpoint for smart polling: returns the current change version.
+
+    Clients poll this and only refetch the task list when the number changes.
+    Kept for backward-compatibility; prefer GET /sync/version for all channels.
+    """
+    return {"version": realtime.current("tasks")}
 
 
 @router.post("", response_model=TaskOut)

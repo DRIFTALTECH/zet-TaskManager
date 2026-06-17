@@ -9,6 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 import crud.users as users_crud
+import realtime
 from database.models import (
     Project,
     ProjectMember,
@@ -156,6 +157,8 @@ def delete_user(db: Session, user_id: str, reassign_to: str | None) -> None:
 
     db.delete(victim)
     db.commit()
+    # Deleting/reassigning touches users, project rosters, and task assignments.
+    realtime.bump("users", "projects", "tasks")
 
 
 def change_admin_password(db: Session, current_password: str, new_password: str) -> None:

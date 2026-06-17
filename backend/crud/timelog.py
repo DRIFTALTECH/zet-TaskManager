@@ -1,6 +1,7 @@
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+import realtime
 from database.models import Task, TaskTimeLog
 
 
@@ -36,6 +37,7 @@ def add_seconds(db: Session, task_id: str, log_date: str, seconds: int, user_id:
         db.add(task)
     db.commit()
     db.refresh(row)
+    realtime.bump("tasks")
     return row
 
 
@@ -50,6 +52,23 @@ def time_log_map_for_user(db: Session, task_id: str, user_id: str) -> dict[str, 
         .all()
     )
     return {r.log_date: r.seconds for r in rows}
+
+
+def time_log_maps_for_user(
+    db: Session, task_ids: list[str], user_id: str
+) -> dict[str, dict[str, int]]:
+    """Per-task {date: seconds} maps for one viewer across many tasks in one query."""
+    if not task_ids:
+        return {}
+    rows = (
+        db.query(TaskTimeLog)
+        .filter(TaskTimeLog.task_id.in_(task_ids), TaskTimeLog.user_id == user_id)
+        .all()
+    )
+    out: dict[str, dict[str, int]] = {}
+    for r in rows:
+        out.setdefault(r.task_id, {})[r.log_date] = r.seconds
+    return out
 
 
 def recompute_task_total(db: Session, task_id: str) -> int:

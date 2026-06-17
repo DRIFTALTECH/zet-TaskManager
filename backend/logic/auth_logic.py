@@ -31,8 +31,11 @@ ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "Default@123")
 ADMIN_SUBJECT = "__admin__"
 _ADMIN_PW_KEY = "admin_password_hash"
 
-MICROSOFT_CLIENT_ID = os.environ.get("MICROSOFT_CLIENT_ID", "").strip()
-MICROSOFT_TENANT_ID = os.environ.get("MICROSOFT_TENANT_ID", "").strip()
+_DEFAULT_MICROSOFT_CLIENT_ID = "eb4d79fc-169b-4d89-b381-e239ec7dfe5e"
+_DEFAULT_MICROSOFT_TENANT_ID = "567ad03c-3f9a-42e7-bc13-9f75f6bc87b6"
+
+MICROSOFT_CLIENT_ID = os.environ.get("MICROSOFT_CLIENT_ID", "").strip() or _DEFAULT_MICROSOFT_CLIENT_ID
+MICROSOFT_TENANT_ID = os.environ.get("MICROSOFT_TENANT_ID", "").strip() or _DEFAULT_MICROSOFT_TENANT_ID
 # Tenant-specific JWKS avoids edge-case validation issues for single-tenant apps; falls back to common.
 MICROSOFT_JWKS_URL = (
     f"https://login.microsoftonline.com/{MICROSOFT_TENANT_ID}/discovery/v2.0/keys"

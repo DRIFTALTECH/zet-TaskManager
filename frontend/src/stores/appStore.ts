@@ -43,6 +43,8 @@ interface AppState {
   users: User[];
 
   tasks: Task[];
+  syncTasks: () => Promise<void>;
+  syncProjectsAndUsers: () => Promise<void>;
   createTask: (
     task: Pick<Task, 'title' | 'description' | 'projectId' | 'sectionId' | 'dueDate' | 'priority' | 'tags'> & {
       assigneeIds: string[];
@@ -272,6 +274,29 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   users: [],
   tasks: [],
+
+  // Background re-sync of the task list (used by smart polling). Authoritative
+  // refetch — replaces local task state with the server's current view.
+  syncTasks: async () => {
+    if (!get().currentUser) return;
+    try {
+      const tasks = await api.getTasks();
+      set({ tasks });
+    } catch {
+      // transient network error — next poll will retry
+    }
+  },
+
+  // Background re-sync of users + projects (used by smart polling) — picks up
+  // new members, projects, sections, role changes, etc. from other clients.
+  syncProjectsAndUsers: async () => {
+    if (!get().currentUser) return;
+    try {
+      await refetchUsersProjects(get, set);
+    } catch {
+      // transient network error — next poll will retry
+    }
+  },
 
   createTask: async taskData => {
     const t = await api.createTask({

@@ -1,4 +1,5 @@
 import type { AuditLog, Role, User } from '@/types';
+import { getApiUrl } from '@/lib/env';
 
 /**
  * Admin console API client. The admin is a standalone operator (not a normal
@@ -15,11 +16,7 @@ export interface AdminProject {
 }
 
 function baseUrl(): string {
-  const raw = import.meta.env.VITE_API_URL as string | undefined;
-  if (!raw?.trim()) {
-    throw new Error('VITE_API_URL is missing. Set it in frontend/.env (see Vite env docs).');
-  }
-  return raw.replace(/\/+$/, '');
+  return getApiUrl();
 }
 
 export function getAdminToken(): string | null {

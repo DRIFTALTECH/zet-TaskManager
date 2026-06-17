@@ -40,6 +40,41 @@ def _can_move_task_on_board(db: Session, t: Task, user_id: str) -> bool:
     return False
 
 
+def _build_task_out(t: Task, assignee_ids: list[str], time_log: dict[str, int]) -> TaskOut:
+    """Assemble a TaskOut from a task row plus already-loaded assignees / time log.
+
+    No DB access — callers pass precomputed values so list endpoints can batch.
+    """
+    cf = json.loads(t.custom_fields_json or "{}")
+    tags = json.loads(t.tags_json or "[]")
+    if not assignee_ids:
+        assignee_ids = [t.assigned_to]
+    primary = assignee_ids[0] if assignee_ids else t.assigned_to
+    return TaskOut(
+        id=t.id,
+        title=t.title,
+        description=t.description,
+        projectId=t.project_id,
+        sectionId=t.section_id,
+        assignedTo=primary,
+        assigneeIds=assignee_ids,
+        assignedBy=t.assigned_by,
+        createdBy=t.created_by,
+        dueDate=t.due_date,
+        priority=t.priority,
+        status=t.status,
+        isStarted=t.is_started,
+        startedAt=t.started_at,
+        completedAt=t.completed_at,
+        approvedByManager=t.approved_by_manager,
+        timeTracked=t.time_tracked,
+        tags=tags if isinstance(tags, list) else [],
+        createdAt=t.created_at,
+        timeLog=time_log,
+        customFields=cf if isinstance(cf, dict) else {},
+    )
+
+
 def to_task_out(db: Session, t: Task, viewer_user_id: str) -> TaskOut:
     cf = json.loads(t.custom_fields_json or "{}")
     tags = json.loads(t.tags_json or "[]")
@@ -73,14 +108,16 @@ def to_task_out(db: Session, t: Task, viewer_user_id: str) -> TaskOut:
 
 
 def list_tasks(db: Session, current_user_id: str) -> list[TaskOut]:
-    all_t = tasks_crud.list_all(db)
-    visible = []
-    for t in all_t:
-        p = projects_crud.get_by_id(db, t.project_id)
-        mids = projects_crud.member_ids(db, t.project_id)
-        if current_user_id in mids:
-            visible.append(t)
-    return [to_task_out(db, t, current_user_id) for t in visible]
+    # Batched: 4 queries total regardless of task count (was ~4 per task).
+    member_pids = projects_crud.project_ids_for_user(db, current_user_id)
+    visible = [t for t in tasks_crud.list_all(db) if t.project_id in member_pids]
+    ids = [t.id for t in visible]
+    assignee_map = assignees_crud.map_user_ids_for_tasks(db, ids)
+    timelog_map = timelog_crud.time_log_maps_for_user(db, ids, current_user_id)
+    return [
+        _build_task_out(t, assignee_map.get(t.id, []), timelog_map.get(t.id, {}))
+        for t in visible
+    ]
 
 
 def get_task(db: Session, current_user_id: str, task_id: str) -> TaskOut:

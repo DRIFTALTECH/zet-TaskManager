@@ -23,10 +23,12 @@ import AppNavbar from "./components/AppNavbar";
 import AIPage from "./pages/AIPage";
 import AdminLoginPage from "./pages/AdminLoginPage";
 import AdminPage from "./pages/AdminPage";
+import { useLiveSync } from "./hooks/useTaskSync";
 
 const queryClient = new QueryClient();
 
 function AppLayout({ children }: { children: React.ReactNode }) {
+  useLiveSync(); // live updates (tasks, projects, users) via smart polling
   return (
     <div className="flex min-h-screen w-full">
       <AppSidebar />

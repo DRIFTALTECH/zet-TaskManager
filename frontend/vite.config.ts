@@ -2,14 +2,12 @@ import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { componentTagger } from "lovable-tagger";
+import { DEFAULT_API_URL } from "./env.defaults";
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, path.resolve(__dirname), "");
-  const backendUrl = env.VITE_API_URL?.replace(/\/+$/, "");
-  if (!backendUrl) {
-    throw new Error("VITE_API_URL must be set in frontend/.env (e.g. http://127.0.0.1:8081)");
-  }
+  const backendUrl = (env.VITE_API_URL?.trim() || DEFAULT_API_URL).replace(/\/+$/, "");
   return {
   server: {
     host: "::",
