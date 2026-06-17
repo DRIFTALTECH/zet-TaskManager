@@ -13,7 +13,7 @@ from routes import register_routes
 
 init_db()
 
-app = FastAPI(title="ZET API", version="1.0.0")
+app = FastAPI(title="ZET Backend API", version="1.0.1")
 
 app.add_middleware(
     CORSMiddleware,
