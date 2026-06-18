@@ -1,13 +1,14 @@
 import { useAppStore } from '@/stores/appStore';
 import { motion } from 'framer-motion';
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   User, Lock, Sun, Moon, Camera, Check, Eye, EyeOff,
-  Shield, Mail, Briefcase, Terminal, Copy, AlertTriangle,
+  Shield, Mail, Briefcase, Terminal, Copy, AlertTriangle, Trash2, Plug,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { pageEnter } from '@/lib/motion';
 import { api } from '@/lib/api';
+import type { PersonalAccessToken } from '@/types';
 import UserAvatar from '@/components/UserAvatar';
 
 const inputCls = 'w-full rounded-xl border border-border/50 bg-muted/40 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 transition-all placeholder:text-muted-foreground/40';
@@ -15,6 +16,12 @@ const inputCls = 'w-full rounded-xl border border-border/50 bg-muted/40 px-4 py-
 /** The MCP endpoint is embedded in the backend at /mcp; override with VITE_MCP_URL. */
 const MCP_BASE = (import.meta.env.VITE_MCP_URL as string | undefined)
   || `${(import.meta.env.VITE_API_URL as string | undefined) || 'http://127.0.0.1:8000'}/mcp/`;
+
+function fmtDate(iso: string): string {
+  if (!iso) return '';
+  try { return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); }
+  catch { return iso; }
+}
 
 export default function SettingsPage() {
   const { currentUser, updateProfile, changePassword, toggleTheme, theme } = useAppStore();
@@ -39,6 +46,24 @@ export default function SettingsPage() {
   const [showToken, setShowToken] = useState(false);
   const [genLoading, setGenLoading] = useState(false);
   const [copiedField, setCopiedField] = useState<'url' | 'token' | null>(null);
+  const [tokens, setTokens] = useState<PersonalAccessToken[]>([]);
+  const [loadingTokens, setLoadingTokens] = useState(false);
+  const [revoking, setRevoking] = useState<string | null>(null);
+
+  const loadTokens = useCallback(async () => {
+    setLoadingTokens(true);
+    try {
+      setTokens(await api.listAccessTokens());
+    } catch {
+      setTokens([]);
+    } finally {
+      setLoadingTokens(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (devOn) void loadTokens();
+  }, [devOn, loadTokens]);
 
   const generateMcp = async () => {
     setGenLoading(true);
@@ -46,10 +71,24 @@ export default function SettingsPage() {
       const t = await api.createAccessToken('MCP token');
       setMcpToken(t.token);
       setShowToken(false);
+      void loadTokens();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not generate MCP token');
     } finally {
       setGenLoading(false);
+    }
+  };
+
+  const revokeToken = async (id: string) => {
+    setRevoking(id);
+    try {
+      await api.revokeAccessToken(id);
+      setTokens(ts => ts.filter(t => t.id !== id));
+      toast.success('Access revoked');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not revoke');
+    } finally {
+      setRevoking(null);
     }
   };
 
@@ -346,9 +385,9 @@ export default function SettingsPage() {
                 role="switch"
                 aria-checked={devOn}
                 onClick={() => setDevOn(v => !v)}
-                className={`relative h-6 w-11 rounded-full transition-colors ${devOn ? 'bg-primary' : 'bg-muted-foreground/30'}`}
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary/40 ${devOn ? 'bg-primary' : 'bg-muted-foreground/25'}`}
               >
-                <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${devOn ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                <span className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${devOn ? 'translate-x-6' : 'translate-x-1'}`} />
               </button>
             </div>
 
@@ -385,6 +424,49 @@ export default function SettingsPage() {
                   </div>
                   <p className="text-[11px] text-muted-foreground/45">
                     Uses OAuth — the client registers itself and you sign in to ZET in your browser.
+                  </p>
+                </div>
+
+                {/* Connected apps & tokens — revoke access here */}
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-muted-foreground/60 uppercase tracking-wide flex items-center gap-1.5">
+                      <Plug className="h-3.5 w-3.5" /> Connected apps &amp; tokens
+                    </label>
+                    <button onClick={() => void loadTokens()} className="text-[11px] text-muted-foreground/45 hover:text-foreground transition-colors">
+                      Refresh
+                    </button>
+                  </div>
+
+                  {loadingTokens ? (
+                    <p className="text-xs text-muted-foreground/40 py-2">Loading…</p>
+                  ) : tokens.length === 0 ? (
+                    <p className="text-xs text-muted-foreground/40 py-3 text-center rounded-xl border border-dashed border-border/40">
+                      No active connections yet. Connect a client with the URL above, or generate a token below.
+                    </p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {tokens.map(t => (
+                        <div key={t.id} className="flex items-center gap-3 rounded-xl border border-border/40 bg-muted/20 px-3 py-2.5">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold text-foreground truncate">{t.name}</p>
+                            <p className="text-[11px] text-muted-foreground/45 font-mono truncate">
+                              {t.prefix}… · {t.lastUsedAt ? `last used ${fmtDate(t.lastUsedAt)}` : `created ${fmtDate(t.createdAt)}`}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => void revokeToken(t.id)}
+                            disabled={revoking === t.id}
+                            className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs font-semibold hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" /> {revoking === t.id ? 'Revoking…' : 'Revoke'}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-[11px] text-muted-foreground/40">
+                    Revoking immediately disconnects that app — it will have to log in again.
                   </p>
                 </div>
 

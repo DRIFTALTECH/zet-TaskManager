@@ -413,6 +413,10 @@ class _QueryTokenToHeader:
 
 
 def build_mcp_asgi():
-    """Return (asgi_app, lifespan) to mount under /mcp in the FastAPI app."""
-    http_app = mcp.http_app(path="/", transport="http")
+    """Return (asgi_app, lifespan) to mount under /mcp in the FastAPI app.
+
+    stateless_http=True so the server holds no per-connection session state — this
+    avoids "Session not found" when a client reconnects after idle, or across a
+    reload/restart/worker."""
+    http_app = mcp.http_app(path="/", transport="http", stateless_http=True)
     return _QueryTokenToHeader(http_app), http_app.lifespan

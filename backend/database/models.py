@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from database.database import Base
@@ -199,6 +199,31 @@ class Notification(Base):
     is_read = Column(Boolean, nullable=False, default=False)
     triggered_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)
+
+
+class OAuthClient(Base):
+    """A dynamically-registered MCP OAuth client (persisted so it survives restarts)."""
+
+    __tablename__ = "oauth_clients"
+
+    client_id = Column(String, primary_key=True)
+    data = Column(Text, nullable=False)  # JSON of OAuthClientInformationFull
+    created_at = Column(String, nullable=False, default="")
+
+
+class OAuthGrant(Base):
+    """Short-lived OAuth artifacts: pending auth requests, auth codes, refresh tokens.
+    One table keyed by value, distinguished by `kind`. Persisted so the flow survives
+    server reloads/restarts and works across workers."""
+
+    __tablename__ = "oauth_grants"
+
+    key = Column(String, primary_key=True)      # request_id | code | refresh token
+    kind = Column(String, nullable=False)       # 'pending' | 'code' | 'refresh'
+    client_id = Column(String, nullable=False, default="")
+    user_id = Column(String, nullable=False, default="")
+    data = Column(Text, nullable=False, default="{}")  # JSON payload
+    expires_at = Column(Float, nullable=True)
 
 
 class PersonalAccessToken(Base):
