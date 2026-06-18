@@ -13,8 +13,9 @@ def get_token(authorization: str | None = Header(None)) -> str:
 
 def get_current_user_id(
     token: str = Depends(get_token),
+    db: Session = Depends(get_db),
 ) -> str:
-    return auth_logic.decode_token(token)
+    return auth_logic.resolve_user_id(db, token)
 
 
 def require_admin(

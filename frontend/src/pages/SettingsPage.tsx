@@ -3,13 +3,18 @@ import { motion } from 'framer-motion';
 import { useState, useRef } from 'react';
 import {
   User, Lock, Sun, Moon, Camera, Check, Eye, EyeOff,
-  Shield, Mail, Briefcase,
+  Shield, Mail, Briefcase, Terminal, Copy, AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { pageEnter } from '@/lib/motion';
+import { api } from '@/lib/api';
 import UserAvatar from '@/components/UserAvatar';
 
 const inputCls = 'w-full rounded-xl border border-border/50 bg-muted/40 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 transition-all placeholder:text-muted-foreground/40';
+
+/** The MCP endpoint is embedded in the backend at /mcp; override with VITE_MCP_URL. */
+const MCP_BASE = (import.meta.env.VITE_MCP_URL as string | undefined)
+  || `${(import.meta.env.VITE_API_URL as string | undefined) || 'http://127.0.0.1:8000'}/mcp/`;
 
 export default function SettingsPage() {
   const { currentUser, updateProfile, changePassword, toggleTheme, theme } = useAppStore();
@@ -27,6 +32,36 @@ export default function SettingsPage() {
   const [savingPw, setSavingPw] = useState(false);
   const [showCurrent, setShowCurrent] = useState(false);
   const [showNew, setShowNew] = useState(false);
+
+  // Developer settings (MCP)
+  const [devOn, setDevOn] = useState(false);
+  const [mcpToken, setMcpToken] = useState<string | null>(null);
+  const [showToken, setShowToken] = useState(false);
+  const [genLoading, setGenLoading] = useState(false);
+  const [copiedField, setCopiedField] = useState<'url' | 'token' | null>(null);
+
+  const generateMcp = async () => {
+    setGenLoading(true);
+    try {
+      const t = await api.createAccessToken('MCP token');
+      setMcpToken(t.token);
+      setShowToken(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not generate MCP token');
+    } finally {
+      setGenLoading(false);
+    }
+  };
+
+  const copyField = async (text: string, which: 'url' | 'token') => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(which);
+      setTimeout(() => setCopiedField(c => (c === which ? null : c)), 1500);
+    } catch {
+      toast.error('Could not copy');
+    }
+  };
 
   if (!currentUser) return null;
 
@@ -297,6 +332,118 @@ export default function SettingsPage() {
                 </button>
               </div>
             </div>
+          </div>
+
+          {/* ── Developer Settings (MCP) ──────────────────────────── */}
+          <div className="rounded-2xl border border-border/30 bg-card overflow-hidden">
+            <div className="px-6 py-4 border-b border-border/20 bg-muted/10 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Terminal className="h-4 w-4 text-primary/70" />
+                <h2 className="text-sm font-bold text-foreground">Developer settings</h2>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-500 border border-amber-500/25 font-bold uppercase tracking-wide">Beta</span>
+              </div>
+              <button
+                role="switch"
+                aria-checked={devOn}
+                onClick={() => setDevOn(v => !v)}
+                className={`relative h-6 w-11 rounded-full transition-colors ${devOn ? 'bg-primary' : 'bg-muted-foreground/30'}`}
+              >
+                <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${devOn ? 'translate-x-5' : 'translate-x-0.5'}`} />
+              </button>
+            </div>
+
+            {devOn && (
+              <div className="p-6 space-y-4">
+                <div className="flex items-start gap-2 text-xs text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2.5">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <span>These settings are still in development and may not work accurately yet. Use at your own discretion.</span>
+                </div>
+
+                <p className="text-sm text-muted-foreground/75 leading-relaxed">
+                  Connect ZET to Claude, Cursor, or any MCP client. Just give it the URL below —
+                  your client will open ZET in the browser and ask you to <span className="font-semibold">log in</span>.
+                  No token to copy or paste.
+                </p>
+
+                {/* MCP URL — the only thing the user needs; auth happens via browser login */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-muted-foreground/60 uppercase tracking-wide">MCP URL</label>
+                  <div className="flex gap-2">
+                    <input
+                      readOnly
+                      value={MCP_BASE}
+                      onFocus={e => e.currentTarget.select()}
+                      className={`${inputCls} font-mono text-xs`}
+                    />
+                    <button
+                      onClick={() => void copyField(MCP_BASE, 'url')}
+                      className="shrink-0 flex items-center gap-1.5 px-3 rounded-xl border border-border/60 bg-muted/40 text-sm font-semibold hover:bg-muted/70 transition-colors"
+                    >
+                      {copiedField === 'url' ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
+                      {copiedField === 'url' ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground/45">
+                    Uses OAuth — the client registers itself and you sign in to ZET in your browser.
+                  </p>
+                </div>
+
+                <div className="pt-1">
+                  <p className="text-xs font-bold text-muted-foreground/50 uppercase tracking-wide mb-2">Advanced — manual token</p>
+                  <p className="text-[11px] text-muted-foreground/45 mb-2">
+                    For clients that don't support OAuth: generate a token and add it as an
+                    <span className="font-mono"> Authorization: Bearer</span> header. Acts on ZET as you — keep it secret.
+                  </p>
+                  <button
+                    onClick={() => void generateMcp()}
+                    disabled={genLoading}
+                    className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl border border-border/60 bg-muted/40 hover:bg-muted/70 disabled:opacity-40 transition-all font-semibold"
+                  >
+                    <Terminal className="h-4 w-4" />
+                    {genLoading ? 'Generating…' : mcpToken ? 'Generate new token' : 'Generate access token'}
+                  </button>
+                </div>
+
+                {mcpToken && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-muted-foreground/60 uppercase tracking-wide">Access token</label>
+                    <div className="flex gap-2">
+                      <input
+                        readOnly
+                        type={showToken ? 'text' : 'password'}
+                        value={mcpToken}
+                        onFocus={e => e.currentTarget.select()}
+                        className={`${inputCls} font-mono text-xs`}
+                      />
+                      <button
+                        onClick={() => setShowToken(v => !v)}
+                        title={showToken ? 'Hide' : 'Reveal'}
+                        className="shrink-0 flex items-center px-3 rounded-xl border border-border/60 bg-muted/40 hover:bg-muted/70 transition-colors"
+                      >
+                        {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                      <button
+                        onClick={() => void copyField(mcpToken, 'token')}
+                        className="shrink-0 flex items-center gap-1.5 px-3 rounded-xl border border-border/60 bg-muted/40 text-sm font-semibold hover:bg-muted/70 transition-colors"
+                      >
+                        {copiedField === 'token' ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
+                        {copiedField === 'token' ? 'Copied' : 'Copy'}
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground/45">
+                      Add this as a <span className="font-mono">Bearer</span> token / Authorization header in your MCP client — keep it out of the URL. Shown once; copy it now.
+                    </p>
+                    <div className="rounded-lg border border-border/40 bg-muted/20 p-3">
+                      <p className="text-[10px] font-bold text-muted-foreground/50 uppercase tracking-wide mb-1.5">Example client config</p>
+                      <pre className="text-[11px] font-mono text-muted-foreground/80 overflow-x-auto whitespace-pre">{`{
+  "url": "${MCP_BASE}",
+  "headers": { "Authorization": "Bearer ${showToken ? mcpToken : '<your-token>'}" }
+}`}</pre>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
         </div>

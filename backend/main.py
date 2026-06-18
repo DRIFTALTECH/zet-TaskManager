@@ -9,11 +9,15 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from database.init_db import init_db
+from mcp_app import build_mcp_asgi
 from routes import register_routes
 
 init_db()
 
-app = FastAPI(title="ZET Backend API", version="1.0.1")
+# Embedded MCP server — same process and port, mounted at /mcp.
+mcp_asgi, mcp_lifespan = build_mcp_asgi()
+
+app = FastAPI(title="ZET Backend API", version="1.0.1", lifespan=mcp_lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -26,3 +30,5 @@ app.add_middleware(
 )
 
 app.include_router(register_routes())
+# MCP endpoint lives at /mcp on the same server (clients connect to http://<host>:8000/mcp/).
+app.mount("/mcp", mcp_asgi)

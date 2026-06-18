@@ -276,6 +276,18 @@ export interface ScrumDaySummary {
   updatedByName: string;
 }
 
+export interface PersonalAccessToken {
+  id: string;
+  name: string;
+  prefix: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
+export interface PersonalAccessTokenCreated extends PersonalAccessToken {
+  token: string;
+}
+
 /** Manual day rows on the Timesheet page (project, section, description, time range). */
 export interface TimesheetWorkEntry {
   id: string;

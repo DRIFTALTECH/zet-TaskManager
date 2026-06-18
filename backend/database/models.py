@@ -201,6 +201,22 @@ class Notification(Base):
     created_at = Column(String, nullable=False)
 
 
+class PersonalAccessToken(Base):
+    """Long-lived, revocable token for programmatic access (MCP server, scripts).
+    Only the SHA-256 hash is stored; the raw token is shown once at creation."""
+
+    __tablename__ = "personal_access_tokens"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String, nullable=False, default="MCP token")
+    token_hash = Column(String, nullable=False, unique=True, index=True)
+    prefix = Column(String, nullable=False, default="")  # first chars, for display only
+    created_at = Column(String, nullable=False, default="")
+    last_used_at = Column(String, nullable=True)
+    revoked = Column(Boolean, nullable=False, default=False)
+
+
 class Scrum(Base):
     """One scrum / meeting entry. A day can hold many of these (standup, sync, etc.).
     Stores raw pasted text + the AI-parsed per-person breakdown."""

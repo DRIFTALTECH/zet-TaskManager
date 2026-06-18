@@ -32,6 +32,25 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+# ── Personal access tokens (MCP / programmatic access) ────────────────────────
+
+class PersonalAccessTokenCreate(BaseModel):
+    name: str = Field("MCP token", max_length=120)
+
+
+class PersonalAccessTokenOut(BaseModel):
+    id: str
+    name: str
+    prefix: str
+    createdAt: str
+    lastUsedAt: str | None = None
+
+
+class PersonalAccessTokenCreated(PersonalAccessTokenOut):
+    """Returned only once, at creation — includes the raw token."""
+    token: str
+
+
 class UserOut(BaseModel):
     id: str
     name: str

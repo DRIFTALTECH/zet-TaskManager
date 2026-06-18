@@ -113,6 +113,19 @@ def decode_token(token: str) -> str:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token")
 
 
+def resolve_user_id(db: Session, token: str) -> str:
+    """Resolve a bearer token to a user id — accepts a personal access token
+    (programmatic / MCP access) or a normal session JWT."""
+    from logic import token_logic
+
+    if token and token.startswith(token_logic.TOKEN_PREFIX):
+        user_id = token_logic.resolve_user_id(db, token)
+        if not user_id:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid or revoked access token")
+        return user_id
+    return decode_token(token)
+
+
 def login(db: Session, body: LoginBody) -> LoginResponse:
     user = users_crud.get_by_email(db, body.email)
     if not user or not verify_password(body.password, user.password_hash):

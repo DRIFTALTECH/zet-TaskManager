@@ -139,6 +139,19 @@ export const api = {
     return request('/sync/version');
   },
 
+  // ── Personal access tokens (MCP / developer) ─────────────────────────────
+  async listAccessTokens(): Promise<import('@/types').PersonalAccessToken[]> {
+    return request('/auth/tokens');
+  },
+
+  async createAccessToken(name: string): Promise<import('@/types').PersonalAccessTokenCreated> {
+    return request('/auth/tokens', { method: 'POST', body: JSON.stringify({ name }) });
+  },
+
+  async revokeAccessToken(id: string): Promise<void> {
+    await request(`/auth/tokens/${id}`, { method: 'DELETE' });
+  },
+
   // ── Scrums / meeting notes (MOM) ─────────────────────────────────────────
   async getScrumDays(start: string, end: string): Promise<import('@/types').ScrumDaySummary[]> {
     return request(`/meeting-notes?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`);
