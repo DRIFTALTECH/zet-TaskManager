@@ -1,10 +1,11 @@
 import logging
 import os
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from ai import chains, service
+from logic import task_extraction_logic
 from ai.schemas import (
     ChatRequest,
     ChatResponse,
@@ -33,16 +34,19 @@ _AI_UNAVAILABLE = "AI is temporarily unavailable. Please try again later."
 def ai_health():
     """Check AI module config — does NOT make a live API call."""
     key_set = bool(os.getenv("GROQ_API_KEY"))
+    fallback = service.fallback_available()
+    enabled = key_set or fallback
     return {
-        "status": "ok" if key_set else "degraded",
+        "status": "ok" if enabled else "degraded",
         "provider": "groq",
         "model": service._DEFAULT_MODEL,
         "api_key_configured": key_set,
+        "fallback": {"provider": "ollama", "model": service.OLLAMA_MODEL, "available": fallback},
         "features": {
-            "chat": key_set,
-            "generate_description": key_set,
-            "summarize_task": key_set,
-            "parse_task": key_set,
+            "chat": enabled,
+            "generate_description": enabled,
+            "summarize_task": enabled,
+            "parse_task": enabled,
             "meeting_ingestion": False,
         },
     }
@@ -128,6 +132,31 @@ def parse_timesheet(
 
 
 # ── Parse natural language into tasks ─────────────────────────────────────────
+
+@router.post("/extract-tasks")
+async def extract_tasks(
+    text: str | None = Form(None),
+    file: UploadFile | None = File(None),
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    """Task-creation chain: typed text, an uploaded document, or recorded/uploaded
+    audio → structured tasks with suggested assignees/projects."""
+    file_bytes = await file.read() if file is not None else None
+    filename = file.filename if file is not None else None
+    try:
+        source, result = task_extraction_logic.extract_tasks(
+            db, user_id, text=text, file_bytes=file_bytes, filename=filename
+        )
+    except HTTPException:
+        raise
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e) or _AI_UNAVAILABLE)
+    except Exception as e:
+        log.exception("AI request failed")
+        raise HTTPException(status_code=500, detail=f"AI error: {e}")
+    return {"sourceText": source, "tasks": [t.model_dump() for t in result.tasks]}
+
 
 @router.post("/parse-task", response_model=ParseTaskResponse)
 def parse_task(

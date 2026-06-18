@@ -18,7 +18,6 @@ import UserDetailPage from "./pages/UserDetailPage";
 import ManageProjectsOverview from "./pages/ManageProjectsOverview";
 import ProjectDetailPage from "./pages/ProjectDetailPage";
 import SettingsPage from "./pages/SettingsPage";
-import AuditPage from "./pages/AuditPage";
 import AppSidebar from "./components/AppSidebar";
 import AppNavbar from "./components/AppNavbar";
 import AIPage from "./pages/AIPage";
@@ -141,7 +140,6 @@ const App = () => (
           <Route path="/manage" element={<ProtectedRoute managerOnly><ManageProjectsOverview /></ProtectedRoute>} />
           <Route path="/manage/:projectId" element={<ProtectedRoute managerOnly><ProjectDetailPage /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
-          <Route path="/audit" element={<ProtectedRoute><AuditPage /></ProtectedRoute>} />
           <Route path="/ai" element={<ProtectedRoute><AIPage /></ProtectedRoute>} />
           <Route path="/admin/login" element={<AdminLoginPage />} />
           <Route path="/admin" element={<AdminPage />} />

@@ -1563,7 +1563,7 @@ const TimesheetPage = () => {
 
       {/* ── Log / Edit Entry Modal ────────────────────────────────────────── */}
       <Dialog open={!!entryModal} onOpenChange={o => { if (!o) closeEntryModal(); }}>
-        <DialogContent className="sm:max-w-lg max-h-[min(90vh,640px)] overflow-y-auto rounded-2xl">
+        <DialogContent className="overflow-y-auto rounded-2xl">
           <DialogHeader>
             <DialogTitle className="text-xl font-bold">
               {entryModal?.mode === 'edit' ? 'Edit entry' : 'Log time'}
@@ -1730,7 +1730,7 @@ const TimesheetPage = () => {
         setNotifyOpen(v);
         if (!v) { setNotifyToTags([]); setNotifyToInput(''); setNotifyCcTags([]); setNotifyCcInput(''); }
       }}>
-        <DialogContent className="sm:max-w-lg flex max-h-[min(90dvh,92vh)] min-h-0 flex-col gap-0 overflow-hidden p-0">
+        <DialogContent className="flex min-h-0 flex-col gap-0 overflow-hidden p-0">
           <DialogHeader className="shrink-0 px-6 pb-4 pt-2 text-left border-b border-border/60">
             <DialogTitle className="text-xl font-bold">Send timesheet email</DialogTitle>
           </DialogHeader>

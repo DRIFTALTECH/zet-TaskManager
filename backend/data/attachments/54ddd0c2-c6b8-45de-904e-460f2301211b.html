@@ -1,0 +1,1128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Argus — Sentinel Control Room</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Space+Mono:ital,wght@0,400;0,700;1,400&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#06060A;
+  --bg2:#0D0D16;
+  --bg3:#12121E;
+  --card:#16162A;
+  --border:#1E1E3A;
+  --border2:rgba(124,58,237,0.2);
+  --purple:#7C3AED;
+  --violet:#8B5CF6;
+  --pink:#EC4899;
+  --cyan:#06B6D4;
+  --teal:#14B8A6;
+  --amber:#F59E0B;
+  --red:#EF4444;
+  --green:#10B981;
+  --white:#F8F8FF;
+  --muted:#64748B;
+  --dim:#334155;
+  --text:#E2E8FF;
+}
+html{scroll-behavior:smooth}
+body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+
+/* ── TOPBAR ── */
+.topbar{
+  position:fixed;top:0;left:0;right:0;z-index:100;
+  height:52px;background:rgba(6,6,10,0.92);
+  backdrop-filter:blur(20px);
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;padding:0 24px;gap:24px;
+}
+.topbar-logo{font-family:'Syne',sans-serif;font-weight:800;font-size:1.1rem;color:var(--white);letter-spacing:-0.02em}
+.topbar-logo span{color:var(--violet)}
+.topbar-tag{font-family:'Space Mono',monospace;font-size:0.65rem;color:var(--violet);background:rgba(124,58,237,0.12);border:1px solid var(--border2);padding:2px 8px;border-radius:4px;letter-spacing:0.08em}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:12px}
+.topbar-avatar{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--purple),var(--pink));display:flex;align-items:center;justify-content:center;font-size:0.7rem;font-weight:700;color:#fff}
+.topbar-env{font-family:'Space Mono',monospace;font-size:0.62rem;padding:3px 8px;border-radius:4px;font-weight:700;letter-spacing:0.1em}
+.env-prod{background:rgba(239,68,68,0.15);color:#EF4444;border:1px solid rgba(239,68,68,0.3)}
+
+/* ── LAYOUT ── */
+.layout{display:flex;min-height:100vh;padding-top:52px}
+
+/* ── SIDEBAR ── */
+.sidebar{
+  width:220px;min-width:220px;background:var(--bg2);
+  border-right:1px solid var(--border);
+  display:flex;flex-direction:column;
+  position:fixed;top:52px;left:0;bottom:0;overflow-y:auto;
+  z-index:50;
+}
+.sidebar-section{padding:16px 12px 8px;font-family:'Space Mono',monospace;font-size:0.58rem;color:var(--muted);letter-spacing:0.15em;text-transform:uppercase}
+.nav-item{
+  display:flex;align-items:center;gap:10px;
+  padding:9px 14px;margin:1px 8px;
+  border-radius:8px;cursor:pointer;
+  font-size:0.82rem;font-weight:500;color:var(--muted);
+  transition:all 0.18s;position:relative;
+  font-family:'DM Sans',sans-serif;
+}
+.nav-item:hover{background:rgba(124,58,237,0.08);color:var(--text)}
+.nav-item.active{background:rgba(124,58,237,0.15);color:var(--violet)}
+.nav-item.active::before{content:'';position:absolute;left:0;top:4px;bottom:4px;width:3px;background:var(--violet);border-radius:0 2px 2px 0;margin-left:-6px}
+.nav-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.nav-icon{font-size:0.9rem;width:16px;text-align:center}
+.nav-badge{margin-left:auto;font-family:'Space Mono',monospace;font-size:0.6rem;padding:1px 6px;border-radius:10px;font-weight:700}
+.badge-red{background:rgba(239,68,68,0.2);color:#EF4444}
+.badge-amber{background:rgba(245,158,11,0.2);color:#F59E0B}
+.sidebar-divider{height:1px;background:var(--border);margin:8px 16px}
+.sidebar-footer{margin-top:auto;padding:12px;font-size:0.75rem;color:var(--muted)}
+
+/* ── MAIN ── */
+.main{margin-left:220px;flex:1;padding:24px;min-height:calc(100vh - 52px)}
+
+/* ── SCREEN HEADER ── */
+.screen-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px}
+.screen-title{font-family:'Syne',sans-serif;font-size:1.5rem;font-weight:800;color:var(--white);letter-spacing:-0.02em}
+.screen-sub{font-size:0.82rem;color:var(--muted);margin-top:4px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;font-size:0.82rem;font-weight:600;cursor:pointer;transition:all 0.18s;border:none;font-family:'DM Sans',sans-serif}
+.btn-primary{background:var(--purple);color:#fff}
+.btn-primary:hover{background:var(--violet);transform:translateY(-1px);box-shadow:0 4px 20px rgba(124,58,237,0.4)}
+.btn-ghost{background:transparent;color:var(--text);border:1px solid var(--border);color:var(--muted)}
+.btn-ghost:hover{border-color:var(--border2);color:var(--text)}
+.btn-danger{background:rgba(239,68,68,0.15);color:#EF4444;border:1px solid rgba(239,68,68,0.25)}
+.header-actions{display:flex;gap:8px}
+
+/* ── CARDS ── */
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px}
+.card-sm{padding:14px}
+
+/* ── SCREEN 1 — REGISTRY ── */
+#screen-registry{display:block}
+.registry-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
+.stat-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 18px;display:flex;align-items:center;gap:14px}
+.stat-num{font-family:'Syne',sans-serif;font-size:1.8rem;font-weight:800;line-height:1}
+.stat-label{font-size:0.78rem;color:var(--muted);margin-top:2px}
+.stat-icon{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;flex-shrink:0}
+.sentinel-list{display:flex;flex-direction:column;gap:8px}
+.sentinel-row{
+  background:var(--card);border:1px solid var(--border);border-radius:10px;
+  padding:14px 18px;display:flex;align-items:center;gap:14px;
+  cursor:pointer;transition:all 0.18s;
+}
+.sentinel-row:hover{border-color:var(--border2);background:rgba(124,58,237,0.05)}
+.sentinel-status-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.sentinel-info{flex:1}
+.sentinel-name{font-family:'Syne',sans-serif;font-weight:700;font-size:0.92rem;color:var(--white)}
+.sentinel-meta{font-size:0.75rem;color:var(--muted);margin-top:2px;font-family:'Space Mono',monospace}
+.sentinel-status-badge{font-family:'Space Mono',monospace;font-size:0.62rem;font-weight:700;padding:3px 10px;border-radius:20px;letter-spacing:0.08em}
+.status-active{background:rgba(16,185,129,0.15);color:#10B981;border:1px solid rgba(16,185,129,0.25)}
+.status-intervening{background:rgba(245,158,11,0.15);color:#F59E0B;border:1px solid rgba(245,158,11,0.25)}
+.status-dormant{background:rgba(100,116,139,0.15);color:#64748B;border:1px solid rgba(100,116,139,0.25)}
+.status-escalated{background:rgba(239,68,68,0.15);color:#EF4444;border:1px solid rgba(239,68,68,0.25)}
+.sentinel-sparkline{width:80px;height:28px}
+.sentinel-last{font-family:'Space Mono',monospace;font-size:0.65rem;color:var(--muted);text-align:right;min-width:70px}
+.sentinel-actions{display:flex;gap:6px;opacity:0;transition:opacity 0.18s}
+.sentinel-row:hover .sentinel-actions{opacity:1}
+.icon-btn{width:28px;height:28px;border-radius:6px;border:1px solid var(--border);background:transparent;display:flex;align-items:center;justify-content:center;font-size:0.8rem;cursor:pointer;color:var(--muted);transition:all 0.15s}
+.icon-btn:hover{border-color:var(--border2);color:var(--violet)}
+
+/* ── SCREEN 2 — BUILDER ── */
+#screen-builder{display:none}
+.builder-layout{display:grid;grid-template-columns:240px 1fr;gap:20px;min-height:calc(100vh - 160px)}
+.builder-steps{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px}
+.step-item{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;cursor:pointer;transition:all 0.18s;margin-bottom:4px}
+.step-item:hover{background:rgba(124,58,237,0.06)}
+.step-item.active-step{background:rgba(124,58,237,0.12)}
+.step-num-circle{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:'Space Mono',monospace;font-size:0.72rem;font-weight:700;flex-shrink:0;border:1.5px solid var(--border);color:var(--muted);transition:all 0.18s}
+.step-item.active-step .step-num-circle{border-color:var(--violet);background:rgba(124,58,237,0.2);color:var(--violet)}
+.step-item.done-step .step-num-circle{border-color:var(--green);background:rgba(16,185,129,0.15);color:var(--green)}
+.step-label{font-size:0.82rem;font-weight:500;color:var(--muted)}
+.step-item.active-step .step-label{color:var(--white)}
+.step-item.done-step .step-label{color:var(--green)}
+.step-sublabel{font-size:0.68rem;color:var(--muted);font-family:'Space Mono',monospace;margin-top:1px}
+.builder-content{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px}
+.builder-step-title{font-family:'Syne',sans-serif;font-size:1.15rem;font-weight:800;color:var(--white);margin-bottom:4px}
+.builder-step-desc{font-size:0.82rem;color:var(--muted);margin-bottom:20px}
+.form-label{font-size:0.75rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px;font-family:'Space Mono',monospace}
+.form-input{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:0.88rem;outline:none;transition:border 0.18s}
+.form-input:focus{border-color:var(--violet)}
+.form-group{margin-bottom:16px}
+textarea.form-input{resize:vertical;min-height:80px}
+.skill-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:20px;background:rgba(124,58,237,0.12);border:1px solid var(--border2);font-size:0.75rem;color:var(--violet);margin:3px;cursor:pointer;transition:all 0.18s;font-family:'Space Mono',monospace}
+.skill-chip:hover{background:rgba(124,58,237,0.25)}
+.skill-chip.selected{background:rgba(124,58,237,0.3);border-color:var(--violet);color:var(--white)}
+.skill-chip .remove{color:var(--muted);font-size:0.7rem}
+.goal-preview{background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:12px 16px;margin-top:10px;font-family:'Space Mono',monospace;font-size:0.72rem;color:var(--violet)}
+.goal-preview-label{font-size:0.65rem;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.1em}
+.toggle-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--border)}
+.toggle-label{font-size:0.85rem;color:var(--text)}
+.toggle-sub{font-size:0.72rem;color:var(--muted);font-family:'Space Mono',monospace;margin-top:2px}
+.toggle{width:40px;height:22px;border-radius:11px;background:var(--border);position:relative;cursor:pointer;transition:background 0.2s;flex-shrink:0}
+.toggle.on{background:var(--purple)}
+.toggle::after{content:'';position:absolute;width:16px;height:16px;border-radius:50%;background:#fff;top:3px;left:3px;transition:left 0.2s}
+.toggle.on::after{left:21px}
+.env-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
+.env-card{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px;text-align:center}
+.env-name{font-family:'Space Mono',monospace;font-size:0.75rem;font-weight:700;margin-bottom:8px}
+.env-prod-card .env-name{color:#EF4444}
+.env-qa-card .env-name{color:#F59E0B}
+.env-dev-card .env-name{color:#06B6D4}
+.action-toggle{display:flex;align-items:center;justify-content:space-between;font-size:0.72rem;color:var(--muted);margin-bottom:5px}
+.builder-footer{display:flex;justify-content:space-between;align-items:center;margin-top:24px;padding-top:20px;border-top:1px solid var(--border)}
+.step-indicator{font-family:'Space Mono',monospace;font-size:0.7rem;color:var(--muted)}
+.heartbeat-selector{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.hb-option{padding:6px 14px;border-radius:6px;border:1px solid var(--border);font-family:'Space Mono',monospace;font-size:0.72rem;color:var(--muted);cursor:pointer;transition:all 0.18s}
+.hb-option:hover{border-color:var(--border2);color:var(--text)}
+.hb-option.selected{background:rgba(124,58,237,0.2);border-color:var(--violet);color:var(--violet)}
+
+/* ── SCREEN 3 — MEMORY VIEWER ── */
+#screen-memory{display:none}
+.memory-layout{display:grid;grid-template-columns:1fr 340px;gap:16px}
+.memory-timeline{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px}
+.timeline-filter{display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap}
+.filter-pill{padding:5px 14px;border-radius:20px;border:1px solid var(--border);font-size:0.75rem;color:var(--muted);cursor:pointer;transition:all 0.18s;font-family:'Space Mono',monospace}
+.filter-pill:hover{border-color:var(--border2);color:var(--text)}
+.filter-pill.active{background:rgba(124,58,237,0.15);border-color:var(--violet);color:var(--violet)}
+.timeline-entry{display:flex;gap:14px;margin-bottom:2px;position:relative}
+.timeline-entry::before{content:'';position:absolute;left:19px;top:32px;bottom:-2px;width:1px;background:var(--border);z-index:0}
+.timeline-entry:last-child::before{display:none}
+.tl-dot-wrap{display:flex;flex-direction:column;align-items:center;flex-shrink:0;padding-top:8px;z-index:1}
+.tl-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0;border:2px solid var(--bg)}
+.tl-body{flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px;cursor:pointer;transition:all 0.18s}
+.tl-body:hover{border-color:var(--border2)}
+.tl-header{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.tl-time{font-family:'Space Mono',monospace;font-size:0.68rem;color:var(--muted)}
+.tl-actor{font-family:'Space Mono',monospace;font-size:0.65rem;padding:2px 8px;border-radius:4px;font-weight:700}
+.tl-title{font-size:0.85rem;font-weight:600;color:var(--white);flex:1}
+.tl-desc{font-size:0.78rem;color:var(--muted);line-height:1.5}
+.tl-code{font-family:'Space Mono',monospace;font-size:0.7rem;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:6px 10px;margin-top:8px;color:var(--cyan)}
+.memory-sidebar{display:flex;flex-direction:column;gap:12px}
+.memory-stat-card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px}
+.memory-stat-title{font-family:'Space Mono',monospace;font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px}
+.memory-depth-bar{background:var(--border);border-radius:4px;height:6px;margin-bottom:4px;overflow:hidden}
+.memory-depth-fill{height:100%;border-radius:4px;background:linear-gradient(90deg,var(--purple),var(--pink))}
+.memory-depth-label{display:flex;justify-content:space-between;font-family:'Space Mono',monospace;font-size:0.62rem;color:var(--muted)}
+.undo-card{background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.2);border-radius:10px;padding:14px}
+.undo-title{font-family:'Space Mono',monospace;font-size:0.65rem;color:#EF4444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px}
+.undo-action-name{font-size:0.85rem;font-weight:600;color:var(--white);margin-bottom:4px}
+.undo-action-time{font-family:'Space Mono',monospace;font-size:0.68rem;color:var(--muted);margin-bottom:10px}
+
+/* ── SCREEN 4 — PERSONALISATION ── */
+#screen-personal{display:none}
+.personal-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.role-card{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.role-card-header{padding:16px 18px;border-bottom:1px solid var(--border)}
+.role-card-name{font-family:'Syne',sans-serif;font-weight:800;font-size:0.95rem;color:var(--white)}
+.role-card-desc{font-size:0.72rem;color:var(--muted);margin-top:2px;font-family:'Space Mono',monospace}
+.role-card-body{padding:16px 18px}
+.pref-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.pref-label{font-size:0.78rem;color:var(--muted);font-family:'Space Mono',monospace;font-size:0.68rem}
+.pref-value{font-size:0.78rem;color:var(--text);font-weight:500}
+.channel-chips{display:flex;gap:5px;flex-wrap:wrap;margin-top:4px}
+.ch-chip{padding:3px 8px;border-radius:4px;font-size:0.62rem;font-family:'Space Mono',monospace;font-weight:700;border:1px solid}
+.ch-inapp{background:rgba(124,58,237,0.15);color:var(--violet);border-color:var(--border2)}
+.ch-email{background:rgba(6,182,212,0.1);color:var(--cyan);border-color:rgba(6,182,212,0.3)}
+.ch-teams{background:rgba(16,185,129,0.1);color:var(--green);border-color:rgba(16,185,129,0.3)}
+.sensitivity-bar{display:flex;gap:2px;margin-top:4px}
+.sens-seg{flex:1;height:6px;border-radius:2px;background:var(--border);transition:background 0.2s}
+.snooze-rule{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:0.7rem;color:var(--muted);font-family:'Space Mono',monospace;margin-bottom:4px}
+.global-override-banner{background:rgba(124,58,237,0.06);border:1px solid var(--border2);border-radius:10px;padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:12px}
+.global-banner-icon{font-size:1.1rem}
+.global-banner-text{font-size:0.82rem;color:var(--muted)}
+.global-banner-text strong{color:var(--violet)}
+
+/* ── SCREEN 5 — DETAIL ── */
+#screen-detail{display:none}
+.detail-layout{display:grid;grid-template-columns:1fr 320px;gap:16px}
+.detail-main{display:flex;flex-direction:column;gap:14px}
+.sentinel-hero{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px}
+.sentinel-hero-header{display:flex;align-items:center;gap:16px;margin-bottom:16px}
+.sentinel-avatar{width:52px;height:52px;border-radius:14px;background:linear-gradient(135deg,var(--purple),var(--pink));display:flex;align-items:center;justify-content:center;font-size:1.4rem}
+.sentinel-hero-name{font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;color:var(--white)}
+.sentinel-hero-goal{font-size:0.8rem;color:var(--muted);font-family:'Space Mono',monospace;margin-top:2px}
+.hero-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.hero-stat{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px;text-align:center}
+.hero-stat-num{font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;line-height:1}
+.hero-stat-label{font-size:0.65rem;color:var(--muted);font-family:'Space Mono',monospace;margin-top:3px}
+.loadout-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.loadout-item{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 12px}
+.loadout-num{font-family:'Space Mono',monospace;font-size:0.62rem;color:var(--violet);margin-bottom:3px}
+.loadout-name{font-size:0.78rem;color:var(--text);font-weight:500}
+.authority-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.auth-env{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px}
+.auth-env-name{font-family:'Space Mono',monospace;font-size:0.72rem;font-weight:700;margin-bottom:8px}
+.auth-action{display:flex;align-items:center;justify-content:space-between;font-size:0.72rem;color:var(--muted);margin-bottom:4px;font-family:'Space Mono',monospace}
+.auth-check{font-size:0.75rem}
+.detail-sidebar{display:flex;flex-direction:column;gap:12px}
+.live-feed{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px}
+.live-feed-title{font-family:'Space Mono',monospace;font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;display:flex;align-items:center;gap:6px}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:livepulse 2s infinite}
+@keyframes livepulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.4;transform:scale(0.8)}}
+.feed-entry{padding:10px 0;border-bottom:1px solid var(--border);font-size:0.75rem}
+.feed-entry:last-child{border:none;padding-bottom:0}
+.feed-entry-time{font-family:'Space Mono',monospace;font-size:0.62rem;color:var(--muted);margin-bottom:3px}
+.feed-entry-text{color:var(--text);line-height:1.4}
+.next-hb{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px}
+.hb-countdown{font-family:'Syne',sans-serif;font-size:2rem;font-weight:800;color:var(--violet);text-align:center;margin:8px 0}
+.hb-label{font-family:'Space Mono',monospace;font-size:0.62rem;color:var(--muted);text-align:center}
+
+/* ── CHART SVG ── */
+.mini-chart{width:100%;height:36px}
+
+/* ── SCREEN TRANSITIONS ── */
+.screen{display:none;animation:fadeIn 0.2s ease}
+.screen.active{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+
+/* ── SECTION TITLE ── */
+.section-title{font-family:'Syne',sans-serif;font-size:0.85rem;font-weight:700;color:var(--white);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.section-title::after{content:'';flex:1;height:1px;background:var(--border)}
+
+/* ── ORBS ── */
+.orb{position:fixed;border-radius:50%;pointer-events:none;z-index:0;filter:blur(80px)}
+.orb1{width:400px;height:400px;background:radial-gradient(circle,rgba(124,58,237,0.12),transparent 70%);top:-100px;left:150px}
+.orb2{width:350px;height:350px;background:radial-gradient(circle,rgba(236,72,153,0.08),transparent 70%);bottom:0;right:0}
+
+/* ── DEPLOY MODAL ── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);z-index:200;display:none;align-items:center;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal{background:var(--card);border:1px solid var(--border2);border-radius:16px;padding:28px;width:440px;max-width:90vw}
+.modal-title{font-family:'Syne',sans-serif;font-size:1.1rem;font-weight:800;color:var(--white);margin-bottom:6px}
+.modal-desc{font-size:0.82rem;color:var(--muted);margin-bottom:20px}
+.modal-preview{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:20px;font-family:'Space Mono',monospace;font-size:0.72rem;color:var(--cyan)}
+.modal-actions{display:flex;gap:10px;justify-content:flex-end}
+.modal-close{position:absolute;top:0;right:0}
+</style>
+</head>
+<body>
+<div class="orb orb1"></div>
+<div class="orb orb2"></div>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="topbar-logo">ARGUS<span>.</span></div>
+  <div class="topbar-tag">SENTINEL CONTROL ROOM</div>
+  <div class="topbar-right">
+    <div class="topbar-env env-prod">PROD</div>
+    <div class="topbar-avatar">RS</div>
+  </div>
+</div>
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <div class="sidebar-section">Sentinels</div>
+  <div class="nav-item active" onclick="showScreen('registry',this)">
+    <span class="nav-icon">⬡</span> Registry
+    <span class="nav-badge badge-red">1</span>
+  </div>
+  <div class="nav-item" onclick="showScreen('builder',this)">
+    <span class="nav-icon">＋</span> New Sentinel
+  </div>
+  <div class="sidebar-divider"></div>
+  <div class="sidebar-section">Manage</div>
+  <div class="nav-item" onclick="showScreen('memory',this)">
+    <span class="nav-icon">◎</span> Memory Viewer
+    <span class="nav-badge badge-amber">3</span>
+  </div>
+  <div class="nav-item" onclick="showScreen('personal',this)">
+    <span class="nav-icon">◈</span> Personalisation
+  </div>
+  <div class="sidebar-divider"></div>
+  <div class="sidebar-section">Detail</div>
+  <div class="nav-item" onclick="showScreen('detail',this)">
+    <span class="nav-icon">◉</span> Payroll Watchdog
+    <span class="nav-badge badge-amber">!</span>
+  </div>
+  <div class="sidebar-footer">
+    <div style="font-family:'Space Mono',monospace;font-size:0.62rem;margin-bottom:2px">5 Sentinels deployed</div>
+    <div style="color:var(--green);font-size:0.68rem">● System healthy</div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- ══ SCREEN 1: REGISTRY ══ -->
+  <div id="screen-registry" class="screen active">
+    <div class="screen-header">
+      <div>
+        <div class="screen-title">Sentinel Registry</div>
+        <div class="screen-sub">All deployed autonomous agents — live status and recent decisions</div>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-ghost">⬇ Export</button>
+        <button class="btn btn-primary" onclick="showScreen('builder',document.querySelector('[onclick*=builder]'))">＋ New Sentinel</button>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="registry-grid" style="grid-template-columns:repeat(4,1fr)">
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(16,185,129,0.1)">⬡</div>
+        <div><div class="stat-num" style="color:var(--green)">3</div><div class="stat-label">Active</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(245,158,11,0.1)">⚡</div>
+        <div><div class="stat-num" style="color:var(--amber)">1</div><div class="stat-label">Intervening</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(239,68,68,0.1)">⚠</div>
+        <div><div class="stat-num" style="color:var(--red)">1</div><div class="stat-label">Escalated</div></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon" style="background:rgba(124,58,237,0.1)">◎</div>
+        <div><div class="stat-num" style="color:var(--violet)">247</div><div class="stat-label">Actions today</div></div>
+      </div>
+    </div>
+
+    <!-- List -->
+    <div class="sentinel-list">
+
+      <div class="sentinel-row" onclick="showScreen('detail',document.querySelector('[onclick*=detail]'))">
+        <div class="sentinel-status-dot" style="background:var(--amber);box-shadow:0 0 6px var(--amber)"></div>
+        <div class="sentinel-info">
+          <div class="sentinel-name">Payroll Watchdog</div>
+          <div class="sentinel-meta">Skills 08, 55, 59 · Heartbeat 15min · PROD</div>
+        </div>
+        <svg class="sentinel-sparkline" viewBox="0 0 80 28"><polyline points="0,20 10,18 20,22 30,8 40,5 50,14 60,10 70,6 80,4" fill="none" stroke="#F59E0B" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <div class="sentinel-last">2m ago</div>
+        <div class="sentinel-status-badge status-intervening">INTERVENING</div>
+        <div class="sentinel-actions">
+          <div class="icon-btn" title="Edit">✎</div>
+          <div class="icon-btn" title="Pause">⏸</div>
+        </div>
+      </div>
+
+      <div class="sentinel-row">
+        <div class="sentinel-status-dot" style="background:var(--red);box-shadow:0 0 6px var(--red)"></div>
+        <div class="sentinel-info">
+          <div class="sentinel-name">Crisis Trigger</div>
+          <div class="sentinel-meta">Skills 01, 10, 59 · Heartbeat 5min · PROD</div>
+        </div>
+        <svg class="sentinel-sparkline" viewBox="0 0 80 28"><polyline points="0,14 10,12 20,16 30,20 40,24 50,22 60,24 70,26 80,28" fill="none" stroke="#EF4444" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <div class="sentinel-last">just now</div>
+        <div class="sentinel-status-badge status-escalated">ESCALATED</div>
+        <div class="sentinel-actions">
+          <div class="icon-btn">✎</div>
+          <div class="icon-btn">⏸</div>
+        </div>
+      </div>
+
+      <div class="sentinel-row">
+        <div class="sentinel-status-dot" style="background:var(--green);box-shadow:0 0 6px var(--green)"></div>
+        <div class="sentinel-info">
+          <div class="sentinel-name">DRM Guardian</div>
+          <div class="sentinel-meta">Skills 31, 33, 35 · Heartbeat 30min · PROD</div>
+        </div>
+        <svg class="sentinel-sparkline" viewBox="0 0 80 28"><polyline points="0,22 10,20 20,18 30,16 40,14 50,12 60,10 70,8 80,6" fill="none" stroke="#10B981" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <div class="sentinel-last">28m ago</div>
+        <div class="sentinel-status-badge status-active">ACTIVE</div>
+        <div class="sentinel-actions">
+          <div class="icon-btn">✎</div>
+          <div class="icon-btn">⏸</div>
+        </div>
+      </div>
+
+      <div class="sentinel-row">
+        <div class="sentinel-status-dot" style="background:var(--green)"></div>
+        <div class="sentinel-info">
+          <div class="sentinel-name">IS Operations</div>
+          <div class="sentinel-meta">Skills 02, 07, 52 · Heartbeat 10min · PROD + QA</div>
+        </div>
+        <svg class="sentinel-sparkline" viewBox="0 0 80 28"><polyline points="0,16 10,14 20,18 30,12 40,10 50,14 60,12 70,8 80,10" fill="none" stroke="#10B981" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <div class="sentinel-last">8m ago</div>
+        <div class="sentinel-status-badge status-active">ACTIVE</div>
+        <div class="sentinel-actions">
+          <div class="icon-btn">✎</div>
+          <div class="icon-btn">⏸</div>
+        </div>
+      </div>
+
+      <div class="sentinel-row">
+        <div class="sentinel-status-dot" style="background:var(--muted)"></div>
+        <div class="sentinel-info">
+          <div class="sentinel-name">IC Intelligence</div>
+          <div class="sentinel-meta">Skills 41, 46, 49 · Heartbeat 1h · QA only</div>
+        </div>
+        <svg class="sentinel-sparkline" viewBox="0 0 80 28"><polyline points="0,14 20,14 40,14 60,14 80,14" fill="none" stroke="#334155" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="4,3"/></svg>
+        <div class="sentinel-last">dormant</div>
+        <div class="sentinel-status-badge status-dormant">DORMANT</div>
+        <div class="sentinel-actions">
+          <div class="icon-btn">✎</div>
+          <div class="icon-btn" style="color:var(--green)">▶</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ══ SCREEN 2: BUILDER ══ -->
+  <div id="screen-builder" class="screen">
+    <div class="screen-header">
+      <div>
+        <div class="screen-title">New Sentinel</div>
+        <div class="screen-sub">Configure and deploy an autonomous agent in 7 steps</div>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-ghost" onclick="showScreen('registry',document.querySelector('[onclick*=registry]'))">✕ Cancel</button>
+      </div>
+    </div>
+    <div class="builder-layout">
+      <!-- Steps nav -->
+      <div class="builder-steps">
+        <div class="step-item done-step" onclick="setBuilderStep(1)">
+          <div class="step-num-circle">✓</div>
+          <div><div class="step-label">Identity</div><div class="step-sublabel">Name & scope</div></div>
+        </div>
+        <div class="step-item done-step" onclick="setBuilderStep(2)">
+          <div class="step-num-circle">✓</div>
+          <div><div class="step-label">Skill Loadout</div><div class="step-sublabel">3 selected</div></div>
+        </div>
+        <div class="step-item active-step" onclick="setBuilderStep(3)" id="step-tab-3">
+          <div class="step-num-circle">03</div>
+          <div><div class="step-label">Goal</div><div class="step-sublabel">Define objective</div></div>
+        </div>
+        <div class="step-item" onclick="setBuilderStep(4)">
+          <div class="step-num-circle">04</div>
+          <div><div class="step-label">Authority</div><div class="step-sublabel">Action matrix</div></div>
+        </div>
+        <div class="step-item" onclick="setBuilderStep(5)">
+          <div class="step-num-circle">05</div>
+          <div><div class="step-label">Personalisation</div><div class="step-sublabel">Per-user layer</div></div>
+        </div>
+        <div class="step-item" onclick="setBuilderStep(6)">
+          <div class="step-num-circle">06</div>
+          <div><div class="step-label">Heartbeat</div><div class="step-sublabel">Frequency</div></div>
+        </div>
+        <div class="step-item" onclick="setBuilderStep(7)">
+          <div class="step-num-circle">07</div>
+          <div><div class="step-label">Deploy</div><div class="step-sublabel">Review & launch</div></div>
+        </div>
+      </div>
+
+      <!-- Step content -->
+      <div class="builder-content">
+        <!-- Step 1 -->
+        <div id="bstep-1" style="display:none">
+          <div class="builder-step-title">Identity</div>
+          <div class="builder-step-desc">Name your Sentinel and define what it guards.</div>
+          <div class="form-group"><div class="form-label">Sentinel Name</div><input class="form-input" value="Payroll Watchdog"/></div>
+          <div class="form-group"><div class="form-label">Description</div><textarea class="form-input">Monitors all payroll-critical integration interfaces across IS and DRM sources. Ensures no silent failures reach payroll run window.</textarea></div>
+          <div class="form-group"><div class="form-label">Interface Scope</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+              <span class="skill-chip selected">EC_to_ECP</span>
+              <span class="skill-chip selected">DRM_Payroll</span>
+              <span class="skill-chip selected">IC_Payroll_Export</span>
+              <span class="skill-chip">＋ Add interface</span>
+            </div>
+          </div>
+        </div>
+        <!-- Step 2 -->
+        <div id="bstep-2" style="display:none">
+          <div class="builder-step-title">Skill Loadout</div>
+          <div class="builder-step-desc">Select which Driffy skills this Sentinel uses as its senses. All 81 skills available.</div>
+          <div class="form-group"><input class="form-input" placeholder="Search skills..."/></div>
+          <div style="margin-bottom:10px">
+            <span class="skill-chip selected">Skill 08 — Payroll interface check <span class="remove">✕</span></span>
+            <span class="skill-chip selected">Skill 55 — Payroll safety scan <span class="remove">✕</span></span>
+            <span class="skill-chip selected">Skill 59 — Interface risk score <span class="remove">✕</span></span>
+          </div>
+          <div style="color:var(--muted);font-size:0.75rem;margin-bottom:8px;font-family:'Space Mono',monospace">SUGGESTED FOR PAYROLL SCOPE</div>
+          <div>
+            <span class="skill-chip">Skill 02 — IS failure rate</span>
+            <span class="skill-chip">Skill 31 — DRM health summary</span>
+            <span class="skill-chip">Skill 33 — Failed replication patterns</span>
+            <span class="skill-chip">Skill 07 — iFlow health</span>
+            <span class="skill-chip">Skill 52 — Why did it fail?</span>
+          </div>
+        </div>
+        <!-- Step 3 — ACTIVE -->
+        <div id="bstep-3">
+          <div class="builder-step-title">Goal Definition</div>
+          <div class="builder-step-desc">Write your goal in plain English. The system converts it to evaluation logic at save time — runtime is pure SQL, no LLM latency.</div>
+          <div class="form-group">
+            <div class="form-label">Goal Statement</div>
+            <textarea class="form-input" id="goal-input" oninput="updateGoalPreview()" style="min-height:100px">Keep DRM failure rate below 5% for payroll-linked employees and ensure EC_to_ECP never fails more than twice in any 6-hour window</textarea>
+          </div>
+          <div class="goal-preview">
+            <div class="goal-preview-label">⚙ Compiled Evaluation Logic (preview)</div>
+            <div id="goal-preview-text">
+              IF dim_drm_records.status = 'Failed'<br/>
+              AND dim_drm_records.replication_content_type LIKE '%Payroll%'<br/>
+              GROUP BY hour<br/>
+              HAVING (COUNT(failed) / COUNT(*)) &gt; 0.05<br/>
+              OR (<br/>
+              &nbsp;&nbsp;SELECT COUNT(*) FROM is_message_log<br/>
+              &nbsp;&nbsp;WHERE iflow_id = 'EC_to_ECP'<br/>
+              &nbsp;&nbsp;AND status = 'FAILED'<br/>
+              &nbsp;&nbsp;AND timestamp &gt; NOW() - INTERVAL '6 hours'<br/>
+              ) &gt; 2
+            </div>
+          </div>
+          <div style="margin-top:10px;font-size:0.75rem;color:var(--green);font-family:'Space Mono',monospace">✓ Goal compiled successfully — evaluation logic approved</div>
+        </div>
+        <!-- Step 4 -->
+        <div id="bstep-4" style="display:none">
+          <div class="builder-step-title">Authority Matrix</div>
+          <div class="builder-step-desc">Define what this Sentinel can do autonomously per environment.</div>
+          <div class="env-grid">
+            <div class="env-card env-prod-card">
+              <div class="env-name">PROD</div>
+              <div class="action-toggle"><span>Re-trigger iFlow</span><span style="color:var(--green)">✓</span></div>
+              <div class="action-toggle"><span>Label degraded</span><span style="color:var(--green)">✓</span></div>
+              <div class="action-toggle"><span>Suppress alert</span><span style="color:var(--green)">✓</span></div>
+              <div class="action-toggle"><span>Notify owner</span><span style="color:var(--green)">✓</span></div>
+              <div class="action-toggle"><span>Escalate</span><span style="color:var(--green)">✓</span></div>
+              <div class="action-toggle"><span>Quarantine</span><span style="color:var(--green)">✓</span></div>
+              <div class="action-toggle"><span>Config change</span><span style="color:var(--red)">✗</span></div>
+            </div>
+            <div class="env-card env-qa-card">
+              <div class="env-name">QA</div>
+              <div class="action-toggle"><span>Re-trigger iFlow</span><span style="color:var(--green)">✓</span></div>
+              <div class="action-toggle"><span>Label degraded</span><span style="color:var(--green)">✓</span></div>
+              <div class="action-toggle"><span>Suppress alert</span><span style="color:var(--green)">✓</span></div>
+              <div class="action-toggle"><span>Notify owner</span><span style="color:var(--green)">✓</span></div>
+              <div class="action-toggle"><span>Escalate</span><span style="color:var(--green)">✓</span></div>
+              <div class="action-toggle"><span>Quarantine</span><span style="color:var(--green)">✓</span></div>
+              <div class="action-toggle"><span>Config change</span><span style="color:var(--green)">✓</span></div>
+            </div>
+            <div class="env-card env-dev-card">
+              <div class="env-name">DEV</div>
+              <div class="action-toggle"><span>All actions</span><span style="color:var(--green)">✓</span></div>
+              <div class="action-toggle"><span>Unrestricted</span><span style="color:var(--green)">✓</span></div>
+            </div>
+          </div>
+        </div>
+        <!-- Step 5 -->
+        <div id="bstep-5" style="display:none">
+          <div class="builder-step-title">Personalisation Defaults</div>
+          <div class="builder-step-desc">Set global defaults. Each user can override these in their personal settings.</div>
+          <div class="toggle-row"><div><div class="toggle-label">Notify on every action</div><div class="toggle-sub">Default: only on breach or escalation</div></div><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+          <div class="toggle-row"><div><div class="toggle-label">Plain English mode for HR</div><div class="toggle-sub">Auto-translate explanations for HR role</div></div><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+          <div class="toggle-row"><div><div class="toggle-label">Weekend snooze for non-critical</div><div class="toggle-sub">Suppress low-priority notifications Sat–Sun</div></div><div class="toggle" onclick="this.classList.toggle('on')"></div></div>
+        </div>
+        <!-- Step 6 -->
+        <div id="bstep-6" style="display:none">
+          <div class="builder-step-title">Heartbeat</div>
+          <div class="builder-step-desc">How often should this Sentinel wake, perceive, and evaluate?</div>
+          <div class="form-label">Execution Frequency</div>
+          <div class="heartbeat-selector">
+            <div class="hb-option">5 min</div>
+            <div class="hb-option selected">15 min</div>
+            <div class="hb-option">30 min</div>
+            <div class="hb-option">1 hour</div>
+            <div class="hb-option">6 hours</div>
+            <div class="hb-option">24 hours</div>
+          </div>
+          <div style="margin-top:16px;padding:12px 16px;background:var(--bg3);border:1px solid var(--border);border-radius:8px;font-family:'Space Mono',monospace;font-size:0.72rem;color:var(--muted)">
+            At 15min heartbeat: ~96 executions/day<br/>
+            Estimated DB writes: ~96 memory rows/day<br/>
+            Skill calls per execution: 3 (Skills 08, 55, 59)
+          </div>
+          <div class="form-group" style="margin-top:16px">
+            <div class="form-label">Active Hours</div>
+            <div class="toggle-row"><div><div class="toggle-label">24/7 monitoring</div><div class="toggle-sub">Recommended for payroll-critical Sentinels</div></div><div class="toggle on" onclick="this.classList.toggle('on')"></div></div>
+          </div>
+        </div>
+        <!-- Step 7 -->
+        <div id="bstep-7" style="display:none">
+          <div class="builder-step-title">Review & Deploy</div>
+          <div class="builder-step-desc">Everything looks good. Review the Sentinel configuration before deployment.</div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div style="background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:14px">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:0.78rem">
+                <div><span style="color:var(--muted);font-family:'Space Mono',monospace;font-size:0.65rem">NAME</span><br/><strong>Payroll Watchdog</strong></div>
+                <div><span style="color:var(--muted);font-family:'Space Mono',monospace;font-size:0.65rem">HEARTBEAT</span><br/><strong>Every 15 minutes</strong></div>
+                <div><span style="color:var(--muted);font-family:'Space Mono',monospace;font-size:0.65rem">SKILLS</span><br/><strong>08, 55, 59</strong></div>
+                <div><span style="color:var(--muted);font-family:'Space Mono',monospace;font-size:0.65rem">ENVIRONMENTS</span><br/><strong>PROD + QA + DEV</strong></div>
+              </div>
+            </div>
+            <div style="background:rgba(16,185,129,0.05);border:1px solid rgba(16,185,129,0.2);border-radius:8px;padding:12px;font-size:0.78rem;color:var(--green)">✓ Goal compiled — 0 errors<br/>✓ Authority matrix configured<br/>✓ Personalisation defaults set<br/>✓ Heartbeat scheduled</div>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="builder-footer">
+          <span class="step-indicator" id="step-indicator">Step 3 of 7</span>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost" id="btn-prev" onclick="builderNav(-1)">← Back</button>
+            <button class="btn btn-primary" id="btn-next" onclick="builderNav(1)">Continue →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SCREEN 3: MEMORY VIEWER ══ -->
+  <div id="screen-memory" class="screen">
+    <div class="screen-header">
+      <div>
+        <div class="screen-title">Memory Viewer</div>
+        <div class="screen-sub">Full decision history for Payroll Watchdog — last 30 days</div>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-ghost">⬇ Export log</button>
+        <button class="btn btn-danger">↩ Undo last action</button>
+      </div>
+    </div>
+    <div class="memory-layout">
+      <div class="memory-timeline">
+        <div class="timeline-filter">
+          <div class="filter-pill active">All</div>
+          <div class="filter-pill">Actions</div>
+          <div class="filter-pill">Breaches</div>
+          <div class="filter-pill">Escalations</div>
+          <div class="filter-pill">Heartbeats</div>
+        </div>
+
+        <div class="timeline-entry">
+          <div class="tl-dot-wrap"><div class="tl-dot" style="background:var(--amber)"></div></div>
+          <div class="tl-body">
+            <div class="tl-header">
+              <span class="tl-time">Today 23:03</span>
+              <span class="tl-actor" style="background:rgba(245,158,11,0.15);color:var(--amber)">BREACH</span>
+              <span class="tl-title">Goal evaluation failed — chaining actions</span>
+            </div>
+            <div class="tl-desc">Skill 55 returned failure rate 34% (threshold 5%). Skill 59 risk score CRITICAL. Pattern not seen in 90-day memory. Novel event flagged.</div>
+            <div class="tl-code">memory.compare(now, history_90d) → drift_score: 0.94 → ACTION_CHAIN</div>
+          </div>
+        </div>
+
+        <div class="timeline-entry">
+          <div class="tl-dot-wrap"><div class="tl-dot" style="background:var(--green)"></div></div>
+          <div class="tl-body">
+            <div class="tl-header">
+              <span class="tl-time">Today 23:03</span>
+              <span class="tl-actor" style="background:rgba(16,185,129,0.15);color:var(--green)">ACTION</span>
+              <span class="tl-title">Re-triggered EC_to_ECP ×2 — both succeeded</span>
+            </div>
+            <div class="tl-desc">Executed re-trigger via CPI API. Attempt 1: success at 23:03:14. Attempt 2: not needed — marked complete.</div>
+            <div class="tl-code">cpi.retrigger('EC_to_ECP') → status: 'COMPLETED' → memory.write(action, result)</div>
+          </div>
+        </div>
+
+        <div class="timeline-entry">
+          <div class="tl-dot-wrap"><div class="tl-dot" style="background:var(--red)"></div></div>
+          <div class="tl-body">
+            <div class="tl-header">
+              <span class="tl-time">Today 23:04</span>
+              <span class="tl-actor" style="background:rgba(239,68,68,0.15);color:var(--red)">ESCALATE</span>
+              <span class="tl-title">Escalated to on-call HRIT — DRM replication lag persists</span>
+            </div>
+            <div class="tl-desc">DRM replication lag unresolved after iFlow re-trigger. Escalation sent to HRIT on-call. Voice card written to Driffy feed in IT Admin + HRIT format.</div>
+          </div>
+        </div>
+
+        <div class="timeline-entry">
+          <div class="tl-dot-wrap"><div class="tl-dot" style="background:var(--cyan)"></div></div>
+          <div class="tl-body">
+            <div class="tl-header">
+              <span class="tl-time">Today 23:02</span>
+              <span class="tl-actor" style="background:rgba(6,182,212,0.15);color:var(--cyan)">HEARTBEAT</span>
+              <span class="tl-title">Woke — ran Skills 08, 55, 59</span>
+            </div>
+            <div class="tl-desc">Routine heartbeat. Skill 08: 34% failure rate. Skill 55: UNSAFE. Skill 59: CRITICAL risk. Memory baseline compared — anomaly confirmed.</div>
+          </div>
+        </div>
+
+        <div class="timeline-entry">
+          <div class="tl-dot-wrap"><div class="tl-dot" style="background:var(--dim)"></div></div>
+          <div class="tl-body">
+            <div class="tl-header">
+              <span class="tl-time">Today 22:47</span>
+              <span class="tl-actor" style="background:rgba(51,65,85,0.4);color:var(--muted)">HEARTBEAT</span>
+              <span class="tl-title">All clear — goal evaluation passed</span>
+            </div>
+            <div class="tl-desc">No breach detected. Failure rate 1.2%. Risk score LOW. Memory updated. Slept until next heartbeat.</div>
+          </div>
+        </div>
+
+        <div class="timeline-entry">
+          <div class="tl-dot-wrap"><div class="tl-dot" style="background:var(--dim)"></div></div>
+          <div class="tl-body">
+            <div class="tl-header">
+              <span class="tl-time">Today 22:32</span>
+              <span class="tl-actor" style="background:rgba(51,65,85,0.4);color:var(--muted)">HEARTBEAT</span>
+              <span class="tl-title">All clear — goal evaluation passed</span>
+            </div>
+            <div class="tl-desc">No breach detected. Failure rate 0.8%. Risk score LOW. Memory updated.</div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="memory-sidebar">
+        <div class="memory-stat-card">
+          <div class="memory-stat-title">Memory Depth</div>
+          <div class="memory-depth-bar"><div class="memory-depth-fill" style="width:33%"></div></div>
+          <div class="memory-depth-label"><span>0</span><span>30 days</span><span>90 days</span></div>
+          <div style="margin-top:12px;font-family:'Space Mono',monospace;font-size:0.68rem;color:var(--muted)">
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>Total executions</span><span style="color:var(--text)">2,847</span></div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>Breaches detected</span><span style="color:var(--amber)">14</span></div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px"><span>Actions taken</span><span style="color:var(--green)">31</span></div>
+            <div style="display:flex;justify-content:space-between"><span>Escalations</span><span style="color:var(--red)">3</span></div>
+          </div>
+        </div>
+
+        <div class="undo-card">
+          <div class="undo-title">↩ Last Action</div>
+          <div class="undo-action-name">Re-triggered EC_to_ECP</div>
+          <div class="undo-action-time">Today at 23:03:14</div>
+          <button class="btn btn-danger" style="width:100%;justify-content:center">Undo this action</button>
+          <div style="font-size:0.68rem;color:var(--muted);margin-top:8px;font-family:'Space Mono',monospace">Requires written reason. Audit trail permanent.</div>
+        </div>
+
+        <div class="memory-stat-card">
+          <div class="memory-stat-title">Baseline Drift</div>
+          <div style="font-family:'Syne',sans-serif;font-size:1.8rem;font-weight:800;color:var(--red)">0.94</div>
+          <div style="font-size:0.72rem;color:var(--muted);font-family:'Space Mono',monospace">Current drift vs 90-day baseline<br/>Threshold: 0.7 → anomaly flagged</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SCREEN 4: PERSONALISATION ══ -->
+  <div id="screen-personal" class="screen">
+    <div class="screen-header">
+      <div>
+        <div class="screen-title">Personalisation</div>
+        <div class="screen-sub">Per-user overrides on top of global Sentinel config</div>
+      </div>
+    </div>
+
+    <div class="global-override-banner">
+      <div class="global-banner-icon">⚙</div>
+      <div class="global-banner-text">
+        <strong>Global config</strong> is set by IT Admin and applies to all Sentinels. Each user adds their own layer below — same Sentinel, different experience per role.
+      </div>
+    </div>
+
+    <div class="personal-grid">
+      <!-- IT Admin -->
+      <div class="role-card">
+        <div class="role-card-header" style="border-top:3px solid var(--cyan)">
+          <div class="role-card-name">IT Admin</div>
+          <div class="role-card-desc">Full access · All signals · Technical voice</div>
+        </div>
+        <div class="role-card-body">
+          <div class="pref-row"><div class="pref-label">NOTIFICATION SENSITIVITY</div><div></div></div>
+          <div class="sensitivity-bar">
+            <div class="sens-seg" style="background:var(--cyan)"></div>
+            <div class="sens-seg" style="background:var(--cyan)"></div>
+            <div class="sens-seg" style="background:var(--cyan)"></div>
+            <div class="sens-seg" style="background:var(--cyan)"></div>
+            <div class="sens-seg" style="background:var(--cyan)"></div>
+          </div>
+          <div style="font-size:0.68rem;color:var(--cyan);font-family:'Space Mono',monospace;margin-top:3px;margin-bottom:12px">ALL SIGNALS</div>
+          <div class="pref-row"><div class="pref-label">CHANNELS</div></div>
+          <div class="channel-chips">
+            <span class="ch-chip ch-inapp">In-app</span>
+            <span class="ch-chip ch-email">Email</span>
+            <span class="ch-chip ch-teams">Teams</span>
+          </div>
+          <div style="margin-top:14px"><div class="pref-label">VOICE MODE</div><div class="pref-value" style="margin-top:4px">Technical — full SQL context</div></div>
+          <div style="margin-top:12px"><div class="pref-label">SNOOZE RULES</div><div class="snooze-rule">No snooze rules configured</div></div>
+          <div style="margin-top:12px"><div class="pref-label">ESCALATION PATH</div><div class="pref-value" style="margin-top:4px;font-size:0.78rem">→ Self → Team lead → CTO</div></div>
+        </div>
+      </div>
+
+      <!-- HRIT -->
+      <div class="role-card">
+        <div class="role-card-header" style="border-top:3px solid var(--violet)">
+          <div class="role-card-name">HRIT / Module IT</div>
+          <div class="role-card-desc">Category-scoped · Key signals · Plain-technical voice</div>
+        </div>
+        <div class="role-card-body">
+          <div class="pref-row"><div class="pref-label">NOTIFICATION SENSITIVITY</div></div>
+          <div class="sensitivity-bar">
+            <div class="sens-seg" style="background:var(--violet)"></div>
+            <div class="sens-seg" style="background:var(--violet)"></div>
+            <div class="sens-seg" style="background:var(--violet)"></div>
+            <div class="sens-seg"></div>
+            <div class="sens-seg"></div>
+          </div>
+          <div style="font-size:0.68rem;color:var(--violet);font-family:'Space Mono',monospace;margin-top:3px;margin-bottom:12px">BREACHES + ESCALATIONS</div>
+          <div class="pref-row"><div class="pref-label">CHANNELS</div></div>
+          <div class="channel-chips">
+            <span class="ch-chip ch-inapp">In-app</span>
+            <span class="ch-chip ch-teams">Teams</span>
+          </div>
+          <div style="margin-top:14px"><div class="pref-label">VOICE MODE</div><div class="pref-value" style="margin-top:4px">Plain-technical — no raw SQL</div></div>
+          <div style="margin-top:12px"><div class="pref-label">SNOOZE RULES</div>
+            <div class="snooze-rule">Weekends · Non-critical only</div>
+          </div>
+          <div style="margin-top:12px"><div class="pref-label">ESCALATION PATH</div><div class="pref-value" style="margin-top:4px;font-size:0.78rem">→ Self → HRIT Manager</div></div>
+        </div>
+      </div>
+
+      <!-- HR -->
+      <div class="role-card">
+        <div class="role-card-header" style="border-top:3px solid var(--pink)">
+          <div class="role-card-name">HR Business User</div>
+          <div class="role-card-desc">Read-only · Critical only · Plain English voice</div>
+        </div>
+        <div class="role-card-body">
+          <div class="pref-row"><div class="pref-label">NOTIFICATION SENSITIVITY</div></div>
+          <div class="sensitivity-bar">
+            <div class="sens-seg" style="background:var(--pink)"></div>
+            <div class="sens-seg"></div>
+            <div class="sens-seg"></div>
+            <div class="sens-seg"></div>
+            <div class="sens-seg"></div>
+          </div>
+          <div style="font-size:0.68rem;color:var(--pink);font-family:'Space Mono',monospace;margin-top:3px;margin-bottom:12px">CRITICAL ONLY</div>
+          <div class="pref-row"><div class="pref-label">CHANNELS</div></div>
+          <div class="channel-chips">
+            <span class="ch-chip ch-email">Email</span>
+          </div>
+          <div style="margin-top:14px"><div class="pref-label">VOICE MODE</div><div class="pref-value" style="margin-top:4px">Plain English — no technical terms</div></div>
+          <div style="margin-top:12px"><div class="pref-label">SNOOZE RULES</div>
+            <div class="snooze-rule">Off-hours always snoozed</div>
+            <div class="snooze-rule">Weekends always snoozed</div>
+          </div>
+          <div style="margin-top:12px"><div class="pref-label">ESCALATION PATH</div><div class="pref-value" style="margin-top:4px;font-size:0.78rem">→ HRIT contact</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ SCREEN 5: DETAIL ══ -->
+  <div id="screen-detail" class="screen">
+    <div class="screen-header">
+      <div>
+        <div class="screen-title">Payroll Watchdog</div>
+        <div class="screen-sub">Live Sentinel status — currently INTERVENING</div>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-ghost">⏸ Pause</button>
+        <button class="btn btn-ghost">✎ Edit</button>
+        <button class="btn btn-danger">⏹ Decommission</button>
+      </div>
+    </div>
+
+    <div class="detail-layout">
+      <div class="detail-main">
+        <!-- Hero -->
+        <div class="sentinel-hero">
+          <div class="sentinel-hero-header">
+            <div class="sentinel-avatar">🐕</div>
+            <div>
+              <div class="sentinel-hero-name">Payroll Watchdog</div>
+              <div class="sentinel-hero-goal">Goal: Keep DRM failure rate &lt;5% for payroll employees · EC_to_ECP max 2 fails/6h</div>
+              <div style="display:flex;gap:8px;margin-top:8px">
+                <span class="sentinel-status-badge status-intervening">INTERVENING</span>
+                <span style="font-family:'Space Mono',monospace;font-size:0.65rem;color:var(--muted)">Heartbeat: 15min · Next in 8m</span>
+              </div>
+            </div>
+          </div>
+          <div class="hero-stats">
+            <div class="hero-stat">
+              <div class="hero-stat-num" style="color:var(--green)">2,847</div>
+              <div class="hero-stat-label">Total executions</div>
+            </div>
+            <div class="hero-stat">
+              <div class="hero-stat-num" style="color:var(--amber)">14</div>
+              <div class="hero-stat-label">Breaches</div>
+            </div>
+            <div class="hero-stat">
+              <div class="hero-stat-num" style="color:var(--green)">31</div>
+              <div class="hero-stat-label">Actions taken</div>
+            </div>
+            <div class="hero-stat">
+              <div class="hero-stat-num" style="color:var(--red)">3</div>
+              <div class="hero-stat-label">Escalations</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Skill Loadout -->
+        <div class="card">
+          <div class="section-title">Skill Loadout</div>
+          <div class="loadout-grid">
+            <div class="loadout-item"><div class="loadout-num">SKILL 08</div><div class="loadout-name">Payroll interface check</div></div>
+            <div class="loadout-item"><div class="loadout-num">SKILL 55</div><div class="loadout-name">Payroll safety scan</div></div>
+            <div class="loadout-item"><div class="loadout-num">SKILL 59</div><div class="loadout-name">Interface risk score</div></div>
+          </div>
+        </div>
+
+        <!-- Authority -->
+        <div class="card">
+          <div class="section-title">Authority Matrix</div>
+          <div class="authority-grid">
+            <div class="auth-env">
+              <div class="auth-env-name" style="color:var(--red)">PROD</div>
+              <div class="auth-action"><span>Re-trigger</span><span class="auth-check" style="color:var(--green)">✓</span></div>
+              <div class="auth-action"><span>Label</span><span class="auth-check" style="color:var(--green)">✓</span></div>
+              <div class="auth-action"><span>Suppress</span><span class="auth-check" style="color:var(--green)">✓</span></div>
+              <div class="auth-action"><span>Notify</span><span class="auth-check" style="color:var(--green)">✓</span></div>
+              <div class="auth-action"><span>Escalate</span><span class="auth-check" style="color:var(--green)">✓</span></div>
+              <div class="auth-action"><span>Config change</span><span class="auth-check" style="color:var(--red)">✗</span></div>
+            </div>
+            <div class="auth-env">
+              <div class="auth-env-name" style="color:var(--amber)">QA</div>
+              <div class="auth-action"><span>Re-trigger</span><span class="auth-check" style="color:var(--green)">✓</span></div>
+              <div class="auth-action"><span>Label</span><span class="auth-check" style="color:var(--green)">✓</span></div>
+              <div class="auth-action"><span>Suppress</span><span class="auth-check" style="color:var(--green)">✓</span></div>
+              <div class="auth-action"><span>Notify</span><span class="auth-check" style="color:var(--green)">✓</span></div>
+              <div class="auth-action"><span>Escalate</span><span class="auth-check" style="color:var(--green)">✓</span></div>
+              <div class="auth-action"><span>Config change</span><span class="auth-check" style="color:var(--green)">✓</span></div>
+            </div>
+            <div class="auth-env">
+              <div class="auth-env-name" style="color:var(--cyan)">DEV</div>
+              <div class="auth-action"><span>All actions</span><span class="auth-check" style="color:var(--green)">✓</span></div>
+              <div class="auth-action"><span>Unrestricted</span><span class="auth-check" style="color:var(--green)">✓</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sidebar -->
+      <div class="detail-sidebar">
+        <div class="live-feed">
+          <div class="live-feed-title"><span class="live-dot"></span>Live Driffy Feed</div>
+          <div class="feed-entry">
+            <div class="feed-entry-time">23:04 · IT Admin</div>
+            <div class="feed-entry-text">EC_to_ECP failed 3× in 4h. DRM replication lag detected on payroll employees. Re-triggered at 23:03. Retry succeeded. DRM lag escalated to on-call HRIT.</div>
+          </div>
+          <div class="feed-entry">
+            <div class="feed-entry-time">23:04 · HR User</div>
+            <div class="feed-entry-text" style="color:var(--muted)">Your employee data sync had a hiccup — it's been automatically resolved. No action needed.</div>
+          </div>
+          <div class="feed-entry">
+            <div class="feed-entry-time">22:47 · System</div>
+            <div class="feed-entry-text" style="color:var(--dim)">Heartbeat — all clear. Failure rate 1.2%.</div>
+          </div>
+        </div>
+
+        <div class="next-hb">
+          <div class="hb-label">NEXT HEARTBEAT IN</div>
+          <div class="hb-countdown" id="hb-countdown">08:12</div>
+          <div class="hb-label">Skills 08, 55, 59 will execute</div>
+        </div>
+
+        <div class="memory-stat-card">
+          <div class="memory-stat-title">Last Goal Evaluation</div>
+          <div style="font-family:'Space Mono',monospace;font-size:0.72rem;color:var(--red);margin-bottom:6px">✗ BREACH DETECTED</div>
+          <div style="font-size:0.75rem;color:var(--muted)">DRM failure rate: <strong style="color:var(--red)">34%</strong> (limit 5%)</div>
+          <div style="font-size:0.75rem;color:var(--muted);margin-top:4px">EC_to_ECP failures: <strong style="color:var(--red)">3</strong> in 4h (limit 2/6h)</div>
+          <div style="font-size:0.75rem;color:var(--muted);margin-top:4px">Drift score: <strong style="color:var(--red)">0.94</strong></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- DEPLOY MODAL -->
+<div class="modal-overlay" id="deploy-modal">
+  <div class="modal">
+    <div class="modal-title">Deploy Sentinel to PROD</div>
+    <div class="modal-desc">This will activate Payroll Watchdog in PROD immediately. It will begin executing on a 15-minute heartbeat.</div>
+    <div class="modal-preview">
+      Sentinel: Payroll Watchdog<br/>
+      Skills: 08, 55, 59<br/>
+      Environment: PROD + QA + DEV<br/>
+      Heartbeat: Every 15 minutes<br/>
+      Authority: Re-trigger, Label, Escalate (PROD)
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="deploySuccess()">Deploy Sentinel →</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── SCREEN NAV ──
+function showScreen(id, navEl) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + id).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  if(navEl) navEl.classList.add('active');
+}
+
+// ── BUILDER STEP NAV ──
+let currentStep = 3;
+function setBuilderStep(n) {
+  currentStep = n;
+  for(let i=1;i<=7;i++){
+    const el = document.getElementById('bstep-'+i);
+    if(el) el.style.display = i===n ? 'block' : 'none';
+    const tab = document.querySelector('.step-item:nth-child('+i+')');
+  }
+  document.getElementById('step-indicator').textContent = 'Step '+n+' of 7';
+  document.getElementById('btn-next').textContent = n===7 ? 'Deploy →' : 'Continue →';
+  document.getElementById('btn-next').onclick = n===7 ? openModal : () => builderNav(1);
+
+  document.querySelectorAll('.step-item').forEach((item, idx) => {
+    item.classList.remove('active-step','done-step');
+    const stepN = idx + 1;
+    if(stepN < n) item.classList.add('done-step');
+    else if(stepN === n) item.classList.add('active-step');
+    const circle = item.querySelector('.step-num-circle');
+    if(circle) circle.textContent = stepN < n ? '✓' : String(stepN).padStart(2,'0');
+  });
+}
+
+function builderNav(dir) {
+  const next = currentStep + dir;
+  if(next >= 1 && next <= 7) setBuilderStep(next);
+}
+
+// ── GOAL PREVIEW ──
+function updateGoalPreview() {
+  const val = document.getElementById('goal-input').value;
+  const el = document.getElementById('goal-preview-text');
+  if(val.toLowerCase().includes('payroll')) {
+    el.innerHTML = `IF dim_drm_records.status = 'Failed'<br/>AND dim_drm_records.replication_content_type LIKE '%Payroll%'<br/>GROUP BY hour<br/>HAVING (COUNT(failed) / COUNT(*)) &gt; 0.05<br/>OR (<br/>&nbsp;&nbsp;SELECT COUNT(*) FROM is_message_log<br/>&nbsp;&nbsp;WHERE iflow_id = 'EC_to_ECP'<br/>&nbsp;&nbsp;AND status = 'FAILED'<br/>&nbsp;&nbsp;AND timestamp &gt; NOW() - INTERVAL '6 hours'<br/>) &gt; 2`;
+  } else {
+    el.innerHTML = `-- Compiling goal...<br/>Analysing conditions in natural language input...`;
+  }
+}
+
+// ── SKILL CHIPS ──
+document.querySelectorAll('.skill-chip').forEach(chip => {
+  if(!chip.querySelector('.remove')) {
+    chip.addEventListener('click', () => chip.classList.toggle('selected'));
+  }
+});
+
+// ── HEARTBEAT SELECTOR ──
+document.querySelectorAll('.hb-option').forEach(opt => {
+  opt.addEventListener('click', () => {
+    document.querySelectorAll('.hb-option').forEach(o => o.classList.remove('selected'));
+    opt.classList.add('selected');
+  });
+});
+
+// ── FILTER PILLS ──
+document.querySelectorAll('.filter-pill').forEach(pill => {
+  pill.addEventListener('click', () => {
+    pill.closest('.timeline-filter').querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+  });
+});
+
+// ── MODAL ──
+function openModal() { document.getElementById('deploy-modal').classList.add('open'); }
+function closeModal() { document.getElementById('deploy-modal').classList.remove('open'); }
+function deploySuccess() {
+  closeModal();
+  showScreen('registry', document.querySelector('[onclick*=registry]'));
+}
+
+// ── HEARTBEAT COUNTDOWN ──
+let hbSeconds = 492;
+setInterval(() => {
+  hbSeconds = hbSeconds > 0 ? hbSeconds - 1 : 899;
+  const m = Math.floor(hbSeconds/60).toString().padStart(2,'0');
+  const s = (hbSeconds%60).toString().padStart(2,'0');
+  const el = document.getElementById('hb-countdown');
+  if(el) el.textContent = m+':'+s;
+}, 1000);
+
+// ── INIT ──
+setBuilderStep(3);
+</script>
+</body>
+</html>

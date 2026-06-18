@@ -524,7 +524,7 @@ const ManageEmployeesPage = () => {
 
       {/* ── Create Project Modal ──────────────────────────────────────────── */}
       <Dialog open={createProjOpen} onOpenChange={o => { setCreateProjOpen(o); if (!o) { setProjName(''); setProjDesc(''); } }}>
-        <DialogContent className="sm:max-w-md rounded-2xl">
+        <DialogContent className="rounded-2xl">
           <DialogHeader>
             <DialogTitle className="text-xl font-bold">Create Project</DialogTitle>
           </DialogHeader>
@@ -557,7 +557,7 @@ const ManageEmployeesPage = () => {
       {/* ── Add Section Modal ─────────────────────────────────────────────── */}
       <Dialog open={addSectionOpen} onOpenChange={o => { setAddSectionOpen(o); if (!o) setSectionName(''); }}>
         <DialogContent
-          className="sm:max-w-sm rounded-2xl"
+          className="rounded-2xl"
           onOpenAutoFocus={e => { e.preventDefault(); (e.currentTarget.querySelector('input') as HTMLInputElement | null)?.focus(); }}
         >
           <DialogHeader>

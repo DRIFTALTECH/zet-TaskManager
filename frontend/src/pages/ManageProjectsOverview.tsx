@@ -187,7 +187,7 @@ const ManageProjectsOverview = () => {
 
       {/* ── Create Project Modal ────────────────────────────────────────── */}
       <Dialog open={createOpen} onOpenChange={o => { setCreateOpen(o); if (!o) { setProjName(''); setProjDesc(''); } }}>
-        <DialogContent className="sm:max-w-md rounded-2xl">
+        <DialogContent className="rounded-2xl">
           <DialogHeader>
             <DialogTitle className="text-xl font-bold">Create Project</DialogTitle>
           </DialogHeader>

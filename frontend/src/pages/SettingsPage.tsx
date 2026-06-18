@@ -1,15 +1,50 @@
 import { useAppStore } from '@/stores/appStore';
 import { motion } from 'framer-motion';
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   User, Lock, Sun, Moon, Camera, Check, Eye, EyeOff,
   Shield, Mail, Briefcase, Terminal, Copy, AlertTriangle, Trash2, Plug,
+  ShieldCheck, Search, X, RefreshCw, ChevronDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { pageEnter } from '@/lib/motion';
 import { api } from '@/lib/api';
-import type { PersonalAccessToken } from '@/types';
+import type { PersonalAccessToken, AuditLog } from '@/types';
 import UserAvatar from '@/components/UserAvatar';
+
+const ACTION_LABELS: Record<string, { label: string; color: string }> = {
+  'task.created':        { label: 'Created task',         color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25' },
+  'task.updated':        { label: 'Updated task',         color: 'bg-blue-500/15 text-blue-400 border-blue-500/25' },
+  'task.deleted':        { label: 'Deleted task',         color: 'bg-red-500/15 text-red-400 border-red-500/25' },
+  'task.status_changed': { label: 'Changed status',       color: 'bg-violet-500/15 text-violet-400 border-violet-500/25' },
+  'task.started':        { label: 'Started task',         color: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/25' },
+  'task.approved':       { label: 'Approved task',        color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25' },
+  'task.reopened':       { label: 'Reopened task',        color: 'bg-amber-500/15 text-amber-400 border-amber-500/25' },
+  'task.comment_added':  { label: 'Added comment',        color: 'bg-slate-500/15 text-slate-400 border-slate-500/25' },
+  'checklist.created':   { label: 'Added checklist item', color: 'bg-teal-500/15 text-teal-400 border-teal-500/25' },
+  'checklist.done':      { label: 'Completed item',       color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25' },
+  'checklist.undone':    { label: 'Unchecked item',       color: 'bg-amber-500/15 text-amber-400 border-amber-500/25' },
+  'checklist.updated':   { label: 'Updated item',         color: 'bg-blue-500/15 text-blue-400 border-blue-500/25' },
+  'checklist.deleted':   { label: 'Deleted item',         color: 'bg-red-500/15 text-red-400 border-red-500/25' },
+  'attachment.uploaded': { label: 'Uploaded file',        color: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/25' },
+  'attachment.deleted':  { label: 'Deleted file',         color: 'bg-red-500/15 text-red-400 border-red-500/25' },
+};
+
+function fmtAuditDate(iso: string) {
+  try {
+    return new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  } catch { return iso; }
+}
+
+function timeAgo(iso: string) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
 
 const inputCls = 'w-full rounded-xl border border-border/50 bg-muted/40 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 transition-all placeholder:text-muted-foreground/40';
 
@@ -24,7 +59,8 @@ function fmtDate(iso: string): string {
 }
 
 export default function SettingsPage() {
-  const { currentUser, updateProfile, changePassword, toggleTheme, theme } = useAppStore();
+  const { currentUser, updateProfile, changePassword, toggleTheme, theme, users } = useAppStore();
+  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'admin';
 
   // Profile state
   const [name, setName] = useState(currentUser?.name ?? '');
@@ -39,6 +75,38 @@ export default function SettingsPage() {
   const [savingPw, setSavingPw] = useState(false);
   const [showCurrent, setShowCurrent] = useState(false);
   const [showNew, setShowNew] = useState(false);
+
+  // Audit logs
+  const [auditOpen, setAuditOpen] = useState(false);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditSearch, setAuditSearch] = useState('');
+  const [auditFilterUser, setAuditFilterUser] = useState('');
+  const [auditFilterAction, setAuditFilterAction] = useState('');
+  const [auditLimit, setAuditLimit] = useState(200);
+
+  const loadAuditLogs = useCallback(async (l = auditLimit) => {
+    setAuditLoading(true);
+    try { setAuditLogs(await api.getAuditLogs(l)); }
+    catch (e) { console.error(e); }
+    finally { setAuditLoading(false); }
+  }, [auditLimit]);
+
+  useEffect(() => {
+    if (auditOpen) void loadAuditLogs();
+  }, [auditOpen]);
+
+  const auditActionTypes = useMemo(() => [...new Set(auditLogs.map(l => l.action))].sort(), [auditLogs]);
+
+  const filteredAuditLogs = useMemo(() => {
+    const q = auditSearch.toLowerCase();
+    return auditLogs.filter(log => {
+      if (auditFilterUser && log.userId !== auditFilterUser) return false;
+      if (auditFilterAction && log.action !== auditFilterAction) return false;
+      if (q) return log.entityName.toLowerCase().includes(q) || log.userName.toLowerCase().includes(q) || log.action.toLowerCase().includes(q);
+      return true;
+    });
+  }, [auditLogs, auditSearch, auditFilterUser, auditFilterAction]);
 
   // Developer settings (MCP)
   const [devOn, setDevOn] = useState(false);
@@ -159,7 +227,7 @@ export default function SettingsPage() {
 
       {/* ── Scrollable body ──────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto min-h-0 p-4 sm:p-8">
-        <div className="max-w-2xl mx-auto space-y-6">
+        <div className="space-y-6">
 
           {/* ── Profile Card ─────────────────────────────────────── */}
           <div className="rounded-2xl border border-border/30 bg-card overflow-hidden">
@@ -524,6 +592,161 @@ export default function SettingsPage() {
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+          </div>
+
+          {/* ── Audit Logs ───────────────────────────────────────── */}
+          <div className="rounded-2xl border border-border/30 bg-card overflow-hidden">
+            <div className="px-6 py-4 border-b border-border/20 bg-muted/10 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-primary/70" />
+                <h2 className="text-sm font-bold text-foreground">Audit Logs</h2>
+                <span className="text-[10px] text-muted-foreground/40">
+                  {isManager ? 'Team activity' : 'My activity'}
+                </span>
+              </div>
+              <button
+                role="switch"
+                aria-checked={auditOpen}
+                onClick={() => setAuditOpen(v => !v)}
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary/40 ${auditOpen ? 'bg-primary' : 'bg-muted-foreground/25'}`}
+              >
+                <span className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${auditOpen ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </div>
+
+            {auditOpen && (
+              <div className="p-4 space-y-3">
+                {/* Filters */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Search */}
+                  <div className="flex items-center gap-2 bg-muted/40 border border-border/40 rounded-xl px-3 py-2 flex-1 min-w-[160px]">
+                    <Search className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
+                    <input
+                      value={auditSearch}
+                      onChange={e => setAuditSearch(e.target.value)}
+                      placeholder="Search actions, names…"
+                      className="bg-transparent text-sm focus:outline-none flex-1 placeholder:text-muted-foreground/40"
+                    />
+                    {auditSearch && (
+                      <button onClick={() => setAuditSearch('')} className="text-muted-foreground/50 hover:text-foreground transition-colors">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* User filter (manager only) */}
+                  {isManager && (
+                    <div className="relative">
+                      <select
+                        value={auditFilterUser}
+                        onChange={e => setAuditFilterUser(e.target.value)}
+                        className="appearance-none pl-3 pr-8 py-2 rounded-xl border border-border/40 bg-muted/40 text-sm focus:outline-none text-foreground/80 cursor-pointer hover:bg-muted/60"
+                      >
+                        <option value="">All People</option>
+                        {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                      </select>
+                      <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50 pointer-events-none" />
+                    </div>
+                  )}
+
+                  {/* Action filter */}
+                  <div className="relative">
+                    <select
+                      value={auditFilterAction}
+                      onChange={e => setAuditFilterAction(e.target.value)}
+                      className="appearance-none pl-3 pr-8 py-2 rounded-xl border border-border/40 bg-muted/40 text-sm focus:outline-none text-foreground/80 cursor-pointer hover:bg-muted/60"
+                    >
+                      <option value="">All Actions</option>
+                      {auditActionTypes.map(a => (
+                        <option key={a} value={a}>{ACTION_LABELS[a]?.label ?? a}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50 pointer-events-none" />
+                  </div>
+
+                  <div className="flex items-center gap-2 ml-auto">
+                    <span className="text-xs px-2.5 py-1.5 rounded-xl bg-muted/60 border border-border/40 text-muted-foreground font-medium">
+                      {filteredAuditLogs.length} {filteredAuditLogs.length === 1 ? 'entry' : 'entries'}
+                    </span>
+                    <button
+                      onClick={() => void loadAuditLogs()}
+                      disabled={auditLoading}
+                      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl border border-border/40 bg-muted/30 hover:bg-muted/60 text-muted-foreground transition-all"
+                    >
+                      <RefreshCw className={`h-3 w-3 ${auditLoading ? 'animate-spin' : ''}`} />
+                      Refresh
+                    </button>
+                  </div>
+                </div>
+
+                {/* Log list */}
+                <div className="rounded-xl border border-border/30 overflow-hidden max-h-[480px] overflow-y-auto">
+                  {auditLoading ? (
+                    <div className="flex items-center justify-center py-12 gap-2 text-sm text-muted-foreground">
+                      <div className="w-5 h-5 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+                      Loading…
+                    </div>
+                  ) : filteredAuditLogs.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-center">
+                      <ShieldCheck className="h-8 w-8 text-muted-foreground/20 mb-2" />
+                      <p className="text-sm text-muted-foreground/50">
+                        {auditSearch || auditFilterUser || auditFilterAction ? 'No matching entries' : 'No activity yet'}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-border/20">
+                      {filteredAuditLogs.map(log => {
+                        const actor = isManager ? users.find(u => u.id === log.userId) : currentUser;
+                        const badge = ACTION_LABELS[log.action];
+                        return (
+                          <div
+                            key={log.id}
+                            className="flex items-center gap-3 px-4 py-3 hover:bg-muted/20 transition-colors group"
+                          >
+                            <div className="shrink-0">
+                              <UserAvatar name={actor?.name ?? log.userName} avatar={actor?.avatar} size="sm" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-sm font-semibold text-foreground">{log.userName}</span>
+                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${badge?.color ?? 'bg-muted/60 text-muted-foreground border-border/40'}`}>
+                                  {badge?.label ?? log.action}
+                                </span>
+                              </div>
+                              {log.entityName && (
+                                <p className="text-xs text-muted-foreground/60 truncate mt-0.5">
+                                  <span className="text-muted-foreground/40 capitalize">{log.entityType}</span>
+                                  {' · '}
+                                  <span className="text-foreground/60">{log.entityName}</span>
+                                  {log.details.status && (
+                                    <span className="ml-1 text-muted-foreground/40">→ {String(log.details.status)}</span>
+                                  )}
+                                </p>
+                              )}
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <p className="text-xs text-muted-foreground/50 font-mono tabular-nums">{timeAgo(log.createdAt)}</p>
+                              <p className="text-[10px] text-muted-foreground/30 mt-0.5 hidden group-hover:block">{fmtAuditDate(log.createdAt)}</p>
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {auditLogs.length >= auditLimit && (
+                        <div className="px-4 py-4 text-center">
+                          <button
+                            onClick={() => { const nl = auditLimit + 200; setAuditLimit(nl); void loadAuditLogs(nl); }}
+                            className="text-sm text-primary/60 hover:text-primary font-medium transition-colors"
+                          >
+                            Load more…
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>

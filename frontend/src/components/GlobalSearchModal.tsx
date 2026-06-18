@@ -126,7 +126,7 @@ export default function GlobalSearchModal({ open, onOpenChange }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="p-0 gap-0 overflow-hidden max-w-xl rounded-2xl border border-border/50 shadow-2xl">
+      <DialogContent className="p-0 gap-0 overflow-hidden rounded-2xl border border-border/50 shadow-2xl">
         {/* Search input */}
         <div className="flex items-center gap-3 px-4 py-3.5 border-b border-border/30">
           <Search className="h-4 w-4 text-muted-foreground/60 shrink-0" />

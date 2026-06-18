@@ -683,7 +683,7 @@ const DashboardPage = () => {
 
       {/* Add Column Modal */}
       <Dialog open={addColOpen} onOpenChange={setAddColOpen}>
-        <DialogContent className="sm:max-w-sm" onOpenAutoFocus={e => { e.preventDefault(); setTimeout(() => addColInputRef.current?.focus(), 50); }}>
+        <DialogContent className="sm:w-[75vw]" onOpenAutoFocus={e => { e.preventDefault(); setTimeout(() => addColInputRef.current?.focus(), 50); }}>
           <DialogHeader><DialogTitle>Add Column</DialogTitle></DialogHeader>
           <form onSubmit={e => { void handleAddColumn(e); }} className="space-y-4 pt-1">
             <input
@@ -703,7 +703,7 @@ const DashboardPage = () => {
 
       {/* Rename Column Modal */}
       <Dialog open={renameColOpen} onOpenChange={setRenameColOpen}>
-        <DialogContent className="sm:max-w-sm" onOpenAutoFocus={e => { e.preventDefault(); setTimeout(() => renameColInputRef.current?.focus(), 50); }}>
+        <DialogContent className="sm:w-[75vw]" onOpenAutoFocus={e => { e.preventDefault(); setTimeout(() => renameColInputRef.current?.focus(), 50); }}>
           <DialogHeader><DialogTitle>Rename Column</DialogTitle></DialogHeader>
           <form onSubmit={e => { void handleRenameColumn(e); }} className="space-y-4 pt-1">
             <input

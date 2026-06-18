@@ -432,6 +432,13 @@ export const api = {
     });
   },
 
+  async aiExtractTasks(
+    form: FormData,
+  ): Promise<{ sourceText: string; tasks: import('@/types').AIExtractedTask[] }> {
+    // FormData body → request() omits Content-Type so the browser sets the multipart boundary.
+    return request('/ai/extract-tasks', { method: 'POST', body: form });
+  },
+
   async aiGenerateDescription(
     title: string,
     projectName?: string,

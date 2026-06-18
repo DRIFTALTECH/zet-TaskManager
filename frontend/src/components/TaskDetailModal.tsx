@@ -401,7 +401,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
   return (
     <>
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="sm:max-w-[1060px] flex max-h-[min(92dvh,92vh)] min-h-0 flex-col gap-0 overflow-hidden border-border/30 bg-card p-0 rounded-2xl shadow-2xl">
+        <DialogContent className="flex min-h-0 flex-col gap-0 overflow-hidden border-border/30 bg-card p-0 rounded-2xl shadow-2xl">
           <DialogDescription className="sr-only">Task details for {task.title}</DialogDescription>
 
           {/* ── Header ────────────────────────────────────────────── */}

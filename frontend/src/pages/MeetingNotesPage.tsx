@@ -205,7 +205,7 @@ export default function MeetingNotesPage() {
 
       {/* Day dialog */}
       <Dialog open={!!openDate} onOpenChange={o => !o && closeDay()}>
-        <DialogContent className="sm:max-w-2xl rounded-2xl max-h-[88vh] overflow-y-auto">
+        <DialogContent className="rounded-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-lg font-bold">
               <CalendarDays className="h-4 w-4 text-primary/70" />

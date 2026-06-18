@@ -130,7 +130,7 @@ def chat(req: ChatRequest, db: Session, current_user: User) -> ChatResponse:
 
     tools = build_tools(db, current_user)
     tools_by_name = {t.name: t for t in tools}
-    llm = service.get_llm_for_agent().bind_tools(tools)
+    llm = service.bind_agent(tools)  # Groq primary + Ollama fallback
 
     # Build system message with injected context
     system_content = prompts.AGENT_SYSTEM.format(

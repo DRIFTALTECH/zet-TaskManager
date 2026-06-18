@@ -698,7 +698,7 @@ const ProjectDetailPage = () => {
 
       {/* ── Modals ────────────────────────────────────────────────────────── */}
       <Dialog open={addSectionOpen} onOpenChange={o => { setAddSectionOpen(o); if (!o) setSectionName(''); }}>
-        <DialogContent className="sm:max-w-sm rounded-2xl"
+        <DialogContent className="rounded-2xl"
           onOpenAutoFocus={e => { e.preventDefault(); (e.currentTarget.querySelector('input') as HTMLInputElement | null)?.focus(); }}>
           <DialogHeader><DialogTitle className="text-xl font-bold">Add Section</DialogTitle></DialogHeader>
           <div className="space-y-3 pt-2">
@@ -748,7 +748,7 @@ const ProjectDetailPage = () => {
 
       {/* Section drill-down: per-day hours logged */}
       <Dialog open={!!sectionDetail} onOpenChange={o => !o && setSectionDetail(null)}>
-        <DialogContent className="sm:max-w-lg rounded-2xl">
+        <DialogContent className="rounded-2xl">
           <DialogHeader>
             <DialogTitle className="text-lg font-bold break-words [overflow-wrap:anywhere]">
               {sectionDetail?.name} — daily time
@@ -783,7 +783,7 @@ const ProjectDetailPage = () => {
 
       {/* Member work breakdown */}
       <Dialog open={!!memberDetail} onOpenChange={o => !o && setMemberDetail(null)}>
-        <DialogContent className="sm:max-w-lg rounded-2xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="rounded-2xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-lg font-bold break-words [overflow-wrap:anywhere]">
               {memberDetail?.name} — work breakdown
@@ -859,7 +859,7 @@ const ProjectDetailPage = () => {
 
       {/* Add member */}
       <Dialog open={addMemberOpen} onOpenChange={o => { setAddMemberOpen(o); if (!o) setAddMemberSearch(''); }}>
-        <DialogContent className="sm:max-w-md rounded-2xl">
+        <DialogContent className="rounded-2xl">
           <DialogHeader><DialogTitle className="text-xl font-bold">Add Member</DialogTitle></DialogHeader>
           <div className="space-y-3 pt-2">
             <div className="flex items-center gap-2 bg-muted/40 border border-border/40 rounded-xl px-3.5 py-2.5">

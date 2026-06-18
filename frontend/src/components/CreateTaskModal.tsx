@@ -188,7 +188,7 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
         if (!v) resetForm();
       }}
     >
-      <DialogContent className="sm:max-w-lg flex max-h-[min(90dvh,92vh)] min-h-0 flex-col gap-0 overflow-hidden border-border/80 bg-card p-0">
+      <DialogContent className="flex min-h-0 flex-col gap-0 overflow-hidden border-border/80 bg-card p-0">
         <DialogHeader className="shrink-0 px-6 pb-4 pt-2 text-left border-b border-border/60">
           <DialogTitle className="text-xl">New task</DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">
