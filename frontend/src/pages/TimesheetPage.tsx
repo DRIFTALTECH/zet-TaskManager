@@ -22,6 +22,7 @@ import { Calendar } from '@/components/ui/calendar';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { snappy, pageEnter } from '@/lib/motion';
+import * as XLSX from 'xlsx';
 import type { TimesheetWorkEntry, AITimesheetRow } from '@/types';
 import { api } from '@/lib/api';
 import { acquireGraphToken, hasMicrosoftSession, isMicrosoftAuthConfigured } from '@/lib/microsoftAuth';
@@ -819,20 +820,28 @@ const TimesheetPage = () => {
     }
   };
 
-  const exportCSV = () => {
-    const header = ['Date', 'Description', 'Project', 'Section', 'From', 'To', 'Duration'].join(',');
+  const exportExcel = () => {
     const rows = entries.map(e => {
       const project = projects.find(p => p.id === e.projectId);
       const section = project?.sections.find(s => s.id === e.sectionId);
-      const desc = (e.description || '').replace(/"/g, '""');
-      return [formatDisplayDate(e.workDate), `"${desc}"`, project?.name ?? '', section?.name ?? '', e.timeFrom, e.timeTo, formatDuration(e.seconds)].join(',');
+      return {
+        Date: formatDisplayDate(e.workDate),
+        Description: e.description || '',
+        Project: project?.name ?? '',
+        Section: section?.name ?? '',
+        From: e.timeFrom,
+        To: e.timeTo,
+        Duration: formatDuration(e.seconds),
+      };
     });
-    const csv = [header, ...rows].join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `timesheet_${weekStart}_${weekEnd}.csv`; a.click();
-    toast.success('Timesheet exported');
+    const ws = XLSX.utils.json_to_sheet(rows, {
+      header: ['Date', 'Description', 'Project', 'Section', 'From', 'To', 'Duration'],
+    });
+    ws['!cols'] = [{ wch: 14 }, { wch: 40 }, { wch: 20 }, { wch: 18 }, { wch: 8 }, { wch: 8 }, { wch: 12 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Timesheet');
+    XLSX.writeFile(wb, `timesheet_${weekStart}_${weekEnd}.xlsx`);
+    toast.success('Timesheet exported to Excel');
   };
 
   const toggleDay = (date: string) => setSelectedDays(prev => prev.includes(date) ? prev.filter(d => d !== date) : [...prev, date]);
@@ -1049,10 +1058,10 @@ const TimesheetPage = () => {
               transition={snappy}
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.97 }}
-              onClick={exportCSV}
+              onClick={exportExcel}
               className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl border border-border/50 hover:bg-muted/50 hover:border-border/80 transition-all text-muted-foreground hover:text-foreground font-medium"
             >
-              <Download className="h-4 w-4" /> Export
+              <Download className="h-4 w-4" /> Export Excel
             </motion.button>
           </div>
         </div>

@@ -58,12 +58,6 @@ function parseTaskCreatedAt(createdAt: string): { dateStr: string; timeStr: stri
     : null;
   return { dateStr, timeStr };
 }
-function fmtTaskCreatedDisplay(createdAt: string): string {
-  const p = parseTaskCreatedAt(createdAt);
-  if (!p) return '';
-  if (p.timeStr) return `Created ${p.dateStr} · ${p.timeStr}`;
-  return `Created ${p.dateStr}`;
-}
 function fmtTaskCreatedTimeline(createdAt: string): string {
   const p = parseTaskCreatedAt(createdAt);
   if (!p) return '';
@@ -170,6 +164,11 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
     (currentUser.id === task.createdBy || isTaskAssignedTo(task, currentUser.id) || isManager),
   );
   const canEditTaskFields = Boolean(currentUser && task && !isCompleted && currentUser.id === task.createdBy);
+  // Rescheduling (due date) is allowed for the creator, any assignee, or a manager/admin.
+  const canReschedule = Boolean(
+    currentUser && task && !isCompleted &&
+    (currentUser.id === task.createdBy || isTaskAssignedTo(task, currentUser.id) || isManager),
+  );
   const canManageAssignees = Boolean(task && !isCompleted && projects.some(p => p.id === task?.projectId));
   const canDeleteTask = Boolean(currentUser && task && currentUser.id === task.createdBy);
   const assigneeKey = task ? sortedKey(taskAssigneeIds(task)) : '';
@@ -261,7 +260,6 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
   // Resolve the display label from kanban columns so custom columns show their real name
   const statusLabel = kanbanColumns.find(c => c.id === task.status)?.label ?? statusCfg.label;
   const priCfg = priorityConfig[displayPriority] ?? priorityConfig.Medium;
-  const taskCreatedLine = fmtTaskCreatedDisplay(task.createdAt);
   const taskCreatedTimeline = fmtTaskCreatedTimeline(task.createdAt);
 
   const toggleAssignee = (uid: string) => setDraftAssigneeIds(prev =>
@@ -283,6 +281,16 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
       onOpenChange(false);
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not save task'); }
     finally { setSaving(false); }
+  };
+
+  const changeDueDate = async (newDate: string) => {
+    if (!task || !newDate || newDate === task.dueDate?.slice(0, 10)) return;
+    try {
+      await updateTask(task.id, { dueDate: newDate });
+      toast.success('Due date updated');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not update due date');
+    }
   };
 
   const postFeedback = async () => {
@@ -486,10 +494,10 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
               {/* Description */}
               <section>
                 <SectionLabel icon={MessageSquare} label="Description" accent="text-blue-400/70" />
-                {(taskCreatedLine || canUseTaskTimer) && (
+                {(task.dueDate || canUseTaskTimer) && (
                   <div className="flex flex-wrap items-center justify-between gap-2 -mt-1 mb-3">
-                    {taskCreatedLine ? (
-                      <p className="text-[11px] text-muted-foreground/70 tabular-nums min-w-0 flex-1">{taskCreatedLine}</p>
+                    {task.dueDate ? (
+                      <p className="text-[11px] text-muted-foreground/70 tabular-nums min-w-0 flex-1">Due {fmtDate(task.dueDate)}</p>
                     ) : (
                       <span className="flex-1 min-w-0" />
                     )}
@@ -1036,10 +1044,21 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
               {/* Due Date */}
               <section>
                 <SectionLabel icon={Calendar} label="Due Date" accent="text-cyan-400/70" />
-                <div className={`text-sm font-bold ${dueBucketDateTextClass(dueBucket, isDoneDue)}`}>
-                  {fmtDate(task.dueDate)}
-                </div>
-                <div className="text-[11px] text-muted-foreground font-mono mt-0.5">{task.dueDate}</div>
+                {canReschedule ? (
+                  <input
+                    type="date"
+                    value={task.dueDate?.slice(0, 10) || ''}
+                    onChange={e => void changeDueDate(e.target.value)}
+                    className="text-sm font-semibold bg-muted/40 border border-border/50 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 transition-all [color-scheme:dark]"
+                  />
+                ) : (
+                  <>
+                    <div className={`text-sm font-bold ${dueBucketDateTextClass(dueBucket, isDoneDue)}`}>
+                      {fmtDate(task.dueDate)}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground font-mono mt-0.5">{task.dueDate}</div>
+                  </>
+                )}
                 {!isDoneDue && dueBucket === 'today' && (
                   <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-red-600 dark:text-red-300 bg-red-500/10 px-2 py-0.5 rounded-md border border-red-500/25">
                     Due today

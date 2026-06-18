@@ -64,7 +64,7 @@ const priorityBadge: Record<Priority, string> = {
 };
 
 const MyTasksPage = () => {
-  const { currentUser, tasks, projects, reopenTaskToBacklog } = useAppStore();
+  const { currentUser, tasks, projects, reopenTaskToBacklog, updateTask } = useAppStore();
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [reopeningId, setReopeningId] = useState<string | null>(null);
@@ -145,7 +145,15 @@ const MyTasksPage = () => {
       {/* Calendar view */}
       {view === 'calendar' && (
         <div className="flex-1 min-h-0 overflow-auto">
-          <CalendarView tasks={myTasks} onTaskClick={setSelectedTask} />
+          <CalendarView
+            tasks={myTasks}
+            onTaskClick={setSelectedTask}
+            onTaskDrop={(taskId, newDate) => {
+              void updateTask(taskId, { dueDate: newDate })
+                .then(() => toast.success('Task rescheduled'))
+                .catch((e: unknown) => toast.error(e instanceof Error ? e.message : 'Could not reschedule'));
+            }}
+          />
         </div>
       )}
 

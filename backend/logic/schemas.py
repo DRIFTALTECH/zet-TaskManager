@@ -201,6 +201,7 @@ class TaskPatch(BaseModel):
     sectionId: str | None = None
     assigneeIds: list[str] | None = None
     customFields: dict[str, str] | None = None
+    dueDate: str | None = None
 
 
 class TaskMoveBody(BaseModel):

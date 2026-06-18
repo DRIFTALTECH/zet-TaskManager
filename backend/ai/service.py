@@ -17,6 +17,18 @@ from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel
 
+# ── Models ────────────────────────────────────────────────────────────────────
+# Groq retires models on a schedule (the Llama-4 line was decommissioned in 2026 in
+# favour of openai/gpt-oss). Defaults below are current as of 2026 and overridable via
+# env so a future deprecation is a config change, not a code change.
+#   GROQ_MODEL        — general text / structured (tool-calling) completions
+#   GROQ_AGENT_MODEL  — the Zani agent (tool calling)
+#   GROQ_STRICT_MODEL — constrained decoding (json_schema strict)
+_DEFAULT_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+_AGENT_MODEL = os.getenv("GROQ_AGENT_MODEL", "openai/gpt-oss-120b")
+_STRICT_MODEL = os.getenv("GROQ_STRICT_MODEL", "openai/gpt-oss-120b")
+
+
 # ── Client ────────────────────────────────────────────────────────────────────
 
 def get_llm_for_agent() -> ChatGroq:
@@ -25,7 +37,7 @@ def get_llm_for_agent() -> ChatGroq:
     if not api_key:
         raise RuntimeError("GROQ_API_KEY is not set. Add it to backend/.env")
     return ChatGroq(
-        model="meta-llama/llama-4-scout-17b-16e-instruct",
+        model=_AGENT_MODEL,
         temperature=0,   # 0 = deterministic; minimises hallucinated IDs / names
         api_key=api_key,
     )
@@ -38,7 +50,7 @@ def _get_llm(temperature: float = 0.4) -> ChatGroq:
             "GROQ_API_KEY is not set. Add it to backend/.env"
         )
     return ChatGroq(
-        model="llama-3.3-70b-versatile",
+        model=_DEFAULT_MODEL,
         temperature=temperature,
         api_key=api_key,
     )
@@ -80,7 +92,7 @@ def complete_structured_strict(
     variables: dict,
     schema: Type[T],
     *,
-    model: str = "meta-llama/llama-4-scout-17b-16e-instruct",
+    model: str | None = None,
     temperature: float = 0,
 ) -> T:
     """
@@ -98,7 +110,7 @@ def complete_structured_strict(
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         raise RuntimeError("GROQ_API_KEY is not set. Add it to backend/.env")
-    llm = ChatGroq(model=model, temperature=temperature, api_key=api_key)
+    llm = ChatGroq(model=model or _STRICT_MODEL, temperature=temperature, api_key=api_key)
     structured_llm = llm.with_structured_output(schema, method="json_schema", strict=True)
     chain = prompt | structured_llm
     return chain.invoke(variables)

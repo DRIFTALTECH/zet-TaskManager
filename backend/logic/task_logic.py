@@ -213,6 +213,7 @@ def patch_task(db: Session, current_user_id: str, task_id: str, body: TaskPatch)
             or body.priority is not None
             or body.sectionId is not None
             or body.customFields is not None
+            or body.dueDate is not None
         ):
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,
@@ -256,6 +257,10 @@ def patch_task(db: Session, current_user_id: str, task_id: str, body: TaskPatch)
         t.assigned_to = assignee_ids[0]
     if body.customFields is not None:
         t.custom_fields_json = json.dumps(body.customFields)
+    # Rescheduling: any project member (assignee) may change the due date — not just
+    # the creator — so drag-and-drop on the calendar works for everyone on the task.
+    if body.dueDate is not None:
+        t.due_date = (body.dueDate or "").strip() or t.due_date
     tasks_crud.update_task(db, t)
     return to_task_out(db, t, current_user_id)
 

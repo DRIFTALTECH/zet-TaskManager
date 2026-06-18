@@ -323,6 +323,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (updates.sectionId !== undefined) patch.sectionId = updates.sectionId;
     if (updates.assigneeIds !== undefined) patch.assigneeIds = updates.assigneeIds;
     if (updates.customFields !== undefined) patch.customFields = updates.customFields;
+    if (updates.dueDate !== undefined) patch.dueDate = updates.dueDate;
     const t = await api.patchTask(id, patch);
     set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
   },

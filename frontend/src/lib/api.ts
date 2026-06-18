@@ -34,6 +34,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (res.status === 401) {
     const detail = await parseError(res);
     localStorage.removeItem(TOKEN_KEY);
+    // Session expired / unauthorized → bounce to login (unless already on an auth page).
+    if (typeof window !== 'undefined') {
+      const p = window.location.pathname;
+      if (p !== '/login' && p !== '/signup') {
+        window.location.href = '/login';
+      }
+    }
     throw new Error(detail || 'Unauthorized');
   }
   if (!res.ok) throw new Error(await parseError(res));
@@ -209,6 +216,7 @@ export const api = {
       sectionId: string;
       assigneeIds: string[];
       customFields: Record<string, string>;
+      dueDate: string;
     }>,
   ): Promise<Task> {
     return request(`/tasks/${taskId}`, { method: 'PATCH', body: JSON.stringify(patch) });

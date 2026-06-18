@@ -36,13 +36,16 @@ function toDateStr(d: Date): string {
 interface Props {
   tasks: Task[];
   onTaskClick: (task: Task) => void;
+  /** Drag a task to another day → reschedule its due date (YYYY-MM-DD). */
+  onTaskDrop?: (taskId: string, newDate: string) => void;
 }
 
-export default function CalendarView({ tasks, onTaskClick }: Props) {
+export default function CalendarView({ tasks, onTaskClick, onTaskDrop }: Props) {
   const [viewDate, setViewDate] = useState(() => {
     const d = new Date();
     return { year: d.getFullYear(), month: d.getMonth() };
   });
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null);
 
   const cells = useMemo(
     () => datesInMonth(viewDate.year, viewDate.month),
@@ -128,10 +131,20 @@ export default function CalendarView({ tasks, onTaskClick }: Props) {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.15, delay: (idx % 7) * 0.02 }}
+              onDragOver={onTaskDrop ? (e => { e.preventDefault(); setDragOverKey(key); }) : undefined}
+              onDragLeave={onTaskDrop ? (() => setDragOverKey(k => (k === key ? null : k))) : undefined}
+              onDrop={onTaskDrop ? (e => {
+                e.preventDefault();
+                setDragOverKey(null);
+                const id = e.dataTransfer.getData('text/task-id');
+                if (id) onTaskDrop(id, key);
+              }) : undefined}
               className={`rounded-lg p-1.5 min-h-[80px] flex flex-col gap-0.5 border transition-colors ${
-                isToday
-                  ? 'border-primary/40 bg-primary/5'
-                  : 'border-border/20 bg-muted/5 hover:bg-muted/10'
+                dragOverKey === key
+                  ? 'border-primary ring-2 ring-primary/40 bg-primary/10'
+                  : isToday
+                    ? 'border-primary/40 bg-primary/5'
+                    : 'border-border/20 bg-muted/5 hover:bg-muted/10'
               }`}
             >
               {/* Day number */}
@@ -143,9 +156,11 @@ export default function CalendarView({ tasks, onTaskClick }: Props) {
               {dayTasks.slice(0, maxVisible).map(task => (
                 <button
                   key={task.id}
+                  draggable={!!onTaskDrop}
+                  onDragStart={onTaskDrop ? (e => { e.dataTransfer.setData('text/task-id', task.id); e.dataTransfer.effectAllowed = 'move'; }) : undefined}
                   onClick={() => onTaskClick(task)}
-                  title={task.title}
-                  className={`w-full flex items-center gap-1 px-1.5 py-0.5 rounded-md text-left border text-[10px] font-medium truncate leading-tight hover:opacity-80 transition-opacity ${PRIORITY_PILL[task.priority]}`}
+                  title={onTaskDrop ? `${task.title} — drag to reschedule` : task.title}
+                  className={`w-full flex items-center gap-1 px-1.5 py-0.5 rounded-md text-left border text-[10px] font-medium truncate leading-tight hover:opacity-80 transition-opacity ${onTaskDrop ? 'cursor-grab active:cursor-grabbing' : ''} ${PRIORITY_PILL[task.priority]}`}
                 >
                   <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${PRIORITY_DOT[task.priority]}`} />
                   <span className="truncate">{task.title}</span>
