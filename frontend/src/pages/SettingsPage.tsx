@@ -4,9 +4,8 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   User, Lock, Sun, Moon, Camera, Check, Eye, EyeOff,
   Shield, Mail, Briefcase, Terminal, Copy, AlertTriangle, Trash2, Plug,
-  ShieldCheck, Search, X, RefreshCw, ChevronDown, Puzzle, Code2, Bot, Globe,
+  ShieldCheck, Search, X, RefreshCw, ChevronDown, Puzzle, Code2, Bot,
 } from 'lucide-react';
-import type { ReactNode } from 'react';
 import { toast } from 'sonner';
 import { pageEnter } from '@/lib/motion';
 import { api } from '@/lib/api';
@@ -89,148 +88,198 @@ function CodeBlock({ code, caption }: { code: string; caption?: string }) {
   );
 }
 
-/** One numbered step in a how-to list. */
-function Step({ n, children }: { n: number; children: ReactNode }) {
+// Per-platform theming. Static class strings so Tailwind keeps them.
+const PLATFORMS = [
+  {
+    id: 'claude', label: 'Claude Code', icon: Terminal,
+    activeTab: 'bg-orange-500 text-white shadow-md shadow-orange-500/30',
+    dot: 'bg-orange-500', text: 'text-orange-500', soft: 'bg-orange-500/10', edge: 'border-orange-500/40',
+  },
+  {
+    id: 'cursor', label: 'Cursor', icon: Bot,
+    activeTab: 'bg-zinc-900 text-white shadow-md shadow-black/30 dark:bg-white dark:text-zinc-900',
+    dot: 'bg-zinc-900 dark:bg-white', text: 'text-zinc-900 dark:text-zinc-100', soft: 'bg-zinc-500/10', edge: 'border-zinc-500/40',
+  },
+  {
+    id: 'vscode', label: 'VS Code', icon: Code2,
+    activeTab: 'bg-blue-500 text-white shadow-md shadow-blue-500/30',
+    dot: 'bg-blue-500', text: 'text-blue-500', soft: 'bg-blue-500/10', edge: 'border-blue-500/40',
+  },
+  {
+    id: 'plugin', label: 'Plugin', icon: Puzzle,
+    activeTab: 'bg-violet-500 text-white shadow-md shadow-violet-500/30',
+    dot: 'bg-violet-500', text: 'text-violet-500', soft: 'bg-violet-500/10', edge: 'border-violet-500/40',
+  },
+] as const;
+type PlatformId = (typeof PLATFORMS)[number]['id'];
+
+/** A small Microsoft "four squares" logo. */
+function MsLogo({ className = 'h-3.5 w-3.5' }: { className?: string }) {
   return (
-    <div className="flex gap-3">
-      <span className="shrink-0 mt-0.5 h-5 w-5 rounded-full bg-primary/15 text-primary text-[11px] font-bold flex items-center justify-center">{n}</span>
-      <div className="min-w-0 flex-1 text-sm text-foreground/80 leading-relaxed space-y-2">{children}</div>
-    </div>
+    <svg viewBox="0 0 21 21" className={className} aria-hidden>
+      <rect x="1" y="1" width="9" height="9" fill="#F25022" />
+      <rect x="11" y="1" width="9" height="9" fill="#7FBA00" />
+      <rect x="1" y="11" width="9" height="9" fill="#00A4EF" />
+      <rect x="11" y="11" width="9" height="9" fill="#FFB900" />
+    </svg>
   );
 }
 
-const GUIDE_TABS = [
-  { id: 'claude', label: 'Claude Code', icon: Terminal },
-  { id: 'cursor', label: 'Cursor', icon: Bot },
-  { id: 'vscode', label: 'VS Code', icon: Code2 },
-  { id: 'plugin', label: 'Plugin', icon: Puzzle },
-  { id: 'manual', label: 'Other / Manual', icon: Globe },
-] as const;
-type GuideTab = (typeof GUIDE_TABS)[number]['id'];
+/** Tabbed, per-platform connection guide. Two auth paths: Microsoft browser login,
+ * or a Bearer token shown inline. The MCP URL is environment-aware (local in dev,
+ * your domain in production). */
+function ConnectionGuide({
+  mcpBase, token, onGenerate, generating,
+}: {
+  mcpBase: string;
+  token: string | null;
+  onGenerate: () => void;
+  generating: boolean;
+}) {
+  const [tab, setTab] = useState<PlatformId>('claude');
+  const [auth, setAuth] = useState<'microsoft' | 'token'>('microsoft');
+  const [reveal, setReveal] = useState(false);
 
-/** Tabbed "how to connect" guide. The MCP URL is environment-aware: it points at
- * whatever server this app talks to (local in dev, your domain in production). */
-function ConnectionGuide({ mcpBase, token }: { mcpBase: string; token: string | null }) {
-  const [tab, setTab] = useState<GuideTab>('claude');
+  const p = PLATFORMS.find(x => x.id === tab)!;
+  const usingToken = auth === 'token';
   const tok = token || '<your-token>';
-  const jsonConfig = `{
+  const tokenMasked = token && !reveal ? `${token.slice(0, 6)}${'•'.repeat(20)}` : tok;
+
+  // Per-platform config string, dependent on the chosen auth path.
+  const cliCmd = usingToken
+    ? `claude mcp add zet --transport http ${mcpBase} --header "Authorization: Bearer ${tok}"`
+    : `claude mcp add zet --transport http ${mcpBase}`;
+  const jsonCmd = usingToken
+    ? `{
   "mcpServers": {
     "zet": {
       "url": "${mcpBase}",
       "headers": { "Authorization": "Bearer ${tok}" }
     }
   }
+}`
+    : `{
+  "mcpServers": {
+    "zet": { "url": "${mcpBase}" }
+  }
 }`;
 
   return (
-    <div className="rounded-xl border border-border/40 bg-card/40 overflow-hidden">
-      {/* Navbar-style tab selector */}
-      <div className="flex items-center gap-1 overflow-x-auto border-b border-border/30 bg-muted/20 px-1.5 py-1.5">
-        {GUIDE_TABS.map(t => {
-          const Icon = t.icon;
-          const active = tab === t.id;
+    <div className="rounded-2xl border border-border/40 bg-gradient-to-b from-card to-muted/10 overflow-hidden shadow-sm">
+      {/* Navbar-style, color-coded platform tabs */}
+      <div className="flex items-center gap-1.5 overflow-x-auto border-b border-border/30 bg-muted/20 px-2 py-2">
+        {PLATFORMS.map(x => {
+          const Icon = x.icon;
+          const active = tab === x.id;
           return (
             <button
-              key={t.id}
+              key={x.id}
               type="button"
-              onClick={() => setTab(t.id)}
-              className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                active ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+              onClick={() => setTab(x.id)}
+              className={`shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
+                active ? x.activeTab : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
               }`}
             >
               <Icon className="h-3.5 w-3.5" />
-              {t.label}
+              {x.label}
             </button>
           );
         })}
       </div>
 
-      {/* Current server line — proves which URL you're wiring */}
-      <div className="px-4 pt-3">
-        <p className="text-[11px] text-muted-foreground/55">
-          Connecting to this ZET server: <span className="font-mono text-foreground/75">{mcpBase}</span>
-        </p>
-      </div>
+      <div className={`p-4 sm:p-5 space-y-4 border-l-2 ${p.edge}`}>
+        {/* Header: platform + server */}
+        <div className="flex items-center gap-2.5">
+          <span className={`h-8 w-8 rounded-xl flex items-center justify-center ${p.soft}`}>
+            <p.icon className={`h-4 w-4 ${p.text}`} />
+          </span>
+          <div className="min-w-0">
+            <p className={`text-sm font-bold ${p.text}`}>{p.label}</p>
+            <p className="text-[11px] text-muted-foreground/55 font-mono truncate">{mcpBase}</p>
+          </div>
+        </div>
 
-      <div className="p-4 space-y-4">
-        {tab === 'claude' && (
-          <div className="space-y-3.5">
-            <p className="text-sm text-muted-foreground/75">Add ZET as an MCP server in the Claude Code CLI.</p>
-            <Step n={1}>
-              <span>Easiest — sign in with your browser (OAuth). Run in a terminal:</span>
-              <CodeBlock code={`claude mcp add zet --transport http ${mcpBase}`} />
-            </Step>
-            <Step n={2}>
-              <span>Restart Claude Code, then run <span className="font-mono text-foreground">/mcp</span> in the chat, pick <span className="font-semibold">zet</span> → <span className="font-semibold">Authenticate</span>. Your browser opens the ZET login.</span>
-            </Step>
-            <Step n={3}>
-              <span>Prefer a token instead of browser login? Generate one below and add it directly:</span>
-              <CodeBlock code={`claude mcp add zet --transport http ${mcpBase} --header "Authorization: Bearer ${tok}"`} />
-            </Step>
-            <Step n={4}>
-              <span>Verify: <span className="font-mono text-foreground">/mcp</span> shows <span className="font-semibold">zet</span> connected. Try asking “list my ZET tasks”.</span>
-            </Step>
+        {/* Auth toggle — exactly two options */}
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setAuth('microsoft')}
+            className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border text-xs font-bold transition-all ${
+              auth === 'microsoft' ? 'border-border bg-card shadow-sm ring-2 ring-primary/30' : 'border-border/40 bg-muted/20 text-muted-foreground hover:bg-muted/40'
+            }`}
+          >
+            <MsLogo /> Microsoft login
+          </button>
+          <button
+            type="button"
+            onClick={() => setAuth('token')}
+            className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border text-xs font-bold transition-all ${
+              usingToken ? 'border-border bg-card shadow-sm ring-2 ring-primary/30' : 'border-border/40 bg-muted/20 text-muted-foreground hover:bg-muted/40'
+            }`}
+          >
+            <Lock className="h-3.5 w-3.5" /> Bearer token
+          </button>
+        </div>
+
+        {/* Token panel — only in token mode */}
+        {usingToken && (
+          <div className={`rounded-xl border ${p.edge} ${p.soft} p-3 space-y-2`}>
+            {token ? (
+              <>
+                <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground/55">Your bearer token</p>
+                <div className="flex gap-2">
+                  <code className="flex-1 min-w-0 rounded-lg border border-border/50 bg-background px-3 py-2 text-[11px] font-mono truncate">{tokenMasked}</code>
+                  <button type="button" onClick={() => setReveal(v => !v)} title={reveal ? 'Hide' : 'Reveal'}
+                    className="shrink-0 flex items-center px-2.5 rounded-lg border border-border/50 bg-card hover:bg-muted transition-colors">
+                    {reveal ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                  <button type="button" onClick={() => { void navigator.clipboard.writeText(token); }} title="Copy"
+                    className="shrink-0 flex items-center px-2.5 rounded-lg border border-border/50 bg-card hover:bg-muted transition-colors">
+                    <Copy className="h-4 w-4" />
+                  </button>
+                </div>
+                <p className="text-[11px] text-muted-foreground/50">Shown once — copy it now. Acts on ZET as you; keep it secret.</p>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={onGenerate}
+                disabled={generating}
+                className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold text-white transition-all disabled:opacity-50 ${p.dot}`}
+              >
+                <Terminal className="h-4 w-4" />
+                {generating ? 'Generating…' : 'Generate bearer token'}
+              </button>
+            )}
           </div>
         )}
 
-        {tab === 'cursor' && (
-          <div className="space-y-3.5">
-            <p className="text-sm text-muted-foreground/75">Add ZET in Cursor's MCP settings.</p>
-            <Step n={1}><span>Open <span className="font-semibold">Cursor → Settings → MCP → Add new MCP server</span> (HTTP type).</span></Step>
-            <Step n={2}>
-              <span>Paste this config (generate a token below, or drop the <span className="font-mono">headers</span> line to use browser login):</span>
-              <CodeBlock caption="~/.cursor/mcp.json" code={jsonConfig} />
-            </Step>
-            <Step n={3}><span>Save and reload. Cursor now exposes the ZET tools — ask it “log 2h on the Platform project today”.</span></Step>
+        {/* Steps + config — one block, per platform */}
+        {tab === 'plugin' ? (
+          <div className="space-y-2.5 text-sm text-foreground/80">
+            <p>Install the plugin (adds the <span className="font-mono text-xs">/zet:</span> slash commands), then restart Claude Code:</p>
+            <CodeBlock code={`/plugin marketplace add <path-to>/zet-plugin\n/plugin install zet@zet-marketplace`} />
+            <p>{usingToken ? 'Connect with your token:' : 'Connect via browser — run any command and sign in with Microsoft:'}</p>
+            <CodeBlock code={cliCmd} />
+            <p className="text-[12px] text-muted-foreground/60">Then try <span className="font-mono text-foreground">/zet:whoami</span>.</p>
           </div>
-        )}
-
-        {tab === 'vscode' && (
-          <div className="space-y-3.5">
-            <p className="text-sm text-muted-foreground/75">For VS Code MCP clients (Continue, Cline, Copilot MCP, etc.).</p>
-            <Step n={1}><span>Open your client's MCP config file (e.g. <span className="font-mono">.vscode/mcp.json</span> or the extension's settings).</span></Step>
-            <Step n={2}>
-              <span>Add the ZET server:</span>
-              <CodeBlock caption=".vscode/mcp.json" code={jsonConfig} />
-            </Step>
-            <Step n={3}><span>Reload the window. The ZET tools appear in your assistant.</span></Step>
-          </div>
-        )}
-
-        {tab === 'plugin' && (
-          <div className="space-y-3.5">
-            <p className="text-sm text-muted-foreground/75">
-              The ZET <span className="font-semibold">plugin</span> for Claude Code bundles the connection <span className="italic">and</span> ready-made slash commands
-              (<span className="font-mono">/zet:tasks</span>, <span className="font-mono">/zet:log</span>, <span className="font-mono">/zet:standup</span>…).
+        ) : tab === 'claude' ? (
+          <div className="space-y-2.5 text-sm text-foreground/80">
+            <p>Add the server, then restart Claude Code:</p>
+            <CodeBlock code={cliCmd} />
+            <p className="text-[12px] text-muted-foreground/60">
+              {usingToken
+                ? <>Run <span className="font-mono text-foreground">/mcp</span> to confirm <span className="font-semibold">zet</span> is connected.</>
+                : <>Run <span className="font-mono text-foreground">/mcp</span> → pick <span className="font-semibold">zet</span> → <span className="font-semibold">Authenticate</span> → sign in with Microsoft.</>}
             </p>
-            <Step n={1}>
-              <span>Add the plugin marketplace (point it at the <span className="font-mono">zet-plugin</span> folder), then install:</span>
-              <CodeBlock code={`/plugin marketplace add <path-to>/zet-plugin
-/plugin install zet@zet-marketplace`} />
-            </Step>
-            <Step n={2}><span>Restart Claude Code so it loads the server and commands.</span></Step>
-            <Step n={3}>
-              <span>Authenticate (token route): re-add the server with your token —</span>
-              <CodeBlock code={`claude mcp add zet --transport http ${mcpBase} --header "Authorization: Bearer ${tok}"`} />
-              <span>— or just run a command and complete the browser login.</span>
-            </Step>
-            <Step n={4}><span>Try <span className="font-mono text-foreground">/zet:whoami</span>. It should print your name and role.</span></Step>
           </div>
-        )}
-
-        {tab === 'manual' && (
-          <div className="space-y-3.5">
-            <p className="text-sm text-muted-foreground/75">Any MCP client that speaks streamable HTTP can connect.</p>
-            <Step n={1}><span>Point the client at the MCP URL: <span className="font-mono text-foreground/80">{mcpBase}</span> (keep the trailing <span className="font-mono">/</span>).</span></Step>
-            <Step n={2}>
-              <span>Two ways to authenticate:</span>
-              <ul className="list-disc pl-4 space-y-1 text-[13px] text-muted-foreground/75">
-                <li><span className="font-semibold text-foreground/80">OAuth</span> — give just the URL; the client registers itself and you log in to ZET in the browser.</li>
-                <li><span className="font-semibold text-foreground/80">Token</span> — generate one below and send it as an <span className="font-mono">Authorization: Bearer</span> header.</li>
-              </ul>
-              <CodeBlock caption="generic config" code={jsonConfig} />
-            </Step>
-            <Step n={3}><span>Tools are role-aware: managers/admins get management tools, employees only what they can use — enforced on the server.</span></Step>
+        ) : (
+          <div className="space-y-2.5 text-sm text-foreground/80">
+            <p>{tab === 'cursor' ? 'Cursor → Settings → MCP → Add new server (HTTP), then paste:' : 'Add to your client\'s MCP config (e.g. .vscode/mcp.json):'}</p>
+            <CodeBlock caption={tab === 'cursor' ? '~/.cursor/mcp.json' : '.vscode/mcp.json'} code={jsonCmd} />
+            <p className="text-[12px] text-muted-foreground/60">
+              {usingToken ? 'Reload — the ZET tools appear in your assistant.' : 'Reload — on first use, sign in to ZET with Microsoft in the browser.'}
+            </p>
           </div>
         )}
       </div>
@@ -291,9 +340,7 @@ export default function SettingsPage() {
   // Developer settings (MCP)
   const [devOn, setDevOn] = useState(false);
   const [mcpToken, setMcpToken] = useState<string | null>(null);
-  const [showToken, setShowToken] = useState(false);
   const [genLoading, setGenLoading] = useState(false);
-  const [copiedField, setCopiedField] = useState<'url' | 'token' | null>(null);
   const [tokens, setTokens] = useState<PersonalAccessToken[]>([]);
   const [loadingTokens, setLoadingTokens] = useState(false);
   const [revoking, setRevoking] = useState<string | null>(null);
@@ -318,7 +365,6 @@ export default function SettingsPage() {
     try {
       const t = await api.createAccessToken('MCP token');
       setMcpToken(t.token);
-      setShowToken(false);
       void loadTokens();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not generate MCP token');
@@ -337,16 +383,6 @@ export default function SettingsPage() {
       toast.error(e instanceof Error ? e.message : 'Could not revoke');
     } finally {
       setRevoking(null);
-    }
-  };
-
-  const copyField = async (text: string, which: 'url' | 'token') => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedField(which);
-      setTimeout(() => setCopiedField(c => (c === which ? null : c)), 1500);
-    } catch {
-      toast.error('Could not copy');
     }
   };
 
@@ -647,39 +683,17 @@ export default function SettingsPage() {
                 </div>
 
                 <p className="text-sm text-muted-foreground/75 leading-relaxed">
-                  Connect ZET to Claude, Cursor, or any MCP client. Just give it the URL below —
-                  your client will open ZET in the browser and ask you to <span className="font-semibold">log in</span>.
-                  No token to copy or paste.
+                  Connect ZET to Claude Code, Cursor, VS Code, or the plugin. Pick your platform,
+                  then sign in with <span className="font-semibold">Microsoft</span> or use a <span className="font-semibold">bearer token</span>.
                 </p>
 
-                {/* MCP URL — the only thing the user needs; auth happens via browser login */}
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-muted-foreground/60 uppercase tracking-wide">MCP URL</label>
-                  <div className="flex gap-2">
-                    <input
-                      readOnly
-                      value={MCP_BASE}
-                      onFocus={e => e.currentTarget.select()}
-                      className={`${inputCls} font-mono text-xs`}
-                    />
-                    <button
-                      onClick={() => void copyField(MCP_BASE, 'url')}
-                      className="shrink-0 flex items-center gap-1.5 px-3 rounded-xl border border-border/60 bg-muted/40 text-sm font-semibold hover:bg-muted/70 transition-colors"
-                    >
-                      {copiedField === 'url' ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
-                      {copiedField === 'url' ? 'Copied' : 'Copy'}
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground/45">
-                    Uses OAuth — the client registers itself and you sign in to ZET in your browser.
-                  </p>
-                </div>
-
-                {/* How to connect — tabbed, per-platform guide */}
-                <div className="space-y-2 pt-1">
-                  <label className="text-xs font-bold text-muted-foreground/60 uppercase tracking-wide">How to connect</label>
-                  <ConnectionGuide mcpBase={MCP_BASE} token={mcpToken} />
-                </div>
+                {/* Color-coded, per-platform connection guide */}
+                <ConnectionGuide
+                  mcpBase={MCP_BASE}
+                  token={mcpToken}
+                  onGenerate={() => void generateMcp()}
+                  generating={genLoading}
+                />
 
                 {/* Connected apps & tokens — revoke access here */}
                 <div className="space-y-2 pt-1">
@@ -723,61 +737,6 @@ export default function SettingsPage() {
                     Revoking immediately disconnects that app — it will have to log in again.
                   </p>
                 </div>
-
-                <div className="pt-1">
-                  <p className="text-xs font-bold text-muted-foreground/50 uppercase tracking-wide mb-2">Advanced — manual token</p>
-                  <p className="text-[11px] text-muted-foreground/45 mb-2">
-                    For clients that don't support OAuth: generate a token and add it as an
-                    <span className="font-mono"> Authorization: Bearer</span> header. Acts on ZET as you — keep it secret.
-                  </p>
-                  <button
-                    onClick={() => void generateMcp()}
-                    disabled={genLoading}
-                    className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl border border-border/60 bg-muted/40 hover:bg-muted/70 disabled:opacity-40 transition-all font-semibold"
-                  >
-                    <Terminal className="h-4 w-4" />
-                    {genLoading ? 'Generating…' : mcpToken ? 'Generate new token' : 'Generate access token'}
-                  </button>
-                </div>
-
-                {mcpToken && (
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold text-muted-foreground/60 uppercase tracking-wide">Access token</label>
-                    <div className="flex gap-2">
-                      <input
-                        readOnly
-                        type={showToken ? 'text' : 'password'}
-                        value={mcpToken}
-                        onFocus={e => e.currentTarget.select()}
-                        className={`${inputCls} font-mono text-xs`}
-                      />
-                      <button
-                        onClick={() => setShowToken(v => !v)}
-                        title={showToken ? 'Hide' : 'Reveal'}
-                        className="shrink-0 flex items-center px-3 rounded-xl border border-border/60 bg-muted/40 hover:bg-muted/70 transition-colors"
-                      >
-                        {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                      </button>
-                      <button
-                        onClick={() => void copyField(mcpToken, 'token')}
-                        className="shrink-0 flex items-center gap-1.5 px-3 rounded-xl border border-border/60 bg-muted/40 text-sm font-semibold hover:bg-muted/70 transition-colors"
-                      >
-                        {copiedField === 'token' ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
-                        {copiedField === 'token' ? 'Copied' : 'Copy'}
-                      </button>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground/45">
-                      Add this as a <span className="font-mono">Bearer</span> token / Authorization header in your MCP client — keep it out of the URL. Shown once; copy it now.
-                    </p>
-                    <div className="rounded-lg border border-border/40 bg-muted/20 p-3">
-                      <p className="text-[10px] font-bold text-muted-foreground/50 uppercase tracking-wide mb-1.5">Example client config</p>
-                      <pre className="text-[11px] font-mono text-muted-foreground/80 overflow-x-auto whitespace-pre">{`{
-  "url": "${MCP_BASE}",
-  "headers": { "Authorization": "Bearer ${showToken ? mcpToken : '<your-token>'}" }
-}`}</pre>
-                    </div>
-                  </div>
-                )}
               </div>
             )}
           </div>
