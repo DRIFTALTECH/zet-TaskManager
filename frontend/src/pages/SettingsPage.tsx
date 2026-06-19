@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   User, Lock, Sun, Moon, Camera, Check, Eye, EyeOff,
   Shield, Mail, Briefcase, Terminal, Copy, AlertTriangle, Trash2, Plug,
-  ShieldCheck, Search, X, RefreshCw, ChevronDown, Puzzle, Code2, Bot,
+  ShieldCheck, Search, X, RefreshCw, ChevronDown, ChevronRight, Puzzle, Code2, Bot,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { pageEnter } from '@/lib/motion';
@@ -199,60 +199,74 @@ function ConnectionGuide({
           </div>
         </div>
 
-        {/* Auth toggle — exactly two options */}
-        <div className="grid grid-cols-2 gap-2">
+        {/* ── Connect your account ───────────────────────────────── */}
+        <div className="space-y-3">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground/50">Connect your account</p>
+
+          {/* Primary path — Microsoft (hero) */}
           <button
             type="button"
             onClick={() => setAuth('microsoft')}
-            className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border text-xs font-bold transition-all ${
-              auth === 'microsoft' ? 'border-border bg-card shadow-sm ring-2 ring-primary/30' : 'border-border/40 bg-muted/20 text-muted-foreground hover:bg-muted/40'
+            className={`group w-full flex items-center gap-3.5 rounded-2xl border p-4 text-left transition-all ${
+              auth === 'microsoft'
+                ? 'border-primary/40 bg-primary/[0.06] ring-2 ring-primary/25 shadow-sm'
+                : 'border-border/50 bg-card hover:border-border hover:bg-muted/30 hover:shadow-sm'
             }`}
           >
-            <MsLogo /> Microsoft login
+            <span className="shrink-0 h-11 w-11 rounded-xl bg-white border border-border/30 flex items-center justify-center shadow-sm transition-transform group-hover:scale-105">
+              <MsLogo className="h-5 w-5" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-bold text-foreground">Sign in with Microsoft</span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-500 font-bold uppercase tracking-wide">Recommended</span>
+              </span>
+              <span className="block text-[12px] text-muted-foreground/65 mt-0.5">Recommended authentication method — sign in through your browser, no token to manage.</span>
+            </span>
+            <ChevronRight className={`shrink-0 h-4 w-4 transition-all ${auth === 'microsoft' ? 'text-primary translate-x-0' : 'text-muted-foreground/40 group-hover:translate-x-0.5'}`} />
           </button>
-          <button
-            type="button"
-            onClick={() => setAuth('token')}
-            className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border text-xs font-bold transition-all ${
-              usingToken ? 'border-border bg-card shadow-sm ring-2 ring-primary/30' : 'border-border/40 bg-muted/20 text-muted-foreground hover:bg-muted/40'
-            }`}
-          >
-            <Lock className="h-3.5 w-3.5" /> Bearer token
-          </button>
-        </div>
 
-        {/* Token panel — only in token mode */}
-        {usingToken && (
-          <div className={`rounded-xl border ${p.edge} ${p.soft} p-3 space-y-2`}>
-            {token ? (
-              <>
-                <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground/55">Your bearer token</p>
-                <div className="flex gap-2">
-                  <code className="flex-1 min-w-0 rounded-lg border border-border/50 bg-background px-3 py-2 text-[11px] font-mono truncate">{tokenMasked}</code>
-                  <button type="button" onClick={() => setReveal(v => !v)} title={reveal ? 'Hide' : 'Reveal'}
-                    className="shrink-0 flex items-center px-2.5 rounded-lg border border-border/50 bg-card hover:bg-muted transition-colors">
-                    {reveal ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                  <button type="button" onClick={() => { void navigator.clipboard.writeText(token); }} title="Copy"
-                    className="shrink-0 flex items-center px-2.5 rounded-lg border border-border/50 bg-card hover:bg-muted transition-colors">
-                    <Copy className="h-4 w-4" />
-                  </button>
-                </div>
-                <p className="text-[11px] text-muted-foreground/50">Shown once — copy it now. Acts on ZET as you; keep it secret.</p>
-              </>
-            ) : (
+          {/* Separator */}
+          <div className="flex items-center gap-3 pt-1">
+            <div className="h-px flex-1 bg-border/40" />
+            <span className="text-[11px] text-muted-foreground/45">Can't use Microsoft authentication?</span>
+            <div className="h-px flex-1 bg-border/40" />
+          </div>
+
+          {/* Alternative path — Bearer token */}
+          {token ? (
+            <div className={`rounded-2xl border ${p.edge} ${p.soft} p-4 space-y-2`}>
+              <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground/55">Your bearer token</p>
+              <div className="flex gap-2">
+                <code className="flex-1 min-w-0 rounded-lg border border-border/50 bg-background px-3 py-2 text-[11px] font-mono truncate">{tokenMasked}</code>
+                <button type="button" onClick={() => setReveal(v => !v)} title={reveal ? 'Hide' : 'Reveal'}
+                  className="shrink-0 flex items-center px-2.5 rounded-lg border border-border/50 bg-card hover:bg-muted transition-colors">
+                  {reveal ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+                <button type="button" onClick={() => { void navigator.clipboard.writeText(token); }} title="Copy"
+                  className="shrink-0 flex items-center px-2.5 rounded-lg border border-border/50 bg-card hover:bg-muted transition-colors">
+                  <Copy className="h-4 w-4" />
+                </button>
+              </div>
+              <p className="text-[11px] text-muted-foreground/50">Shown once — copy it now. Acts on ZET as you; keep it secret.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
               <button
                 type="button"
-                onClick={onGenerate}
+                onClick={() => { setAuth('token'); onGenerate(); }}
                 disabled={generating}
-                className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold text-white transition-all disabled:opacity-50 ${p.dot}`}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border border-border/60 bg-muted/30 text-sm font-bold text-foreground hover:bg-muted/60 hover:border-border transition-all disabled:opacity-50"
               >
-                <Terminal className="h-4 w-4" />
-                {generating ? 'Generating…' : 'Generate bearer token'}
+                <Lock className="h-4 w-4" />
+                {generating ? 'Generating…' : 'Generate Bearer Token'}
               </button>
-            )}
-          </div>
-        )}
+              <p className="text-[12px] text-center text-muted-foreground/55 leading-relaxed px-2">
+                Use this option if your organization restricts Microsoft login or external authentication.
+              </p>
+            </div>
+          )}
+        </div>
 
         {/* Steps + config — one block, per platform */}
         {tab === 'plugin' ? (

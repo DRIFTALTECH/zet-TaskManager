@@ -1,5 +1,3 @@
 {
-  "enabledPlugins": {
-    "zet@zet-marketplace": true
-  }
+  "enabledPlugins": {}
 }

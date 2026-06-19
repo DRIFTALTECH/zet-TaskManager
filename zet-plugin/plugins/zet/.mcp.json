@@ -2,7 +2,7 @@
   "mcpServers": {
     "zet": {
       "type": "http",
-      "url": "http://localhost:8000/mcp/"
+      "url": "https://zetapi.driftal.tech/mcp/"
     }
   }
 }
