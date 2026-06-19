@@ -38,6 +38,11 @@ class Project(Base):
     description = Column(String, nullable=False, default="")
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)
+    # Optional background image (URL or data URL) + accent hex derived from it.
+    background_image = Column(Text, nullable=False, default="")
+    accent_color = Column(String, nullable=False, default="")
+    # Optional project image/photo (replaces the folder icon).
+    project_image = Column(Text, nullable=False, default="")
 
     sections = relationship("Section", back_populates="project", cascade="all, delete-orphan")
     members = relationship("ProjectMember", back_populates="project", cascade="all, delete-orphan")
@@ -98,6 +103,18 @@ class TaskAssignee(Base):
     task = relationship("Task", back_populates="assignees")
 
 
+class TaskTimerRun(Base):
+    """A live, server-tracked work timer: one running session per (user, task).
+    Persisted so a running timer survives reloads and is consistent across devices.
+    On stop, elapsed time is computed server-side from started_at and the row removed."""
+
+    __tablename__ = "task_timer_runs"
+
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, nullable=False)
+    task_id = Column(String, ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True, nullable=False)
+    started_at = Column(String, nullable=False)  # ISO-8601 UTC timestamp
+
+
 class TaskTimeLog(Base):
     __tablename__ = "task_time_logs"
 
@@ -132,6 +149,8 @@ class TimesheetEntry(Base):
     time_from = Column(String, nullable=False)
     time_to = Column(String, nullable=False)
     seconds = Column(Integer, nullable=False)
+    # Whether this logged time is billable to the client. Defaults to billable.
+    billable = Column(Boolean, nullable=False, default=True)
     created_at = Column(String, nullable=False)
 
 

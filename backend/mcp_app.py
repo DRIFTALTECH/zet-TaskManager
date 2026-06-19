@@ -15,8 +15,10 @@ single copy-paste URL works in any client.
 from urllib.parse import parse_qs
 
 from fastmcp import FastMCP
+from fastmcp.exceptions import ToolError
 from fastmcp.server.auth import AccessToken, TokenVerifier
 from fastmcp.server.dependencies import get_access_token
+from fastmcp.server.middleware import Middleware
 
 import crud.users as users_crud
 from database.database import SessionLocal
@@ -75,6 +77,54 @@ def _uid() -> str:
     if not tok or not tok.client_id:
         raise ValueError("Not authenticated — supply a valid ZET token.")
     return tok.client_id
+
+
+def _caller_role() -> str | None:
+    """Resolve the calling user's role (admin/manager/employee) from their token,
+    or None if the caller can't be identified. Used to filter the tool list."""
+    try:
+        tok = get_access_token()
+    except Exception:
+        return None
+    uid = tok.client_id if tok else None
+    if not uid:
+        return None
+    db = SessionLocal()
+    try:
+        u = users_crud.get_by_id(db, uid)
+        return u.role if u else None
+    finally:
+        db.close()
+
+
+# Tools that require a managerial role no matter the project. Hidden from the tool
+# list for employees, and blocked at call-time as defence-in-depth (the logic layer
+# is still the real gate — these tools call ensure_manager internally).
+_MANAGER_ONLY_TOOLS = {"assign_user_to_project", "remove_user_from_project"}
+
+
+class RoleToolFilter(Middleware):
+    """Per-request, per-role tool exposure.
+
+    `on_list_tools` removes manager-only tools from an employee's advertised tool
+    set so their client never even offers a tool the caller can't use. `on_call_tool`
+    re-checks in case a client calls a tool it was never shown."""
+
+    async def on_list_tools(self, context, call_next):
+        tools = await call_next(context)
+        if _caller_role() in ("manager", "admin"):
+            return tools
+        return [t for t in tools if t.name not in _MANAGER_ONLY_TOOLS]
+
+    async def on_call_tool(self, context, call_next):
+        name = getattr(context.message, "name", None)
+        if name in _MANAGER_ONLY_TOOLS and _caller_role() not in ("manager", "admin"):
+            raise ToolError("This action requires a manager or admin role.")
+        return await call_next(context)
+
+
+# Register role-aware tool exposure now that the middleware class exists.
+mcp.add_middleware(RoleToolFilter())
 
 
 def _find_project(db, uid: str, name_or_id: str):

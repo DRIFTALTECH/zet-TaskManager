@@ -69,6 +69,7 @@ def to_out(e: TimesheetEntry) -> TimesheetEntryOut:
         timeFrom=e.time_from,
         timeTo=e.time_to,
         seconds=e.seconds,
+        billable=e.billable,
         createdAt=e.created_at,
     )
 
@@ -112,6 +113,7 @@ def create_entry(db: Session, user_id: str, body: TimesheetEntryCreate) -> Times
         time_from=tf,
         time_to=tt,
         seconds=sec,
+        billable=body.billable,
         created_at=now,
     )
     te_crud.create_entry(db, row)
@@ -134,6 +136,8 @@ def patch_entry(db: Session, user_id: str, entry_id: str, body: TimesheetEntryPa
         row.time_from = normalize_time_value(body.timeFrom)
     if body.timeTo is not None:
         row.time_to = normalize_time_value(body.timeTo)
+    if body.billable is not None:
+        row.billable = body.billable
     project_logic.ensure_project_member(db, row.project_id, user_id)
     _validate_section_project(db, row.project_id, row.section_id)
     row.seconds = span_seconds(row.time_from, row.time_to)

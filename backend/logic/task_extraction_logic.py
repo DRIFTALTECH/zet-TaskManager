@@ -56,6 +56,28 @@ def _refs(db, user_id: str) -> tuple[list[UserRef], list[ProjectRef]]:
     return users, projects
 
 
+def resolve_source(
+    db,
+    user_id: str,
+    *,
+    text: str | None = None,
+    file_bytes: bytes | None = None,
+    filename: str | None = None,
+) -> str:
+    """Resolve any input to plain text: transcribe audio, read a document, or pass
+    typed text through. Used for the 'review before extract' step so the user can
+    see/edit what was parsed. Manager/admin only (same gate as extraction)."""
+    if not project_logic.is_managerial(db, user_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only managers and admins can create tasks this way.")
+    source = (text or "").strip()
+    if file_bytes:
+        if _ext(filename) in AUDIO_EXT:
+            source = service.transcribe(file_bytes, filename or "audio.webm")
+        else:
+            source = _document_text(file_bytes, filename or "")
+    return source.strip()
+
+
 def extract_tasks(
     db,
     user_id: str,
@@ -66,15 +88,7 @@ def extract_tasks(
 ) -> tuple[str, ParseTaskResponse]:
     """Resolve the input to text (transcribe audio / read document / use typed text),
     then run the AI task parser. Returns (source_text, parsed tasks)."""
-    # Bulk task creation/assignment is a manager/admin action.
-    if not project_logic.is_managerial(db, user_id):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only managers and admins can create tasks this way.")
-    source = (text or "").strip()
-    if file_bytes:
-        if _ext(filename) in AUDIO_EXT:
-            source = service.transcribe(file_bytes, filename or "audio.webm")
-        else:
-            source = _document_text(file_bytes, filename or "")
+    source = resolve_source(db, user_id, text=text, file_bytes=file_bytes, filename=filename)
     if not source:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,

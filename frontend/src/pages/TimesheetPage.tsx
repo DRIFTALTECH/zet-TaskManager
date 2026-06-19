@@ -27,6 +27,7 @@ import type { TimesheetWorkEntry, AITimesheetRow } from '@/types';
 import { api } from '@/lib/api';
 import { acquireGraphToken, hasMicrosoftSession, isMicrosoftAuthConfigured } from '@/lib/microsoftAuth';
 import UserAvatar from '@/components/UserAvatar';
+import ProjectSectionPicker from '@/components/ProjectSectionPicker';
 
 const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const dayShort = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -607,6 +608,7 @@ const TimesheetPage = () => {
   const [entryModal, setEntryModal] = useState<EntryModalState>(null);
   const [formProjectId, setFormProjectId] = useState('');
   const [formSectionId, setFormSectionId] = useState('');
+  const [formBillable, setFormBillable] = useState(true);
   const [formDescription, setFormDescription] = useState('');
   const [formTimeFrom, setFormTimeFrom] = useState('');
   const [formTimeTo, setFormTimeTo] = useState('');
@@ -640,6 +642,7 @@ const TimesheetPage = () => {
   const [quickSectionId, setQuickSectionId] = useState('');
   const [quickFrom, setQuickFrom] = useState('0900');
   const [quickTo, setQuickTo] = useState('1700');
+  const [quickBillable, setQuickBillable] = useState(true);
   const [quickWorkDate, setQuickWorkDate] = useState<string | null>(null);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
 
@@ -685,7 +688,23 @@ const TimesheetPage = () => {
 
   const resetForm = () => {
     setFormProjectId(''); setFormSectionId(''); setFormDescription(''); setFormTimeFrom(''); setFormTimeTo('');
-    setShowFormNewSection(false); setFormNewSectionName('');
+    setShowFormNewSection(false); setFormNewSectionName(''); setFormBillable(true);
+  };
+
+  // Cascading picker: create a section in a project and resolve its new id.
+  const createSectionReturningId = async (projId: string, name: string): Promise<string | null> => {
+    setCreatingSec(true);
+    try {
+      await addSection(projId, name);
+      const updated = useAppStore.getState().projects.find(p => p.id === projId);
+      toast.success('Section created');
+      return updated?.sections.find(s => s.name.trim() === name.trim())?.id ?? null;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not create section');
+      return null;
+    } finally {
+      setCreatingSec(false);
+    }
   };
 
   const handleCreateQuickSection = async () => {
@@ -723,6 +742,7 @@ const TimesheetPage = () => {
     setFormDescription(entry.description);
     setFormTimeFrom(apiTimeToCompactDisplay(entry.timeFrom));
     setFormTimeTo(apiTimeToCompactDisplay(entry.timeTo));
+    setFormBillable(entry.billable);
     setEntryModal({ mode: 'edit', entry });
   };
   const closeEntryModal = () => { setEntryModal(null); resetForm(); };
@@ -744,10 +764,10 @@ const TimesheetPage = () => {
     setSaving(true);
     try {
       if (entryModal.mode === 'new') {
-        await api.createTimesheetWorkEntry({ workDate: entryModal.date, projectId: formProjectId, sectionId: formSectionId, description: formDescription, timeFrom: timeFromApi, timeTo: timeToApi });
+        await api.createTimesheetWorkEntry({ workDate: entryModal.date, projectId: formProjectId, sectionId: formSectionId, description: formDescription, timeFrom: timeFromApi, timeTo: timeToApi, billable: formBillable });
         toast.success('Entry saved');
       } else {
-        await api.patchTimesheetWorkEntry(entryModal.entry.id, { workDate: entryModal.entry.workDate, projectId: formProjectId, sectionId: formSectionId, description: formDescription, timeFrom: timeFromApi, timeTo: timeToApi });
+        await api.patchTimesheetWorkEntry(entryModal.entry.id, { workDate: entryModal.entry.workDate, projectId: formProjectId, sectionId: formSectionId, description: formDescription, timeFrom: timeFromApi, timeTo: timeToApi, billable: formBillable });
         toast.success('Entry updated');
       }
       await reloadEntries();
@@ -809,6 +829,7 @@ const TimesheetPage = () => {
         description: quickDesc,
         timeFrom: timeFromApi,
         timeTo: timeToApi,
+        billable: quickBillable,
       });
       toast.success('Entry added');
       setQuickDesc('');
@@ -1087,112 +1108,33 @@ const TimesheetPage = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-0 sm:gap-1 px-2 py-2 md:py-0">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  disabled={saving || userProjects.length === 0}
-                  className={cn(
-                    'inline-flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50 max-w-[160px]',
-                    quickProjectId
-                      ? 'text-foreground hover:bg-muted/60'
-                      : 'text-primary hover:bg-primary/10',
-                  )}
-                >
-                  {quickProjectId && quickSelectedProject ? (
-                    <>
-                      <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${idDotColor(quickProjectId)}`} />
-                      <span className="truncate">{quickSelectedProject.name}</span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="flex h-6 w-6 items-center justify-center rounded-full border border-primary/40 bg-primary/10 text-primary shrink-0">
-                        <Plus className="h-3.5 w-3.5" />
-                      </span>
-                      Project
-                    </>
-                  )}
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-56 rounded-xl max-h-64 overflow-y-auto">
-                {userProjects.length === 0 ? (
-                  <div className="px-2 py-2 text-xs text-muted-foreground">No projects</div>
-                ) : (
-                  userProjects.map(p => (
-                    <DropdownMenuItem
-                      key={p.id}
-                      onClick={() => {
-                        setQuickProjectId(p.id);
-                        const first = p.sections[0]?.id ?? '';
-                        setQuickSectionId(prev => {
-                          if (p.sections.some(s => s.id === prev)) return prev;
-                          return first;
-                        });
-                        setShowQuickNewSection(false);
-                        setQuickNewSectionName('');
-                      }}
-                      className="rounded-lg cursor-pointer flex items-center gap-2"
-                    >
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${idDotColor(p.id)}`} />
-                      {p.name}
-                    </DropdownMenuItem>
-                  ))
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  disabled={saving || !quickProjectId}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-xs font-semibold text-foreground/80 hover:bg-muted/60 transition-colors disabled:opacity-40 max-w-[140px]"
-                >
-                  {quickSectionId ? (
-                    <>
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${idDotColor(quickSectionId)}`} />
-                      <span className="truncate">{quickSectionOptions.find(s => s.id === quickSectionId)?.name ?? 'Section'}</span>
-                    </>
-                  ) : (
-                    <span className="truncate text-muted-foreground">Section</span>
-                  )}
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-52 rounded-xl max-h-56 overflow-y-auto">
-                {!quickProjectId ? (
-                  <div className="px-2 py-2 text-xs text-muted-foreground">Pick a project first</div>
-                ) : quickSectionOptions.length === 0 ? (
-                  <div className="px-2 py-2 text-xs text-muted-foreground">No sections — create one below</div>
-                ) : (
-                  quickSectionOptions.map(s => (
-                    <DropdownMenuItem
-                      key={s.id}
-                      onClick={() => setQuickSectionId(s.id)}
-                      className="rounded-lg cursor-pointer"
-                    >
-                      {s.name}
-                    </DropdownMenuItem>
-                  ))
-                )}
-                {quickProjectId && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={() => setShowQuickNewSection(true)}
-                      className="rounded-lg cursor-pointer text-primary font-semibold"
-                    >
-                      <Plus className="h-3.5 w-3.5 mr-1.5" /> Create section
-                    </DropdownMenuItem>
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <ProjectSectionPicker
+              projects={userProjects}
+              projectId={quickProjectId}
+              sectionId={quickSectionId}
+              onChange={(pid, sid) => { setQuickProjectId(pid); setQuickSectionId(sid); }}
+              onCreateSection={createSectionReturningId}
+              disabled={saving || userProjects.length === 0}
+              placeholder="Project / section"
+              triggerClassName="w-auto min-w-[170px] max-w-[280px] py-2"
+            />
 
             <div className="hidden sm:flex h-8 w-px bg-border/40 mx-0.5" aria-hidden />
             <button type="button" className="p-2 rounded-lg text-muted-foreground/40 hover:text-muted-foreground hover:bg-muted/50 transition-colors" title="Tags (coming soon)">
               <Tag className="h-4 w-4" />
             </button>
-            <button type="button" className="p-2 rounded-lg text-muted-foreground/40 hover:text-muted-foreground hover:bg-muted/50 transition-colors" title="Billable (coming soon)">
+            <button
+              type="button"
+              onClick={() => setQuickBillable(v => !v)}
+              aria-pressed={quickBillable}
+              title={quickBillable ? 'Billable — click to mark non-billable' : 'Non-billable — click to mark billable'}
+              className={cn(
+                'p-2 rounded-lg transition-all',
+                quickBillable
+                  ? 'text-emerald-500 bg-emerald-500/10 ring-1 ring-emerald-500/40 shadow-[0_0_10px_-1px_rgba(16,185,129,0.65)]'
+                  : 'text-muted-foreground/40 hover:text-muted-foreground hover:bg-muted/50',
+              )}
+            >
               <DollarSign className="h-4 w-4" />
             </button>
 
@@ -1273,40 +1215,6 @@ const TimesheetPage = () => {
             </div>
           </div>
         </div>
-
-        {/* ── Quick bar inline section creation ────────────────────────────── */}
-        {showQuickNewSection && quickProjectId && (
-          <div className="mt-2 flex items-center gap-2 rounded-xl border border-primary/30 bg-primary/5 px-4 py-2.5">
-            <span className="text-xs font-semibold text-primary/70 shrink-0">New section:</span>
-            <input
-              autoFocus
-              value={quickNewSectionName}
-              onChange={e => setQuickNewSectionName(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') void handleCreateQuickSection();
-                if (e.key === 'Escape') { setShowQuickNewSection(false); setQuickNewSectionName(''); }
-              }}
-              placeholder="Section name…"
-              disabled={creatingSec}
-              className="flex-1 bg-transparent text-sm focus:outline-none placeholder:text-muted-foreground/40"
-            />
-            <button
-              type="button"
-              onClick={() => void handleCreateQuickSection()}
-              disabled={!quickNewSectionName.trim() || creatingSec}
-              className="text-xs px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold disabled:opacity-40 transition-opacity shrink-0"
-            >
-              {creatingSec ? '…' : 'Create'}
-            </button>
-            <button
-              type="button"
-              onClick={() => { setShowQuickNewSection(false); setQuickNewSectionName(''); }}
-              className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted/50 transition-colors"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        )}
       </div>
 
       {/* ── Scrollable body ───────────────────────────────────────────────── */}
@@ -1587,87 +1495,38 @@ const TimesheetPage = () => {
               />
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5 min-w-0">
-                <Label className="text-xs font-bold text-muted-foreground/60 uppercase tracking-wide" htmlFor="ts-project">Project</Label>
-                <select
-                  id="ts-project"
-                  value={formProjectId}
-                  onChange={e => {
-                    const pid = e.target.value;
-                    setFormProjectId(pid);
-                    const p = userProjects.find(x => x.id === pid);
-                    setFormSectionId(prev => {
-                      if (!p?.sections.length) return '';
-                      if (!prev) return p.sections[0].id;
-                      return p.sections.some(s => s.id === prev) ? prev : p.sections[0].id;
-                    });
-                  }}
-                  className={inputCls}
-                  disabled={saving}
-                >
-                  {entryModal?.mode === 'new' && <option value="">Choose project…</option>}
-                  {userProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
+            <div className="space-y-1.5 min-w-0">
+              <Label className="text-xs font-bold text-muted-foreground/60 uppercase tracking-wide">Project &amp; section</Label>
+              <ProjectSectionPicker
+                projects={userProjects}
+                projectId={formProjectId}
+                sectionId={formSectionId}
+                onChange={(pid, sid) => { setFormProjectId(pid); setFormSectionId(sid); }}
+                onCreateSection={createSectionReturningId}
+                disabled={saving}
+              />
+            </div>
+
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-border/50 px-3 py-2.5">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-foreground">Billable</p>
+                <p className="text-[11px] text-muted-foreground/55">Counts toward billable hours in reports.</p>
               </div>
-              <div className="space-y-1.5 min-w-0">
-                <div className="flex items-center justify-between">
-                  <Label className="text-xs font-bold text-muted-foreground/60 uppercase tracking-wide" htmlFor="ts-section">Section</Label>
-                  {formProjectId && !showFormNewSection && (
-                    <button
-                      type="button"
-                      onClick={() => setShowFormNewSection(true)}
-                      className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 font-semibold transition-colors"
-                    >
-                      <Plus className="h-3 w-3" /> New
-                    </button>
-                  )}
-                </div>
-                {showFormNewSection ? (
-                  <div className="flex gap-2">
-                    <input
-                      autoFocus
-                      value={formNewSectionName}
-                      onChange={e => setFormNewSectionName(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') void handleCreateFormSection();
-                        if (e.key === 'Escape') { setShowFormNewSection(false); setFormNewSectionName(''); }
-                      }}
-                      placeholder="Section name…"
-                      className={inputCls}
-                      disabled={creatingSec}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => void handleCreateFormSection()}
-                      disabled={!formNewSectionName.trim() || creatingSec}
-                      className="shrink-0 px-3 py-2 text-xs rounded-xl bg-primary text-primary-foreground font-semibold disabled:opacity-40"
-                    >
-                      {creatingSec ? '…' : 'Create'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setShowFormNewSection(false); setFormNewSectionName(''); }}
-                      className="shrink-0 p-2 rounded-xl border border-border/50 text-muted-foreground hover:bg-muted/50"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ) : (
-                  <select
-                    id="ts-section"
-                    value={formSectionId}
-                    onChange={e => setFormSectionId(e.target.value)}
-                    className={inputCls}
-                    disabled={saving || !formProjectId}
-                  >
-                    <option value="">
-                      {!formProjectId ? 'Pick a project first' : sectionOptions.length === 0 ? 'No sections — create one →' : 'Choose section…'}
-                    </option>
-                    {sectionOptions.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                  </select>
+              <button
+                type="button"
+                onClick={() => setFormBillable(v => !v)}
+                aria-pressed={formBillable}
+                disabled={saving}
+                className={cn(
+                  'shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all disabled:opacity-50',
+                  formBillable
+                    ? 'text-emerald-500 bg-emerald-500/10 ring-1 ring-emerald-500/40 shadow-[0_0_10px_-1px_rgba(16,185,129,0.55)]'
+                    : 'text-muted-foreground/60 bg-muted/40 hover:bg-muted/60',
                 )}
-              </div>
+              >
+                <DollarSign className="h-3.5 w-3.5" />
+                {formBillable ? 'Billable' : 'Non-billable'}
+              </button>
             </div>
 
             <div className="grid grid-cols-2 gap-3">

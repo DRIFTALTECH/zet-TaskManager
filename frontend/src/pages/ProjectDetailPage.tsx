@@ -19,8 +19,10 @@ import {
   ArrowLeft, Plus, Users, LayoutGrid, ListTodo, Clock, FolderOpen,
   UserPlus, X, Trash2, ChevronLeft, ChevronRight,
   RotateCcw, Check, BarChart2, PieChart as PieIcon, TrendingUp, Search,
+  Camera, Image as ImageIcon, Link2, CalendarRange,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -29,6 +31,9 @@ import { toast } from 'sonner';
 import { snappy, pageEnter } from '@/lib/motion';
 import TaskDetailModal from '@/components/TaskDetailModal';
 import UserAvatar from '@/components/UserAvatar';
+import { DateInput } from '@/components/ui/date-input';
+import { downscaleImageToBlob, extractAccentColor } from '@/lib/image-color';
+import { resolveMediaUrl } from '@/lib/env';
 import { api } from '@/lib/api';
 import { Task, TimesheetWorkEntry } from '@/types';
 import {
@@ -92,13 +97,20 @@ const ProjectDetailPage = () => {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
   const {
-    users, projects, tasks, kanbanColumns,
+    users, projects, tasks, kanbanColumns, currentUser,
     addSection, removeSection, addMemberToProject, removeMemberFromProject,
-    moveTask, approveTask, reopenTaskToBacklog,
+    moveTask, approveTask, reopenTaskToBacklog, setProjectAppearance, uploadProjectMedia,
   } = useAppStore();
+  const canEdit = currentUser?.role === 'manager' || currentUser?.role === 'admin';
 
   const project = projects.find(p => p.id === projectId);
-  const accent = project ? projectAccent(project.id) : null;
+  const baseAccent = project ? projectAccent(project.id) : null;
+  // If the project has a background image, its derived palette colour drives the accent.
+  const accent = baseAccent
+    ? (project?.backgroundImage && project?.accentColor
+        ? { ...baseAccent, hex: project.accentColor }
+        : baseAccent)
+    : null;
 
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [addSectionOpen, setAddSectionOpen] = useState(false);
@@ -114,9 +126,21 @@ const ProjectDetailPage = () => {
   const [addMemberSearch, setAddMemberSearch] = useState('');
   const [sectionDetail, setSectionDetail] = useState<{ id: string; name: string } | null>(null);
 
+  // Appearance (background image + accent) editor.
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [savingAppearance, setSavingAppearance] = useState(false);
+  const [bgUrlInput, setBgUrlInput] = useState('');
+  const [projImgUrlInput, setProjImgUrlInput] = useState('');
+
+  // Date-range filter for all timesheet-derived charts (work dates).
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [activePreset, setActivePreset] = useState<'24h' | '7d' | '30d' | 'custom' | null>(null);
+  const [customRangeOpen, setCustomRangeOpen] = useState(false);
+
   // All timesheet entries for this project (across every member) — the single
   // source of truth for "time" across this page.
-  const [timesheet, setTimesheet] = useState<TimesheetWorkEntry[]>([]);
+  const [allTimesheet, setAllTimesheet] = useState<TimesheetWorkEntry[]>([]);
   const [timesheetLoading, setTimesheetLoading] = useState(true);
 
   useEffect(() => {
@@ -124,11 +148,19 @@ const ProjectDetailPage = () => {
     let alive = true;
     setTimesheetLoading(true);
     api.getProjectTimesheetEntries(projectId)
-      .then(rows => { if (alive) setTimesheet(rows); })
-      .catch(() => { if (alive) setTimesheet([]); })
+      .then(rows => { if (alive) setAllTimesheet(rows); })
+      .catch(() => { if (alive) setAllTimesheet([]); })
       .finally(() => { if (alive) setTimesheetLoading(false); });
     return () => { alive = false; };
   }, [projectId]);
+
+  // Apply the work-date range filter — every chart below reads this filtered view.
+  const timesheet = useMemo(
+    () => allTimesheet.filter(e =>
+      (!dateFrom || e.workDate >= dateFrom) && (!dateTo || e.workDate <= dateTo)
+    ),
+    [allTimesheet, dateFrom, dateTo],
+  );
 
   const projectTasks = useMemo(
     () => (project ? tasks.filter(t => t.projectId === project.id) : []),
@@ -293,6 +325,87 @@ const ProjectDetailPage = () => {
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not add section'); }
   };
 
+  // ── Date-range presets (work dates) ─────────────────────────────────────────
+  const isoDaysAgo = (n: number) => {
+    const d = new Date();
+    d.setDate(d.getDate() - n);
+    return format(d, 'yyyy-MM-dd');
+  };
+  const applyPreset = (p: '24h' | '7d' | '30d') => {
+    const today = format(new Date(), 'yyyy-MM-dd');
+    const from = p === '24h' ? today : p === '7d' ? isoDaysAgo(6) : isoDaysAgo(29);
+    setDateFrom(from);
+    setDateTo(today);
+    setActivePreset(p);
+    setCustomRangeOpen(false);
+  };
+  const clearFilter = () => { setDateFrom(''); setDateTo(''); setActivePreset(null); };
+
+  // ── Background image / project image / accent ───────────────────────────────
+  const saveAppearance = async (patch: { backgroundImage?: string; accentColor?: string; projectImage?: string }, msg: string) => {
+    setSavingAppearance(true);
+    try {
+      await setProjectAppearance(project.id, patch);
+      toast.success(msg);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not update appearance');
+    } finally {
+      setSavingAppearance(false);
+    }
+  };
+
+  const applyBackground = async (image: string) => {
+    const accentHex = image ? await extractAccentColor(image) : '';
+    await saveAppearance({ backgroundImage: image, accentColor: accentHex }, image ? 'Background updated' : 'Background removed');
+    setBgUrlInput('');
+  };
+
+  const applyProjectImage = async (image: string) => {
+    await saveAppearance({ projectImage: image }, image ? 'Project image updated' : 'Project image removed');
+    setProjImgUrlInput('');
+  };
+
+  const readImageFile = async (file: File | undefined): Promise<{ blob: Blob; dataUrl: string } | null> => {
+    if (!file) return null;
+    if (!file.type.startsWith('image/')) { toast.error('Choose an image file'); return null; }
+    if (file.size > 8 * 1024 * 1024) { toast.error('Image must be under 8 MB'); return null; }
+    try {
+      return await downscaleImageToBlob(file);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not read image');
+      return null;
+    }
+  };
+
+  // Uploads go to disk (served URL) — not stored inline in the projects payload.
+  const handleBgFile = async (file: File | undefined) => {
+    const r = await readImageFile(file);
+    if (!r) return;
+    setSavingAppearance(true);
+    try {
+      const accentHex = await extractAccentColor(r.dataUrl);
+      await uploadProjectMedia(project.id, 'background', r.blob, accentHex);
+      toast.success('Background updated');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not upload image');
+    } finally {
+      setSavingAppearance(false);
+    }
+  };
+  const handleProjImgFile = async (file: File | undefined) => {
+    const r = await readImageFile(file);
+    if (!r) return;
+    setSavingAppearance(true);
+    try {
+      await uploadProjectMedia(project.id, 'project', r.blob);
+      toast.success('Project image updated');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not upload image');
+    } finally {
+      setSavingAppearance(false);
+    }
+  };
+
   const confirmRemoveMember = async () => {
     if (!memberToRemove) return;
     setRemovingMember(true);
@@ -337,15 +450,104 @@ const ProjectDetailPage = () => {
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={pageEnter}>
       {/* ── Header ──────────────────────────────────────────────────────── */}
-      <div className="bg-gradient-to-b from-muted/20 to-transparent">
+      <div className="relative overflow-hidden border-b border-border/30">
+        {project.backgroundImage && (
+          <>
+            <img src={resolveMediaUrl(project.backgroundImage)} alt="" className="absolute inset-0 h-full w-full object-cover opacity-60" />
+            <div
+              className="absolute inset-0"
+              style={{ background: `linear-gradient(to bottom, ${accent.hex}22, hsl(var(--background) / 0.55) 60%, hsl(var(--background)) 100%)` }}
+            />
+          </>
+        )}
+        <div className={`relative ${project.backgroundImage ? '' : 'bg-gradient-to-b from-muted/20 to-transparent'}`}>
         <div className="px-4 sm:px-8 pt-5 pb-6">
-          <Link to="/manage" className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground/60 hover:text-foreground transition-colors mb-4">
-            <ArrowLeft className="h-3.5 w-3.5" /> All projects
-          </Link>
+          {/* Top row: back link (left) + date-range filter control (right) */}
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <Link to="/manage" className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground/60 hover:text-foreground transition-colors">
+              <ArrowLeft className="h-3.5 w-3.5" /> All projects
+            </Link>
+
+            <div className="flex items-center gap-1 rounded-xl border border-border/50 bg-card/70 backdrop-blur p-1 shadow-sm">
+              {(['24h', '7d', '30d'] as const).map(p => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => applyPreset(p)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                    activePreset === p ? 'bg-muted text-foreground shadow-sm' : 'text-muted-foreground/55 hover:text-foreground'
+                  }`}
+                >
+                  {p.toUpperCase()}
+                </button>
+              ))}
+              {!activePreset && (
+                <span className="px-2 text-[11px] font-semibold text-muted-foreground/45">All time</span>
+              )}
+              <div className="h-5 w-px bg-border/50 mx-0.5" />
+              <Popover open={customRangeOpen} onOpenChange={setCustomRangeOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    title="Custom range"
+                    className={`p-1.5 rounded-lg transition-colors ${
+                      activePreset === 'custom' ? 'bg-muted text-foreground' : 'text-muted-foreground/55 hover:text-foreground'
+                    }`}
+                  >
+                    <CalendarRange className="h-4 w-4" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-72 rounded-xl p-4 space-y-3">
+                  <p className="text-xs font-semibold text-muted-foreground/70">Custom range · work dates</p>
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground/60">From</label>
+                    <DateInput value={dateFrom} onChange={v => { setDateFrom(v); setActivePreset('custom'); }} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground/60">To</label>
+                    <DateInput value={dateTo} onChange={v => { setDateTo(v); setActivePreset('custom'); }} />
+                  </div>
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-[11px] text-muted-foreground/45">
+                      {timesheet.length} {timesheet.length === 1 ? 'entry' : 'entries'} in range
+                    </span>
+                    {(dateFrom || dateTo) && (
+                      <button
+                        type="button"
+                        onClick={clearFilter}
+                        className="flex items-center gap-1 text-xs text-muted-foreground/60 hover:text-foreground transition-colors"
+                      >
+                        <X className="h-3.5 w-3.5" /> Clear
+                      </button>
+                    )}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+          </div>
+
           <div className="flex flex-wrap items-start justify-between gap-5">
             <div className="flex items-start gap-4 min-w-0">
-              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 ${accent.light}`}>
-                <FolderOpen className={`h-7 w-7 ${accent.text}`} />
+              <div className="relative shrink-0">
+                {project.projectImage ? (
+                  <div className="w-14 h-14 rounded-2xl overflow-hidden ring-1 ring-border/40">
+                    <img src={resolveMediaUrl(project.projectImage)} alt="" className="h-full w-full object-cover" />
+                  </div>
+                ) : (
+                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${accent.light}`}>
+                    <FolderOpen className={`h-7 w-7 ${accent.text}`} />
+                  </div>
+                )}
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => { setBgUrlInput(project.backgroundImage ?? ''); setProjImgUrlInput(project.projectImage ?? ''); setAppearanceOpen(true); }}
+                    title="Change images"
+                    className="absolute -bottom-1.5 -right-1.5 p-1.5 rounded-full bg-card border border-border/60 shadow-sm text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <Camera className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
               <div className="min-w-0">
                 <h1 className="text-2xl font-bold text-foreground break-words">{projectPickerLabel(project)}</h1>
@@ -369,6 +571,7 @@ const ProjectDetailPage = () => {
               {timesheetLoading ? 'Loading…' : `${formatHM(projectSeconds)} logged`}
             </span>
           </div>
+        </div>
         </div>
       </div>
 
@@ -652,16 +855,18 @@ const ProjectDetailPage = () => {
                 const priStyle = PRIORITY_STYLES[task.priority] ?? PRIORITY_STYLES.Low;
                 return (
                   <div key={task.id}
-                    className={`group flex items-center gap-3 rounded-xl border border-border/30 bg-card hover:border-border/60 hover:shadow-sm p-3.5 transition-all ${busy ? 'opacity-60' : ''}`}>
-                    <span className={`shrink-0 text-[10px] px-2 py-0.5 rounded-full font-bold border ${priStyle}`}>{task.priority}</span>
-                    <button onClick={() => setSelectedTask(task)} className="flex-1 min-w-0 text-left">
-                      <h4 className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors break-words [overflow-wrap:anywhere] leading-snug">{task.title}</h4>
-                      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 mt-1 text-[11px] text-muted-foreground/55">
-                        {assignees.length > 0 && <span>{assignees.map(a => a!.name).join(', ')}</span>}
-                        {section && <><span>·</span><span>{section.name}</span></>}
-                        {task.timeTracked > 0 && <><span>·</span><span>{formatHM(task.timeTracked)}</span></>}
-                      </div>
-                    </button>
+                    className={`group flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 rounded-xl border border-border/30 bg-card hover:border-border/60 hover:shadow-sm p-3.5 transition-all ${busy ? 'opacity-60' : ''}`}>
+                    <div className="flex items-start gap-2 min-w-0 flex-1">
+                      <span className={`shrink-0 text-[10px] px-2 py-0.5 rounded-full font-bold border ${priStyle}`}>{task.priority}</span>
+                      <button onClick={() => setSelectedTask(task)} className="flex-1 min-w-0 text-left">
+                        <h4 className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors break-words [overflow-wrap:anywhere] leading-snug">{task.title}</h4>
+                        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 mt-1 text-[11px] text-muted-foreground/55">
+                          {assignees.length > 0 && <span>{assignees.map(a => a!.name).join(', ')}</span>}
+                          {section && <><span>·</span><span>{section.name}</span></>}
+                          {task.timeTracked > 0 && <><span>·</span><span>{formatHM(task.timeTracked)}</span></>}
+                        </div>
+                      </button>
+                    </div>
 
                     {/* status chip */}
                     <span className={`shrink-0 hidden sm:inline-flex text-[10px] px-2.5 py-1 rounded-full border font-medium capitalize ${statusChipCls(task.status)}`}>
@@ -669,7 +874,7 @@ const ProjectDetailPage = () => {
                     </span>
 
                     {/* move controls */}
-                    <div className="flex items-center gap-1 shrink-0">
+                    <div className="flex items-center gap-1 shrink-0 self-end sm:self-auto">
                       {completed ? (
                         <button disabled={busy} onClick={() => void doReopen(task)}
                           className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-border/40 bg-muted/30 hover:bg-amber-500/10 hover:border-amber-500/40 hover:text-amber-400 text-muted-foreground/70 transition-all disabled:opacity-40" title="Reopen to backlog">
@@ -697,6 +902,103 @@ const ProjectDetailPage = () => {
       </div>
 
       {/* ── Modals ────────────────────────────────────────────────────────── */}
+      {/* ── Background image / appearance ─────────────────────────────────── */}
+      <Dialog open={appearanceOpen} onOpenChange={o => { setAppearanceOpen(o); if (!o) { setBgUrlInput(''); setProjImgUrlInput(''); } }}>
+        <DialogContent className="rounded-2xl max-h-[85dvh] overflow-y-auto">
+          <DialogHeader><DialogTitle className="text-xl font-bold">Project images</DialogTitle></DialogHeader>
+          <div className="space-y-6 pt-1">
+
+            {/* ── Background image ─────────────────────────────────────── */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-muted-foreground/70">
+                <ImageIcon className="h-3.5 w-3.5" /> Background image
+                <span className="text-[10px] font-medium text-muted-foreground/45 normal-case tracking-normal">· card background · sets accent palette</span>
+              </div>
+              <div className="relative h-28 rounded-xl overflow-hidden border border-border/40 bg-muted/30 flex items-center justify-center">
+                {project.backgroundImage ? (
+                  <img src={resolveMediaUrl(project.backgroundImage)} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <span className="text-xs text-muted-foreground/40">No background set</span>
+                )}
+                {project.accentColor && (
+                  <span className="absolute bottom-2 right-2 h-6 w-6 rounded-full ring-2 ring-background shadow"
+                    style={{ backgroundColor: project.accentColor }} title={`Accent ${project.accentColor}`} />
+                )}
+              </div>
+              <div className="flex gap-2">
+                <label className="flex-1 flex items-center justify-center gap-2 rounded-xl border border-dashed border-border/60 px-3 py-2.5 text-sm text-muted-foreground hover:bg-muted/40 cursor-pointer transition-colors">
+                  <Camera className="h-4 w-4" /> {savingAppearance ? 'Processing…' : 'Upload'}
+                  <input type="file" accept="image/*" className="hidden" disabled={savingAppearance}
+                    onChange={e => void handleBgFile(e.target.files?.[0])} />
+                </label>
+                {project.backgroundImage && (
+                  <button type="button" onClick={() => void applyBackground('')} disabled={savingAppearance}
+                    className="shrink-0 flex items-center gap-1.5 px-3 rounded-xl border border-red-500/30 text-red-400 text-xs font-semibold hover:bg-red-500/10 transition-colors disabled:opacity-40">
+                    <Trash2 className="h-3.5 w-3.5" /> Remove
+                  </button>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <div className="flex-1 flex items-center gap-2 rounded-xl border border-border/50 bg-muted/40 px-3">
+                  <Link2 className="h-4 w-4 text-muted-foreground/50 shrink-0" />
+                  <input value={bgUrlInput} onChange={e => setBgUrlInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && bgUrlInput.trim()) void applyBackground(bgUrlInput.trim()); }}
+                    placeholder="…or paste an image URL" disabled={savingAppearance}
+                    className="flex-1 bg-transparent py-2 text-sm focus:outline-none placeholder:text-muted-foreground/40" />
+                </div>
+                <button type="button" onClick={() => bgUrlInput.trim() && void applyBackground(bgUrlInput.trim())}
+                  disabled={!bgUrlInput.trim() || savingAppearance}
+                  className="shrink-0 px-4 rounded-xl bg-primary text-primary-foreground text-sm font-semibold disabled:opacity-40">Apply</button>
+              </div>
+            </div>
+
+            <div className="h-px bg-border/40" />
+
+            {/* ── Project image (folder replacement) ───────────────────── */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-muted-foreground/70">
+                <FolderOpen className="h-3.5 w-3.5" /> Project image
+                <span className="text-[10px] font-medium text-muted-foreground/45 normal-case tracking-normal">· replaces the folder icon</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="h-16 w-16 shrink-0 rounded-xl overflow-hidden border border-border/40 bg-muted/30 flex items-center justify-center">
+                  {project.projectImage ? (
+                    <img src={resolveMediaUrl(project.projectImage)} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    <FolderOpen className={`h-7 w-7 ${accent.text}`} />
+                  )}
+                </div>
+                <div className="flex-1 flex flex-col gap-2">
+                  <label className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-border/60 px-3 py-2 text-sm text-muted-foreground hover:bg-muted/40 cursor-pointer transition-colors">
+                    <Camera className="h-4 w-4" /> {savingAppearance ? 'Processing…' : 'Upload'}
+                    <input type="file" accept="image/*" className="hidden" disabled={savingAppearance}
+                      onChange={e => void handleProjImgFile(e.target.files?.[0])} />
+                  </label>
+                  {project.projectImage && (
+                    <button type="button" onClick={() => void applyProjectImage('')} disabled={savingAppearance}
+                      className="flex items-center gap-1.5 text-xs font-semibold text-red-400 hover:text-red-300 transition-colors disabled:opacity-40">
+                      <Trash2 className="h-3.5 w-3.5" /> Remove project image
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <div className="flex-1 flex items-center gap-2 rounded-xl border border-border/50 bg-muted/40 px-3">
+                  <Link2 className="h-4 w-4 text-muted-foreground/50 shrink-0" />
+                  <input value={projImgUrlInput} onChange={e => setProjImgUrlInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && projImgUrlInput.trim()) void applyProjectImage(projImgUrlInput.trim()); }}
+                    placeholder="…or paste an image URL" disabled={savingAppearance}
+                    className="flex-1 bg-transparent py-2 text-sm focus:outline-none placeholder:text-muted-foreground/40" />
+                </div>
+                <button type="button" onClick={() => projImgUrlInput.trim() && void applyProjectImage(projImgUrlInput.trim())}
+                  disabled={!projImgUrlInput.trim() || savingAppearance}
+                  className="shrink-0 px-4 rounded-xl bg-primary text-primary-foreground text-sm font-semibold disabled:opacity-40">Apply</button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={addSectionOpen} onOpenChange={o => { setAddSectionOpen(o); if (!o) setSectionName(''); }}>
         <DialogContent className="rounded-2xl"
           onOpenAutoFocus={e => { e.preventDefault(); (e.currentTarget.querySelector('input') as HTMLInputElement | null)?.focus(); }}>
@@ -748,20 +1050,21 @@ const ProjectDetailPage = () => {
 
       {/* Section drill-down: per-day hours logged */}
       <Dialog open={!!sectionDetail} onOpenChange={o => !o && setSectionDetail(null)}>
-        <DialogContent className="rounded-2xl">
+        <DialogContent className="rounded-2xl w-[94vw] max-w-[94vw] h-[70dvh] max-h-[70dvh] sm:w-[75vw] sm:max-w-[75vw] sm:h-[60dvh] sm:max-h-[60dvh] overflow-hidden">
           <DialogHeader>
             <DialogTitle className="text-lg font-bold break-words [overflow-wrap:anywhere]">
               {sectionDetail?.name} — daily time
             </DialogTitle>
           </DialogHeader>
-          <div className="pt-1">
-            <p className="text-xs text-muted-foreground/55 mb-3">
+          <div className="pt-1 flex-1 flex flex-col min-h-0">
+            <p className="text-xs text-muted-foreground/55 mb-3 shrink-0">
               Hours logged per day (from timesheets) · total {formatHM(sectionDailyData.reduce((a, d) => a + d.hours * 3600, 0))}
             </p>
             {sectionDailyData.length === 0 ? (
-              <div className="h-[220px] flex items-center justify-center text-sm text-muted-foreground/40 italic">No time logged for this section</div>
+              <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground/40 italic">No time logged for this section</div>
             ) : (
-              <ResponsiveContainer width="100%" height={240}>
+              <div className="flex-1 min-h-0">
+              <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={sectionDailyData} margin={{ top: 8, right: 12, bottom: 4, left: -18 }}>
                   <defs>
                     <linearGradient id="secGrad" x1="0" y1="0" x2="0" y2="1">
@@ -776,6 +1079,7 @@ const ProjectDetailPage = () => {
                   <Area type="monotone" dataKey="hours" stroke={accent.hex} strokeWidth={2} fill="url(#secGrad)" />
                 </AreaChart>
               </ResponsiveContainer>
+              </div>
             )}
           </div>
         </DialogContent>
@@ -783,7 +1087,7 @@ const ProjectDetailPage = () => {
 
       {/* Member work breakdown */}
       <Dialog open={!!memberDetail} onOpenChange={o => !o && setMemberDetail(null)}>
-        <DialogContent className="rounded-2xl overflow-y-auto">
+        <DialogContent className="rounded-2xl overflow-y-auto w-[94vw] max-w-[94vw] h-[70dvh] max-h-[70dvh] sm:w-[75vw] sm:max-w-[75vw] sm:h-[60dvh] sm:max-h-[60dvh]">
           <DialogHeader>
             <DialogTitle className="text-lg font-bold break-words [overflow-wrap:anywhere]">
               {memberDetail?.name} — work breakdown

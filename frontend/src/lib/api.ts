@@ -119,6 +119,29 @@ export const api = {
     });
   },
 
+  async setProjectAppearance(
+    projectId: string,
+    body: { backgroundImage?: string; accentColor?: string; projectImage?: string },
+  ): Promise<Project> {
+    return request(`/projects/${projectId}/appearance`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    });
+  },
+
+  async uploadProjectMedia(
+    projectId: string,
+    kind: 'background' | 'project',
+    file: Blob,
+    accentColor = '',
+  ): Promise<Project> {
+    const form = new FormData();
+    form.append('kind', kind);
+    form.append('accent_color', accentColor);
+    form.append('file', file, 'image.jpg');
+    return request(`/projects/${projectId}/media`, { method: 'POST', body: form });
+  },
+
   async deleteProjectSection(projectId: string, sectionId: string): Promise<Project> {
     return request(`/projects/${projectId}/sections/${sectionId}`, { method: 'DELETE' });
   },
@@ -226,6 +249,22 @@ export const api = {
     return request(`/tasks/${taskId}/start`, { method: 'POST' });
   },
 
+  // Server-tracked work timers (running state lives in the DB, not the browser).
+  async getActiveTimers(): Promise<{ taskId: string; startedAt: string }[]> {
+    return request('/tasks/timers/active');
+  },
+
+  async startTimer(taskId: string): Promise<{ taskId: string; startedAt: string }> {
+    return request(`/tasks/${taskId}/timer/start`, { method: 'POST' });
+  },
+
+  async stopTimer(taskId: string, tzOffset: number): Promise<Task> {
+    return request(`/tasks/${taskId}/timer/stop`, {
+      method: 'POST',
+      body: JSON.stringify({ tzOffset }),
+    });
+  },
+
   async moveTask(taskId: string, status: string): Promise<Task> {
     return request(`/tasks/${taskId}/move`, { method: 'POST', body: JSON.stringify({ status }) });
   },
@@ -287,6 +326,7 @@ export const api = {
     description: string;
     timeFrom: string;
     timeTo: string;
+    billable?: boolean;
   }): Promise<TimesheetWorkEntry> {
     return request('/timesheet/entries', { method: 'POST', body: JSON.stringify(body) });
   },
@@ -300,6 +340,7 @@ export const api = {
       description: string;
       timeFrom: string;
       timeTo: string;
+      billable: boolean;
     }>,
   ): Promise<TimesheetWorkEntry> {
     return request(`/timesheet/entries/${entryId}`, { method: 'PATCH', body: JSON.stringify(body) });
@@ -437,6 +478,11 @@ export const api = {
   ): Promise<{ sourceText: string; tasks: import('@/types').AIExtractedTask[] }> {
     // FormData body → request() omits Content-Type so the browser sets the multipart boundary.
     return request('/ai/extract-tasks', { method: 'POST', body: form });
+  },
+
+  async aiParseSource(form: FormData): Promise<{ sourceText: string }> {
+    // Resolve a document/audio to text (for review before extraction).
+    return request('/ai/parse-source', { method: 'POST', body: form });
   },
 
   async aiGenerateDescription(

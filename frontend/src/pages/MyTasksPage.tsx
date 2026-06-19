@@ -104,10 +104,10 @@ const MyTasksPage = () => {
   const formatDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={pageEnter} className="p-6 flex flex-col h-[calc(100dvh-4rem)] min-h-0">
-      <div className="flex items-center justify-between mb-6 shrink-0">
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={pageEnter} className="p-4 sm:p-6 flex flex-col h-[calc(100dvh-4rem)] min-h-0">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-5 sm:mb-6 shrink-0">
         <div>
-          <h1 className="text-2xl font-bold">My Tasks</h1>
+          <h1 className="text-xl sm:text-2xl font-bold">My Tasks</h1>
           <p className="text-sm text-muted-foreground mt-1">{myTasks.length} total tasks across {userProjects.length} projects</p>
         </div>
         <div className="flex items-center gap-2">
@@ -201,24 +201,24 @@ const MyTasksPage = () => {
                             onClick={() => setSelectedTask(task)}
                             className="rounded-xl border bg-card p-4 cursor-pointer transition-shadow duration-100"
                           >
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-3">
-                                <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-semibold border ${priorityBadge[task.priority]}`}>
+                            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                              <div className="flex items-center gap-3 min-w-0">
+                                <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-semibold border shrink-0 ${priorityBadge[task.priority]}`}>
                                   {task.priority}
                                 </span>
-                                <h4 className="text-sm font-semibold">{task.title}</h4>
+                                <h4 className="text-sm font-semibold truncate">{task.title}</h4>
                               </div>
-                              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                                 <TaskTimerButton task={task} currentUserId={currentUser.id} />
                                 <span className="px-2 py-0.5 rounded-lg bg-muted/50">{task.status.replace('_', ' ')}</span>
                                 <span>{formatDate(task.dueDate)}</span>
                               </div>
                             </div>
-                            <div className="mt-2 flex items-center gap-4 text-[11px] text-muted-foreground ml-[52px]">
+                            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground ml-0 sm:ml-[52px]">
                               {section && <span>{section.name}</span>}
                               <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{formatTime(task.timeTracked)}</span>
                               {task.tags.length > 0 && (
-                                <div className="flex gap-1">
+                                <div className="flex flex-wrap gap-1">
                                   {task.tags.slice(0, 3).map(t => (
                                     <span key={t} className="px-2 py-0.5 rounded-full border bg-muted/50 text-[10px]">{t}</span>
                                   ))}
@@ -226,7 +226,7 @@ const MyTasksPage = () => {
                               )}
                             </div>
                             {task.description && (
-                              <p className="mt-2 text-xs text-muted-foreground line-clamp-1 ml-[52px]">{task.description}</p>
+                              <p className="mt-2 text-xs text-muted-foreground line-clamp-1 ml-0 sm:ml-[52px]">{task.description}</p>
                             )}
                           </motion.div>
                         );

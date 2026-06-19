@@ -114,7 +114,7 @@ export default function MeetingNotesPage() {
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={pageEnter}
-      className="flex flex-col h-[calc(100dvh-3.5rem)] min-h-0"
+      className="min-h-full"
     >
       {/* Header */}
       <div className="shrink-0 px-4 sm:px-8 pt-6 sm:pt-7 pb-5 border-b border-border/30 bg-gradient-to-b from-muted/20 to-transparent">
@@ -147,7 +147,7 @@ export default function MeetingNotesPage() {
       </div>
 
       {/* Calendar */}
-      <div className="flex-1 overflow-y-auto min-h-0 p-4 sm:p-6">
+      <div className="p-4 sm:p-6">
         <div className="grid grid-cols-7 gap-1.5 mb-1.5">
           {WEEKDAYS.map(d => (
             <div key={d} className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/40 text-center py-1">{d}</div>
@@ -165,7 +165,7 @@ export default function MeetingNotesPage() {
                 key={key}
                 onClick={() => void openDay(key)}
                 className={[
-                  'group relative text-left rounded-xl border p-2 min-h-[96px] sm:min-h-[116px] flex flex-col transition-all duration-200',
+                  'group relative text-left rounded-xl border p-1.5 sm:p-2 min-h-[52px] sm:min-h-[116px] flex flex-col transition-all duration-200',
                   inMonth ? 'bg-card border-border/50' : 'bg-muted/20 border-border/30 opacity-50 hover:opacity-90',
                   // bottom glow to make the cards pop
                   has
@@ -186,12 +186,14 @@ export default function MeetingNotesPage() {
                 </div>
                 {has && (
                   <>
-                    <p className="mt-1 text-[10px] leading-snug text-muted-foreground/70 line-clamp-2">
+                    <p className="mt-1 text-[10px] leading-snug text-muted-foreground/70 line-clamp-2 hidden sm:block">
                       {s.summary || `${s.scrumCount} scrum${s.scrumCount > 1 ? 's' : ''}`}
                     </p>
-                    <span className="mt-auto flex items-center gap-1 text-[10px] text-muted-foreground/55">
+                    <span className="mt-auto hidden sm:flex items-center gap-1 text-[10px] text-muted-foreground/55">
                       <Users className="h-2.5 w-2.5" />{s.memberCount}
                     </span>
+                    {/* Mobile: tiny dot marker only (cells are too narrow for text) */}
+                    <span className="mt-auto sm:hidden h-1.5 w-1.5 rounded-full bg-primary/70" />
                   </>
                 )}
                 {/* explicit bottom accent glow bar */}
@@ -205,7 +207,7 @@ export default function MeetingNotesPage() {
 
       {/* Day dialog */}
       <Dialog open={!!openDate} onOpenChange={o => !o && closeDay()}>
-        <DialogContent className="rounded-2xl">
+        <DialogContent className="rounded-2xl w-[94vw] max-w-[94vw] sm:w-[75vw] sm:max-w-[75vw]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-lg font-bold">
               <CalendarDays className="h-4 w-4 text-primary/70" />

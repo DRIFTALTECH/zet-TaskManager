@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 from sqlalchemy.orm import Session
 
 from database.database import get_db
 from logic import project_logic
-from logic.schemas import MemberBody, ProjectCreate, ProjectOut, SectionCreate
+from logic.schemas import MemberBody, ProjectAppearancePatch, ProjectCreate, ProjectOut, SectionCreate
 from routes.deps import get_current_user_id
 
 router = APIRouter()
@@ -21,6 +21,31 @@ def create_project(
     db: Session = Depends(get_db),
 ):
     return project_logic.create_project(db, user_id, body)
+
+
+@router.patch("/{project_id}/appearance", response_model=ProjectOut)
+def set_appearance(
+    project_id: str,
+    body: ProjectAppearancePatch,
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    return project_logic.set_appearance(db, user_id, project_id, body)
+
+
+@router.post("/{project_id}/media", response_model=ProjectOut)
+async def upload_media(
+    project_id: str,
+    kind: str = Form(...),
+    file: UploadFile = File(...),
+    accent_color: str = Form(default=""),
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    content = await file.read()
+    return project_logic.upload_media(
+        db, user_id, project_id, kind, file.filename, file.content_type, content, accent_color
+    )
 
 
 @router.post("/{project_id}/sections", response_model=ProjectOut)

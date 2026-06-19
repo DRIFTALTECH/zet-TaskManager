@@ -401,7 +401,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
   return (
     <>
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="flex min-h-0 flex-col gap-0 overflow-hidden border-border/30 bg-card p-0 rounded-2xl shadow-2xl">
+        <DialogContent className="sm:max-w-[1060px] flex max-h-[min(92dvh,92vh)] min-h-0 flex-col gap-0 overflow-hidden border-border/30 bg-card p-0 rounded-2xl shadow-2xl">
           <DialogDescription className="sr-only">Task details for {task.title}</DialogDescription>
 
           {/* ── Header ────────────────────────────────────────────── */}
@@ -486,10 +486,10 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
           </div>
 
           {/* ── Body ──────────────────────────────────────────────── */}
-          <div className="flex flex-1 min-h-0 divide-x divide-border/20">
+          <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-y-auto md:overflow-hidden divide-y md:divide-y-0 md:divide-x divide-border/20">
 
             {/* ── LEFT pane ─────────────────────────────────────── */}
-            <div className="flex-1 min-w-0 overflow-y-auto overscroll-contain p-7 space-y-7">
+            <div className="flex-1 min-w-0 md:overflow-y-auto overscroll-contain p-5 sm:p-7 space-y-7">
 
               {/* Description */}
               <section>
@@ -1011,7 +1011,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
             </div>
 
             {/* ── RIGHT sidebar ─────────────────────────────────── */}
-            <div className="w-[255px] shrink-0 overflow-y-auto overscroll-contain p-6 space-y-6 bg-muted/5">
+            <div className="w-full md:w-[255px] shrink-0 md:overflow-y-auto overscroll-contain p-5 sm:p-6 space-y-6 bg-muted/5">
 
               {/* Priority */}
               <section>

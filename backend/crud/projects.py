@@ -46,6 +46,19 @@ def create_project(
     return p
 
 
+def update_appearance(
+    db: Session, project_id: str, background_image: str, accent_color: str, project_image: str
+) -> None:
+    p = db.query(Project).get(project_id)
+    if not p:
+        return
+    p.background_image = background_image
+    p.accent_color = accent_color
+    p.project_image = project_image
+    db.commit()
+    realtime.bump("projects")
+
+
 def add_member(db: Session, project_id: str, user_id: str) -> None:
     exists = (
         db.query(ProjectMember)

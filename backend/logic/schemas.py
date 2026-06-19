@@ -141,11 +141,20 @@ class ProjectOut(BaseModel):
     sections: list[SectionOut]
     createdAt: str
     isPersonal: bool = False
+    backgroundImage: str = ""
+    accentColor: str = ""
+    projectImage: str = ""
 
 
 class ProjectCreate(BaseModel):
     name: str
     description: str = ""
+
+
+class ProjectAppearancePatch(BaseModel):
+    backgroundImage: str | None = None
+    accentColor: str | None = None
+    projectImage: str | None = None
 
 
 class SectionCreate(BaseModel):
@@ -213,6 +222,16 @@ class LogTimeBody(BaseModel):
     seconds: int
 
 
+class TimerRunOut(BaseModel):
+    taskId: str
+    startedAt: str  # ISO-8601 UTC
+
+
+class TimerStopBody(BaseModel):
+    # Client's Date.getTimezoneOffset() (minutes, UTC − local) for local wall-clock times.
+    tzOffset: int = 0
+
+
 class KanbanColumnOut(BaseModel):
     id: str
     label: str
@@ -240,6 +259,7 @@ class TimesheetEntryOut(BaseModel):
     timeFrom: str
     timeTo: str
     seconds: int
+    billable: bool
     createdAt: str
 
 
@@ -250,6 +270,7 @@ class TimesheetEntryCreate(BaseModel):
     description: str = ""
     timeFrom: str
     timeTo: str
+    billable: bool = True
 
 
 class TimesheetEntryPatch(BaseModel):
@@ -259,6 +280,7 @@ class TimesheetEntryPatch(BaseModel):
     description: str | None = None
     timeFrom: str | None = None
     timeTo: str | None = None
+    billable: bool | None = None
 
 
 class TaskFeedbackOut(BaseModel):

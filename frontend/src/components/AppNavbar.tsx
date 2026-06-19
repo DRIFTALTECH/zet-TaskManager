@@ -41,7 +41,7 @@ const AppNavbar = () => {
       <GlobalSearchModal open={searchOpen} onOpenChange={setSearchOpen} />
       <TaskCreatorModal open={taskCreatorOpen} onOpenChange={setTaskCreatorOpen} />
 
-      <header className="h-16 border-b border-border/60 glass flex items-center px-3 sm:px-5 gap-2 sm:gap-4 sticky top-0 z-40">
+      <header className="h-16 border-b border-border/60 glass flex items-center px-2 sm:px-5 gap-1.5 sm:gap-4 sticky top-0 z-40">
         <MobileNav />
 
         {/* Page title — mobile only (desktop shows it in the sidebar) */}
@@ -59,7 +59,7 @@ const AppNavbar = () => {
           <select
             value={selectedProjectId || ''}
             onChange={e => selectProject(e.target.value)}
-            className="rounded-xl border border-border/70 bg-card/70 px-2.5 sm:px-3 py-1.5 text-sm font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/50 min-w-[110px] sm:min-w-[140px] max-w-[45vw] hover:border-ring/40 transition-colors"
+            className="shrink-0 rounded-xl border border-border/70 bg-card/70 px-2 sm:px-3 py-1.5 text-sm font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/50 min-w-0 w-[34vw] sm:w-auto sm:min-w-[140px] sm:max-w-[44vw] hover:border-ring/40 transition-colors"
           >
             {userProjects.length === 0 ? (
               <option value="">No projects</option>
@@ -82,7 +82,7 @@ const AppNavbar = () => {
         {showCreateTasks && (
           <button
             onClick={() => setTaskCreatorOpen(true)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-violet-600 text-white text-sm font-semibold hover:bg-violet-500 transition-colors shadow-sm"
+            className="shrink-0 flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl bg-violet-600 text-white text-sm font-semibold hover:bg-violet-500 transition-colors shadow-sm"
             title="Create tasks with AI"
           >
             <Sparkles className="h-4 w-4" />
@@ -93,7 +93,7 @@ const AppNavbar = () => {
         {/* Global search trigger */}
         <button
           onClick={() => setSearchOpen(true)}
-          className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl border border-border/50 bg-card/60 hover:bg-accent/60 hover:border-ring/40 transition-all text-muted-foreground hover:text-accent-foreground group"
+          className="shrink-0 flex items-center gap-1.5 sm:gap-2.5 px-2 sm:px-3 py-1.5 rounded-xl border border-border/50 bg-card/60 hover:bg-accent/60 hover:border-ring/40 transition-all text-muted-foreground hover:text-accent-foreground group"
           title="Search (⌘K)"
         >
           <Search className="h-3.5 w-3.5 group-hover:text-primary transition-colors" />
@@ -109,7 +109,7 @@ const AppNavbar = () => {
         {/* Theme toggle */}
         <button
           onClick={toggleTheme}
-          className="relative p-2 rounded-xl border border-transparent hover:border-border/60 hover:bg-accent/60 transition-colors overflow-hidden"
+          className="shrink-0 relative p-2 rounded-xl border border-transparent hover:border-border/60 hover:bg-accent/60 transition-colors overflow-hidden"
           title="Toggle theme"
         >
           <AnimatePresence mode="wait" initial={false}>

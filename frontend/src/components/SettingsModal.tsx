@@ -54,7 +54,7 @@ const SettingsModal = ({ open, onOpenChange }: Props) => {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="glass">
+      <DialogContent className="glass sm:max-w-md">
         <DialogHeader><DialogTitle>Settings</DialogTitle></DialogHeader>
         <div className="space-y-6">
           {/* Profile */}

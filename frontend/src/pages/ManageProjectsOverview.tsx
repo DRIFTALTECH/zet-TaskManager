@@ -15,7 +15,8 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { snappy, pageEnter } from '@/lib/motion';
-import { computeProjectStats, formatHM } from '@/lib/manage-utils';
+import { computeProjectStats, formatHM, projectAccent } from '@/lib/manage-utils';
+import { resolveMediaUrl } from '@/lib/env';
 
 const ManageProjectsOverview = () => {
   const { projects, tasks, createProject } = useAppStore();
@@ -145,25 +146,40 @@ const ManageProjectsOverview = () => {
                   whileHover={{ scale: 1.005, x: 2, boxShadow: '0 4px 20px -4px hsl(var(--foreground) / 0.08)' }}
                   whileTap={{ scale: 0.995 }}
                   onClick={() => navigate(`/manage/${project.id}`)}
-                  className="group text-left rounded-2xl border-2 border-border/70 bg-gradient-to-br from-muted/70 via-card to-muted/40 dark:from-muted/50 dark:via-card dark:to-muted/30 p-6 min-h-[250px] flex flex-col cursor-pointer shadow-md transition-[transform,box-shadow] duration-200 ease-out"
+                  style={project.backgroundImage && project.accentColor ? { borderColor: `${project.accentColor}66` } : undefined}
+                  className="group relative overflow-hidden text-left rounded-2xl border-2 border-border/70 bg-gradient-to-br from-muted/70 via-card to-muted/40 dark:from-muted/50 dark:via-card dark:to-muted/30 p-6 min-h-[250px] flex flex-col cursor-pointer shadow-md transition-[transform,box-shadow] duration-200 ease-out"
                 >
+                  {/* Background image layer — visible, with a bottom scrim so text stays readable */}
+                  {project.backgroundImage && (
+                    <>
+                      <img src={resolveMediaUrl(project.backgroundImage)} alt="" className="absolute inset-0 h-full w-full object-cover opacity-70 pointer-events-none" />
+                      <div className="absolute inset-0 bg-gradient-to-t from-card via-card/55 to-card/10 pointer-events-none" />
+                    </>
+                  )}
+
                   {/* Top — icon + arrow */}
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="w-12 h-12 rounded-xl bg-muted/50 flex items-center justify-center shrink-0">
-                      <FolderOpen className="h-6 w-6 text-muted-foreground" />
+                  <div className="relative flex items-start justify-between mb-4">
+                    <div className="w-12 h-12 rounded-xl overflow-hidden flex items-center justify-center shrink-0">
+                      {project.projectImage ? (
+                        <img src={resolveMediaUrl(project.projectImage)} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <div className={`h-full w-full flex items-center justify-center ${projectAccent(project.id).light}`}>
+                          <FolderOpen className={`h-6 w-6 ${projectAccent(project.id).text}`} />
+                        </div>
+                      )}
                     </div>
                     <ArrowUpRight className="h-5 w-5 text-muted-foreground/40 shrink-0 mt-0.5" />
                   </div>
 
                   {/* Title */}
-                  <h3 className="text-base font-bold leading-snug text-foreground line-clamp-2 shrink-0">
+                  <h3 className="relative text-base font-bold leading-snug text-foreground line-clamp-2 shrink-0">
                     {projectPickerLabel(project)}
                   </h3>
 
                   <div className="flex-1 min-h-0" aria-hidden />
 
                   {/* Bottom — members · sections · description */}
-                  <div className="pt-2 mt-auto space-y-2 shrink-0">
+                  <div className="relative pt-2 mt-auto space-y-2 shrink-0">
                     <div className="flex items-center gap-5 text-sm text-muted-foreground">
                       <span className="flex items-center gap-1.5">
                         <Users className="h-4 w-4" />

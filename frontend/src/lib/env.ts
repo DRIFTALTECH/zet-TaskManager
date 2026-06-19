@@ -13,6 +13,14 @@ export function getApiUrl(): string {
   return (trimOrUndefined(import.meta.env.VITE_API_URL) ?? DEFAULT_API_URL).replace(/\/+$/, '');
 }
 
+/** Resolve a stored media reference for use in <img>: server-relative paths get
+ *  the API origin prepended; data: and absolute http(s) URLs pass through. */
+export function resolveMediaUrl(path?: string): string {
+  if (!path) return '';
+  if (path.startsWith('/')) return `${getApiUrl()}${path}`;
+  return path;
+}
+
 export function getMicrosoftClientId(): string {
   return trimOrUndefined(import.meta.env.VITE_MICROSOFT_CLIENT_ID) ?? DEFAULT_MICROSOFT_CLIENT_ID;
 }

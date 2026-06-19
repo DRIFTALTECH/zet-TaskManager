@@ -7,17 +7,17 @@
 @layer base {
   :root {
     --background: 0 0% 96%;
-    --foreground: 0 0% 5%;
+    --foreground: 0 0% 0%;
     --card: 0 0% 100%;
-    --card-foreground: 0 0% 5%;
+    --card-foreground: 0 0% 0%;
     --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 5%;
+    --popover-foreground: 0 0% 0%;
     --primary: 0 0% 12%;
     --primary-foreground: 0 0% 100%;
     --secondary: 0 0% 40%;
     --secondary-foreground: 0 0% 100%;
     --muted: 0 0% 92%;
-    --muted-foreground: 0 0% 15%;
+    --muted-foreground: 0 0% 0%;
     --accent: 0 0% 18%;
     --accent-foreground: 0 0% 100%;
     --destructive: 0 84% 60%;
@@ -32,11 +32,11 @@
     --brand-2: 262 70% 54%;
 
     --sidebar-background: 0 0% 100%;
-    --sidebar-foreground: 0 0% 18%;
+    --sidebar-foreground: 0 0% 0%;
     --sidebar-primary: 0 0% 12%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 0 0% 95%;
-    --sidebar-accent-foreground: 0 0% 14%;
+    --sidebar-accent-foreground: 0 0% 0%;
     --sidebar-border: 0 0% 90%;
     --sidebar-ring: 0 0% 20%;
 
@@ -46,17 +46,17 @@
 
   .dark {
     --background: 0 0% 4%;
-    --foreground: 0 0% 98%;
+    --foreground: 0 0% 100%;
     --card: 0 0% 7%;
-    --card-foreground: 0 0% 98%;
+    --card-foreground: 0 0% 100%;
     --popover: 0 0% 7%;
-    --popover-foreground: 0 0% 98%;
+    --popover-foreground: 0 0% 100%;
     --primary: 0 0% 95%;
     --primary-foreground: 0 0% 5%;
     --secondary: 0 0% 60%;
     --secondary-foreground: 0 0% 5%;
     --muted: 0 0% 12%;
-    --muted-foreground: 0 0% 66%;
+    --muted-foreground: 0 0% 100%;
     --accent: 0 0% 85%;
     --accent-foreground: 0 0% 5%;
     --destructive: 0 62% 30%;
@@ -69,11 +69,11 @@
     --brand-2: 262 80% 66%;
 
     --sidebar-background: 0 0% 5%;
-    --sidebar-foreground: 0 0% 92%;
+    --sidebar-foreground: 0 0% 100%;
     --sidebar-primary: 0 0% 95%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 0 0% 12%;
-    --sidebar-accent-foreground: 0 0% 88%;
+    --sidebar-accent-foreground: 0 0% 100%;
     --sidebar-border: 0 0% 12%;
     --sidebar-ring: 0 0% 80%;
 

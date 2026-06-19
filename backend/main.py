@@ -7,8 +7,10 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from database.init_db import init_db
+from logic.project_logic import PROJECT_MEDIA_DIR
 from mcp_app import build_mcp_asgi
 from routes import register_routes
 
@@ -30,5 +32,7 @@ app.add_middleware(
 )
 
 app.include_router(register_routes())
+# Project background / photo files (served publicly; referenced by /projects payloads).
+app.mount("/project-media", StaticFiles(directory=str(PROJECT_MEDIA_DIR)), name="project-media")
 # MCP endpoint lives at /mcp on the same server (clients connect to http://<host>:8000/mcp/).
 app.mount("/mcp", mcp_asgi)

@@ -922,15 +922,28 @@ export function TaskCreatorModal({
   const [file, setFile] = useState<File | null>(null);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [recording, setRecording] = useState(false);
+  const [audioUrl, setAudioUrl] = useState('');       // playback for voice/record
+  const [parsedText, setParsedText] = useState('');   // editable, reviewed source text
+  const [parsing, setParsing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<AIExtractedTask[] | null>(null);
   const [sourceText, setSourceText] = useState('');
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
 
+  const revokeAudio = () => { if (audioUrl) { try { URL.revokeObjectURL(audioUrl); } catch { /* noop */ } } };
+
   const reset = () => {
+    revokeAudio();
     setText(''); setFile(null); setRecordedBlob(null); setRecording(false);
+    setAudioUrl(''); setParsedText(''); setParsing(false);
     setResults(null); setSourceText('');
+  };
+
+  const switchMode = (m: ExtractMode) => {
+    revokeAudio();
+    setMode(m);
+    setFile(null); setRecordedBlob(null); setAudioUrl(''); setParsedText('');
   };
 
   const startRecording = async () => {
@@ -940,7 +953,11 @@ export function TaskCreatorModal({
       chunksRef.current = [];
       mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       mr.onstop = () => {
-        setRecordedBlob(new Blob(chunksRef.current, { type: mr.mimeType || 'audio/webm' }));
+        const blob = new Blob(chunksRef.current, { type: mr.mimeType || 'audio/webm' });
+        setRecordedBlob(blob);
+        revokeAudio();
+        setAudioUrl(URL.createObjectURL(blob));
+        setParsedText('');
         stream.getTracks().forEach(t => t.stop());
       };
       mr.start();
@@ -952,16 +969,46 @@ export function TaskCreatorModal({
   };
   const stopRecording = () => { recorderRef.current?.stop(); setRecording(false); };
 
+  // File chosen for document/voice → keep file, add playback for audio, auto-parse docs.
+  const onPickFile = (f: File | null) => {
+    revokeAudio();
+    setFile(f);
+    setParsedText('');
+    setAudioUrl(f && mode === 'voice' ? URL.createObjectURL(f) : '');
+    if (f && mode === 'document') void resolveSource(f);
+  };
+
+  // Resolve a document/audio to editable text so the user can review/fix before extraction.
+  const resolveSource = async (f?: File | Blob) => {
+    const blob = f ?? file ?? recordedBlob;
+    if (!blob) return;
+    setParsing(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', blob, blob instanceof File ? blob.name : 'recording.webm');
+      const res = await api.aiParseSource(fd);
+      setParsedText(res.sourceText || '');
+      if (!res.sourceText) toast.info('Nothing readable was found in that file.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not read that file');
+    } finally {
+      setParsing(false);
+    }
+  };
+
   const canExtract =
     (mode === 'text' && text.trim().length > 0) ||
-    ((mode === 'document' || mode === 'voice') && !!file) ||
-    (mode === 'record' && !!recordedBlob && !recording);
+    (mode === 'document' && parsedText.trim().length > 0) ||
+    (mode === 'voice' && (parsedText.trim().length > 0 || !!file)) ||
+    (mode === 'record' && (parsedText.trim().length > 0 || (!!recordedBlob && !recording)));
 
   const extract = async () => {
     setLoading(true);
     try {
       const fd = new FormData();
-      if (mode === 'text') fd.append('text', text.trim());
+      // Prefer the reviewed/edited text when present; otherwise send the raw file.
+      if (parsedText.trim()) fd.append('text', parsedText.trim());
+      else if (mode === 'text') fd.append('text', text.trim());
       else if ((mode === 'document' || mode === 'voice') && file) fd.append('file', file, file.name);
       else if (mode === 'record' && recordedBlob) fd.append('file', recordedBlob, 'recording.webm');
       const res = await api.aiExtractTasks(fd);
@@ -1001,7 +1048,7 @@ export function TaskCreatorModal({
             {/* Mode tabs */}
             <div className="flex gap-1 rounded-xl border border-border/50 bg-muted/30 p-1">
               {TABS.map(t => (
-                <button key={t.id} onClick={() => setMode(t.id)}
+                <button key={t.id} onClick={() => switchMode(t.id)}
                   className={cn('flex-1 flex items-center justify-center gap-1.5 px-2 py-2 rounded-lg text-xs font-semibold transition-colors',
                     mode === t.id ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
                   <t.icon className="h-3.5 w-3.5" /> {t.label}
@@ -1016,27 +1063,82 @@ export function TaskCreatorModal({
             )}
 
             {(mode === 'document' || mode === 'voice') && (
-              <label className="flex flex-col items-center justify-center gap-2 py-10 rounded-xl border-2 border-dashed border-border/50 hover:border-violet-500/40 cursor-pointer transition-colors">
-                {mode === 'document' ? <FileText className="h-7 w-7 text-muted-foreground/40" /> : <Upload className="h-7 w-7 text-muted-foreground/40" />}
-                <span className="text-sm text-muted-foreground/70">{file ? file.name : (mode === 'document' ? 'Choose a document (.pdf .docx .txt .md)' : 'Choose an audio file')}</span>
-                <input type="file" className="hidden"
-                  accept={mode === 'document' ? '.pdf,.docx,.txt,.md,.csv' : 'audio/*'}
-                  onChange={e => setFile(e.target.files?.[0] ?? null)} />
-              </label>
+              <div className="space-y-3">
+                <label className="flex flex-col items-center justify-center gap-2 py-8 rounded-xl border-2 border-dashed border-border/50 hover:border-violet-500/40 cursor-pointer transition-colors">
+                  {mode === 'document' ? <FileText className="h-7 w-7 text-muted-foreground/40" /> : <Upload className="h-7 w-7 text-muted-foreground/40" />}
+                  <span className="text-sm text-muted-foreground/70">{file ? file.name : (mode === 'document' ? 'Choose a document (.pdf .docx .txt .md)' : 'Choose an audio file')}</span>
+                  <input type="file" className="hidden"
+                    accept={mode === 'document' ? '.pdf,.docx,.txt,.md,.csv' : 'audio/*'}
+                    onChange={e => onPickFile(e.target.files?.[0] ?? null)} />
+                </label>
+
+                {/* Voice: let the user hear what they uploaded */}
+                {mode === 'voice' && audioUrl && (
+                  <audio controls src={audioUrl} className="w-full" />
+                )}
+
+                {/* Voice: transcribe → review before extraction */}
+                {mode === 'voice' && file && !parsedText && (
+                  <button onClick={() => void resolveSource()} disabled={parsing}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border/60 text-sm font-semibold hover:bg-muted/50 transition-colors disabled:opacity-40">
+                    {parsing ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                    {parsing ? 'Transcribing…' : 'Transcribe & review'}
+                  </button>
+                )}
+
+                {/* Document: parsing indicator */}
+                {mode === 'document' && parsing && (
+                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground/60">
+                    <Loader2 className="h-3 w-3 animate-spin" /> Reading document…
+                  </p>
+                )}
+
+                {/* Reviewable / editable parsed text */}
+                {parsedText && (
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-muted-foreground/60">
+                      {mode === 'voice' ? 'Transcript' : 'Parsed text'} — review &amp; edit before extracting
+                    </label>
+                    <textarea value={parsedText} onChange={e => setParsedText(e.target.value)} rows={6}
+                      className="w-full px-3.5 py-3 text-sm rounded-xl border border-border/60 bg-background/60 focus:outline-none focus:border-violet-500/50 resize-y leading-relaxed" />
+                  </div>
+                )}
+              </div>
             )}
 
             {mode === 'record' && (
-              <div className="flex flex-col items-center justify-center gap-3 py-8 rounded-xl border border-border/50 bg-muted/20">
-                {recording ? (
-                  <button onClick={stopRecording} className="flex items-center gap-2 px-5 py-3 rounded-full bg-red-500 text-white font-semibold animate-pulse">
-                    <Square className="h-4 w-4" /> Stop recording
-                  </button>
-                ) : (
-                  <button onClick={() => void startRecording()} className="flex items-center gap-2 px-5 py-3 rounded-full bg-violet-600 text-white font-semibold hover:bg-violet-500 transition-colors">
-                    <Mic className="h-4 w-4" /> {recordedBlob ? 'Record again' : 'Start recording'}
+              <div className="space-y-3">
+                <div className="flex flex-col items-center justify-center gap-3 py-6 rounded-xl border border-border/50 bg-muted/20">
+                  {recording ? (
+                    <button onClick={stopRecording} className="flex items-center gap-2 px-5 py-3 rounded-full bg-red-500 text-white font-semibold animate-pulse">
+                      <Square className="h-4 w-4" /> Stop recording
+                    </button>
+                  ) : (
+                    <button onClick={() => void startRecording()} className="flex items-center gap-2 px-5 py-3 rounded-full bg-violet-600 text-white font-semibold hover:bg-violet-500 transition-colors">
+                      <Mic className="h-4 w-4" /> {recordedBlob ? 'Record again' : 'Start recording'}
+                    </button>
+                  )}
+                </div>
+
+                {/* Hear the recording back */}
+                {audioUrl && !recording && <audio controls src={audioUrl} className="w-full" />}
+
+                {/* Transcribe → review */}
+                {recordedBlob && !recording && !parsedText && (
+                  <button onClick={() => void resolveSource()} disabled={parsing}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border/60 text-sm font-semibold hover:bg-muted/50 transition-colors disabled:opacity-40">
+                    {parsing ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                    {parsing ? 'Transcribing…' : 'Transcribe & review'}
                   </button>
                 )}
-                {recordedBlob && !recording && <span className="text-xs text-emerald-400">Recording ready — extract below.</span>}
+
+                {parsedText && (
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-muted-foreground/60">Transcript — review &amp; edit before extracting</label>
+                    <textarea value={parsedText} onChange={e => setParsedText(e.target.value)} rows={6}
+                      className="w-full px-3.5 py-3 text-sm rounded-xl border border-border/60 bg-background/60 focus:outline-none focus:border-violet-500/50 resize-y leading-relaxed" />
+                  </div>
+                )}
               </div>
             )}
 

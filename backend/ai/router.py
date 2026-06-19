@@ -158,6 +158,33 @@ async def extract_tasks(
     return {"sourceText": source, "tasks": [t.model_dump() for t in result.tasks]}
 
 
+# ── Resolve a document / audio to text for review (before extraction) ──────────
+
+@router.post("/parse-source")
+async def parse_source(
+    text: str | None = Form(None),
+    file: UploadFile | None = File(None),
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    """Resolve an uploaded document or audio clip to plain text so the user can
+    review/edit it before tasks are extracted. Returns {sourceText}."""
+    file_bytes = await file.read() if file is not None else None
+    filename = file.filename if file is not None else None
+    try:
+        source = task_extraction_logic.resolve_source(
+            db, user_id, text=text, file_bytes=file_bytes, filename=filename
+        )
+    except HTTPException:
+        raise
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e) or _AI_UNAVAILABLE)
+    except Exception as e:
+        log.exception("AI parse-source failed")
+        raise HTTPException(status_code=500, detail=f"AI error: {e}")
+    return {"sourceText": source}
+
+
 @router.post("/parse-task", response_model=ParseTaskResponse)
 def parse_task(
     body: ParseTaskRequest,

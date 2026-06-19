@@ -1,0 +1,7 @@
+{
+  "name": "zet",
+  "version": "1.0.0",
+  "description": "Drive the ZET task manager from Claude Code. Bundles the ZET MCP server connection and slash commands for tasks, timesheets, projects and daily scrums. Tools are role-aware: managers/admins see management tools, employees only what they can use.",
+  "author": { "name": "ZET" },
+  "keywords": ["task-manager", "mcp", "timesheet", "productivity"]
+}

@@ -3,11 +3,15 @@ import { User, Project, Task, TaskStatus, KanbanColumn, Role } from '@/types';
 import { api, TOKEN_KEY } from '@/lib/api';
 import { defaultSelectedProjectIdForUser } from '@/lib/project-utils';
 
-const ACTIVE_TIMERS_KEY = 'tm_active_timers';
-function loadTimers(): Record<string, number> {
-  try { return JSON.parse(localStorage.getItem(ACTIVE_TIMERS_KEY) || '{}'); } catch { return {}; }
+/** Map server timer rows → { taskId: epochMs } for the running-timer UI. */
+function timersToMap(rows: { taskId: string; startedAt: string }[]): Record<string, number> {
+  const m: Record<string, number> = {};
+  for (const r of rows) {
+    const ms = Date.parse(r.startedAt);
+    if (!Number.isNaN(ms)) m[r.taskId] = ms;
+  }
+  return m;
 }
-function saveTimers(t: Record<string, number>) { localStorage.setItem(ACTIVE_TIMERS_KEY, JSON.stringify(t)); }
 
 const DEFAULT_COLUMNS: KanbanColumn[] = [
   { id: 'backlog', label: 'Backlog' },
@@ -36,6 +40,8 @@ interface AppState {
   selectProject: (id: string | null) => void;
   createProject: (name: string, description: string) => Promise<void>;
   addSection: (projectId: string, name: string) => Promise<void>;
+  setProjectAppearance: (projectId: string, body: { backgroundImage?: string; accentColor?: string; projectImage?: string }) => Promise<void>;
+  uploadProjectMedia: (projectId: string, kind: 'background' | 'project', file: Blob, accentColor?: string) => Promise<void>;
   removeSection: (projectId: string, sectionId: string) => Promise<void>;
   addMemberToProject: (projectId: string, userId: string) => Promise<void>;
   removeMemberFromProject: (projectId: string, userId: string) => Promise<void>;
@@ -103,11 +109,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     try {
       const me = await api.getMe();
-      const [users, projects, tasks, kanbanColumns] = await Promise.all([
+      const [users, projects, tasks, kanbanColumns, activeTimerRows] = await Promise.all([
         api.getUsers(),
         api.getProjects(),
         api.getTasks(),
         api.getKanbanColumns(),
+        api.getActiveTimers().catch(() => []),
       ]);
       set({
         hydrated: true,
@@ -117,6 +124,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         tasks,
         kanbanColumns,
         selectedProjectId: defaultSelectedProjectIdForUser(projects, me.projectIds),
+        activeTimers: timersToMap(activeTimerRows),
       });
     } catch {
       localStorage.removeItem(TOKEN_KEY);
@@ -139,11 +147,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const { access_token, user } = await api.login(email, password, rememberMe);
       localStorage.setItem(TOKEN_KEY, access_token);
-      const [users, projects, tasks, kanbanColumns] = await Promise.all([
+      const [users, projects, tasks, kanbanColumns, activeTimerRows] = await Promise.all([
         api.getUsers(),
         api.getProjects(),
         api.getTasks(),
         api.getKanbanColumns(),
+        api.getActiveTimers().catch(() => []),
       ]);
       set({
         currentUser: user,
@@ -152,6 +161,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         tasks,
         kanbanColumns,
         selectedProjectId: defaultSelectedProjectIdForUser(projects, user.projectIds),
+        activeTimers: timersToMap(activeTimerRows),
         hydrated: true,
       });
       return user;
@@ -165,11 +175,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { access_token, user } = await api.register(name, email, password, role);
     localStorage.setItem(TOKEN_KEY, access_token);
     try {
-      const [users, projects, tasks, kanbanColumns] = await Promise.all([
+      const [users, projects, tasks, kanbanColumns, activeTimerRows] = await Promise.all([
         api.getUsers(),
         api.getProjects(),
         api.getTasks(),
         api.getKanbanColumns(),
+        api.getActiveTimers().catch(() => []),
       ]);
       set({
         currentUser: user,
@@ -178,6 +189,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         tasks,
         kanbanColumns,
         selectedProjectId: defaultSelectedProjectIdForUser(projects, user.projectIds),
+        activeTimers: timersToMap(activeTimerRows),
         hydrated: true,
       });
     } catch {
@@ -217,6 +229,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       tasks: [],
       kanbanColumns: DEFAULT_COLUMNS,
       selectedProjectId: null,
+      activeTimers: {},
     });
   },
 
@@ -250,6 +263,20 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   addSection: async (projectId, name) => {
     const updated = await api.addSection(projectId, name);
+    set({
+      projects: get().projects.map(pr => (pr.id === projectId ? updated : pr)),
+    });
+  },
+
+  setProjectAppearance: async (projectId, body) => {
+    const updated = await api.setProjectAppearance(projectId, body);
+    set({
+      projects: get().projects.map(pr => (pr.id === projectId ? updated : pr)),
+    });
+  },
+
+  uploadProjectMedia: async (projectId, kind, file, accentColor) => {
+    const updated = await api.uploadProjectMedia(projectId, kind, file, accentColor);
     set({
       projects: get().projects.map(pr => (pr.id === projectId ? updated : pr)),
     });
@@ -358,73 +385,31 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ tasks: get().tasks.filter(t => t.id !== id) });
   },
 
-  activeTimers: loadTimers(),
+  activeTimers: {},
 
+  // Running state lives in the backend DB. We start/stop there and mirror the
+  // returned start time locally; elapsed + time logging happen server-side.
   startTimer: async taskId => {
-    const task = get().tasks.find(t => t.id === taskId);
-    if (!task) return;
-    const timers = { ...get().activeTimers, [taskId]: Date.now() };
-    saveTimers(timers);
-    set({ activeTimers: timers });
-    // Mark task as started on the backend (only if not already started)
-    if (!task.isStarted) {
-      try {
-        const updated = await api.startTask(taskId);
-        set({ tasks: get().tasks.map(x => (x.id === taskId ? updated : x)) });
-      } catch {
-        // non-critical — timer still runs
-      }
-    }
+    const run = await api.startTimer(taskId);
+    const ms = Date.parse(run.startedAt);
+    set({ activeTimers: { ...get().activeTimers, [taskId]: Number.isNaN(ms) ? Date.now() : ms } });
+    // The task is now marked started server-side — refresh it so the UI reflects that.
+    try {
+      const tasks = await api.getTasks();
+      set({ tasks });
+    } catch { /* non-critical */ }
   },
 
   stopTimer: async taskId => {
     const timers = get().activeTimers;
-    const startMs = timers[taskId];
-    if (!startMs) return;
-
-    const endMs = Date.now();
-    const elapsedSeconds = Math.max(1, Math.round((endMs - startMs) / 1000));
-
-    const startDate = new Date(startMs);
-    const endDate = new Date(endMs);
-    const workDate = startDate.toISOString().split('T')[0];
-    const pad = (n: number) => String(n).padStart(2, '0');
-    const timeFrom = `${pad(startDate.getHours())}:${pad(startDate.getMinutes())}`;
-    let timeTo = `${pad(endDate.getHours())}:${pad(endDate.getMinutes())}`;
-    // Timesheet requires timeTo > timeFrom; add 1 min if same
-    if (timeTo === timeFrom) {
-      const adjusted = new Date(endMs + 60_000);
-      timeTo = `${pad(adjusted.getHours())}:${pad(adjusted.getMinutes())}`;
-    }
-
-    const task = get().tasks.find(t => t.id === taskId);
-
-    // Remove timer immediately (optimistic)
+    if (!(taskId in timers)) return;
+    // Optimistically clear the running indicator.
     const newTimers = { ...timers };
     delete newTimers[taskId];
-    saveTimers(newTimers);
     set({ activeTimers: newTimers });
-
-    if (!task) return;
-
-    // Only persist when the session ran longer than 1 minute (no task log or timesheet row otherwise)
-    if (elapsedSeconds <= 60) return;
-
-    const updatedTask = await api.logTime(taskId, workDate, elapsedSeconds);
+    // Server computes elapsed from the stored start time and logs it (+ timesheet row).
+    const updatedTask = await api.stopTimer(taskId, new Date().getTimezoneOffset());
     set({ tasks: get().tasks.map(x => (x.id === taskId ? updatedTask : x)) });
-
-    try {
-      await api.createTimesheetWorkEntry({
-        workDate,
-        projectId: task.projectId,
-        sectionId: task.sectionId,
-        description: task.title,
-        timeFrom,
-        timeTo,
-      });
-    } catch {
-      /* best-effort */
-    }
   },
 
   kanbanColumns: DEFAULT_COLUMNS,

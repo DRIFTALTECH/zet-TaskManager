@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 import realtime
 from database.database import get_db
-from logic import task_feedback_logic, task_logic
+from logic import task_feedback_logic, task_logic, timer_logic
 from logic.schemas import (
     LogTimeBody,
     TaskCreate,
@@ -13,6 +13,8 @@ from logic.schemas import (
     TaskMoveBody,
     TaskOut,
     TaskPatch,
+    TimerRunOut,
+    TimerStopBody,
 )
 from routes.deps import get_current_user_id
 
@@ -22,6 +24,22 @@ router = APIRouter()
 @router.get("", response_model=list[TaskOut])
 def list_tasks(user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
     return task_logic.list_tasks(db, user_id)
+
+
+@router.get("/timers/active", response_model=list[TimerRunOut])
+def active_timers(user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
+    """Running timers for the current user (so the UI shows live state after a reload)."""
+    return timer_logic.list_active(db, user_id)
+
+
+@router.post("/{task_id}/timer/start", response_model=TimerRunOut)
+def start_timer(task_id: str, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
+    return timer_logic.start(db, user_id, task_id)
+
+
+@router.post("/{task_id}/timer/stop", response_model=TaskOut)
+def stop_timer(task_id: str, body: TimerStopBody, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
+    return timer_logic.stop(db, user_id, task_id, body.tzOffset)
 
 
 @router.get("/version")

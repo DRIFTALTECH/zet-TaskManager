@@ -135,6 +135,33 @@ def migrate_user_is_active_if_needed() -> None:
         conn.execute(text("ALTER TABLE users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT 1"))
 
 
+def migrate_timesheet_billable_if_needed() -> None:
+    """Add the billable flag to timesheet_entries for pre-existing DBs (defaults to billable)."""
+    insp = inspect(engine)
+    if not insp.has_table("timesheet_entries"):
+        return
+    cols = {c["name"] for c in insp.get_columns("timesheet_entries")}
+    if "billable" in cols:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE timesheet_entries ADD COLUMN billable BOOLEAN NOT NULL DEFAULT 1"))
+
+
+def migrate_project_appearance_if_needed() -> None:
+    """Add background_image + accent_color to projects for pre-existing DBs."""
+    insp = inspect(engine)
+    if not insp.has_table("projects"):
+        return
+    cols = {c["name"] for c in insp.get_columns("projects")}
+    with engine.begin() as conn:
+        if "background_image" not in cols:
+            conn.execute(text("ALTER TABLE projects ADD COLUMN background_image TEXT NOT NULL DEFAULT ''"))
+        if "accent_color" not in cols:
+            conn.execute(text("ALTER TABLE projects ADD COLUMN accent_color VARCHAR NOT NULL DEFAULT ''"))
+        if "project_image" not in cols:
+            conn.execute(text("ALTER TABLE projects ADD COLUMN project_image TEXT NOT NULL DEFAULT ''"))
+
+
 def create_perf_indexes() -> None:
     """Indexes on hot foreign-key columns not already covered by a PK/unique index.
 
@@ -182,6 +209,8 @@ def init_db() -> None:
     migrate_timelogs_if_needed()
     migrate_user_experience_if_needed()
     migrate_user_is_active_if_needed()
+    migrate_timesheet_billable_if_needed()
+    migrate_project_appearance_if_needed()
     create_notifications_if_missing()
     migrate_meeting_notes_to_scrums()
     create_perf_indexes()

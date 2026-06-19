@@ -1,0 +1,15 @@
+{
+  "name": "zet-marketplace",
+  "owner": { "name": "ZET" },
+  "metadata": {
+    "description": "ZET task manager — MCP wiring + slash commands for Claude Code."
+  },
+  "plugins": [
+    {
+      "name": "zet",
+      "source": "./plugins/zet",
+      "description": "Drive the ZET task manager from Claude Code: tasks, timesheets, projects, scrums. Ships the MCP connection and slash commands.",
+      "version": "1.0.0"
+    }
+  ]
+}

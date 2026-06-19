@@ -36,6 +36,12 @@ export interface Project {
   members: string[];
   sections: Section[];
   createdAt: string;
+  /** Optional project background image (URL or data URL) — used as card/header background. */
+  backgroundImage?: string;
+  /** Accent hex derived from the background image (drives charts/header tint). */
+  accentColor?: string;
+  /** Optional project photo (URL or data URL) — replaces the folder icon. */
+  projectImage?: string;
   /** Server-managed private workspace; only visible to the owner */
 }
 
@@ -299,5 +305,6 @@ export interface TimesheetWorkEntry {
   timeFrom: string;
   timeTo: string;
   seconds: number;
+  billable: boolean;
   createdAt: string;
 }

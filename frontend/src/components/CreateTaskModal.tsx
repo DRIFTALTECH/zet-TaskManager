@@ -6,10 +6,11 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DateInput } from '@/components/ui/date-input';
 import { toast } from 'sonner';
 import type { Priority } from '@/types';
-import { Users, Layers, Tag, Plus, X, Sparkles } from 'lucide-react';
+import { Users, Layers, Tag, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { localTodayISO, localTomorrowISO } from '@/lib/due-date-utils';
 import { api } from '@/lib/api';
+import ProjectSectionPicker from '@/components/ProjectSectionPicker';
 import type { TaskPrefill } from '@/pages/AIPage';
 
 interface Props {
@@ -44,11 +45,8 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
 
   const userProjects = currentUser ? projects.filter(p => currentUser.projectIds.includes(p.id)) : [];
 
-  const implicitProject =
-    selectedProjectId && userProjects.some(p => p.id === selectedProjectId) ? selectedProjectId : null;
-  const effectiveProjectId = implicitProject ?? manualProjectId;
+  const effectiveProjectId = manualProjectId;
   const selectedProject = projects.find(p => p.id === effectiveProjectId);
-  const showProjectPicker = !implicitProject;
 
   const projectMembers = selectedProject
     ? users.filter(u => selectedProject.members.includes(u.id)).sort((a, b) => a.name.localeCompare(b.name))
@@ -63,7 +61,11 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
   }, [currentUser, effectiveProjectId, projects]);
 
   useEffect(() => {
-    if (open) setDueDate(localTodayISO());
+    if (!open) return;
+    setDueDate(localTodayISO());
+    if (selectedProjectId && userProjects.some(p => p.id === selectedProjectId)) {
+      setManualProjectId(prev => prev || selectedProjectId);
+    }
   }, [open]);
 
   // Apply AI prefill when provided
@@ -139,6 +141,28 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
     setNewSectionName('');
   };
 
+  // For the cascading picker: create a section and resolve its new id.
+  const createSectionReturningId = async (projId: string, name: string): Promise<string | null> => {
+    try {
+      await addSection(projId, name);
+      const updated = useAppStore.getState().projects.find(p => p.id === projId);
+      const sec = updated?.sections.find(s => s.name.trim() === name.trim());
+      toast.success('Section created');
+      return sec?.id ?? null;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not create section');
+      return null;
+    }
+  };
+
+  const handlePickerChange = (projId: string, secId: string) => {
+    if (projId !== manualProjectId) {
+      setManualProjectId(projId);
+      setAssigneeIds(new Set(currentUser ? [currentUser.id] : []));
+    }
+    setSectionId(secId);
+  };
+
   const toggleAssignee = (userId: string) => {
     setAssigneeIds(prev => {
       const n = new Set(prev);
@@ -150,9 +174,7 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
 
   const handleSave = async () => {
     if (!title.trim() || !effectiveProjectId || !sectionId) {
-      return toast.error(
-        showProjectPicker ? 'Please fill in title, project, and section' : 'Please fill in title and section',
-      );
+      return toast.error('Please fill in title, project, and section');
     }
     const ids = [...assigneeIds];
     if (ids.length === 0) return toast.error('Select at least one person assigned to this task');
@@ -188,7 +210,7 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
         if (!v) resetForm();
       }}
     >
-      <DialogContent className="flex min-h-0 flex-col gap-0 overflow-hidden border-border/80 bg-card p-0">
+      <DialogContent className="w-[94vw] max-w-[94vw] sm:w-[65vw] sm:max-w-[65vw] flex max-h-[min(90dvh,92vh)] min-h-0 flex-col gap-0 overflow-hidden border-border/80 bg-card p-0">
         <DialogHeader className="shrink-0 px-6 pb-4 pt-2 text-left border-b border-border/60">
           <DialogTitle className="text-xl">New task</DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">
@@ -236,87 +258,15 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
 
             <div className="rounded-xl border border-border/60 p-4 space-y-3">
               <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                <Layers className="h-3.5 w-3.5" /> {showProjectPicker ? 'Project & section' : 'Section'}
+                <Layers className="h-3.5 w-3.5" /> Project & section
               </div>
-              {showProjectPicker && (
-                <div className="space-y-1.5">
-                  <Label htmlFor="ct-project">Project</Label>
-                  <select
-                    id="ct-project"
-                    value={manualProjectId}
-                    onChange={e => handleManualProjectChange(e.target.value)}
-                    className={field}
-                  >
-                    <option value="">Choose project…</option>
-                    {userProjects.map(p => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              {selectedProject && (
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="ct-section">Section</Label>
-                    {!showNewSection && (
-                      <button
-                        type="button"
-                        onClick={() => setShowNewSection(true)}
-                        className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 font-semibold transition-colors"
-                      >
-                        <Plus className="h-3 w-3" /> New section
-                      </button>
-                    )}
-                  </div>
-                  {showNewSection ? (
-                    <div className="flex gap-2">
-                      <input
-                        autoFocus
-                        value={newSectionName}
-                        onChange={e => setNewSectionName(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') void handleCreateSection();
-                          if (e.key === 'Escape') { setShowNewSection(false); setNewSectionName(''); }
-                        }}
-                        placeholder="Section name…"
-                        className={field}
-                        disabled={creatingSec}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => void handleCreateSection()}
-                        disabled={!newSectionName.trim() || creatingSec}
-                        className="shrink-0 px-3 py-2 text-xs rounded-xl bg-primary text-primary-foreground font-semibold disabled:opacity-40 transition-opacity"
-                      >
-                        {creatingSec ? '…' : 'Create'}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setShowNewSection(false); setNewSectionName(''); }}
-                        className="shrink-0 p-2 rounded-xl border border-border/60 text-muted-foreground hover:bg-muted/50 transition-colors"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ) : (
-                    <select
-                      id="ct-section"
-                      value={sectionId}
-                      onChange={e => setSectionId(e.target.value)}
-                      className={field}
-                    >
-                      <option value="">
-                        {selectedProject.sections.length === 0 ? 'No sections yet — create one →' : 'Choose section…'}
-                      </option>
-                      {selectedProject.sections.map(s => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-              )}
+              <ProjectSectionPicker
+                projects={userProjects}
+                projectId={manualProjectId}
+                sectionId={sectionId}
+                onChange={handlePickerChange}
+                onCreateSection={createSectionReturningId}
+              />
             </div>
 
             {selectedProject && (

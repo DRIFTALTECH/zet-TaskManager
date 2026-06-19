@@ -4,8 +4,9 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   User, Lock, Sun, Moon, Camera, Check, Eye, EyeOff,
   Shield, Mail, Briefcase, Terminal, Copy, AlertTriangle, Trash2, Plug,
-  ShieldCheck, Search, X, RefreshCw, ChevronDown,
+  ShieldCheck, Search, X, RefreshCw, ChevronDown, Puzzle, Code2, Bot, Globe,
 } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { toast } from 'sonner';
 import { pageEnter } from '@/lib/motion';
 import { api } from '@/lib/api';
@@ -56,6 +57,185 @@ function fmtDate(iso: string): string {
   if (!iso) return '';
   try { return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); }
   catch { return iso; }
+}
+
+// ── Connection guide (Developer settings) ──────────────────────────────────────
+
+/** A copyable code / config block with a corner copy button. */
+function CodeBlock({ code, caption }: { code: string; caption?: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* clipboard blocked */ }
+  };
+  return (
+    <div className="relative rounded-lg border border-border/40 bg-muted/30">
+      {caption && (
+        <div className="px-3 pt-2 text-[10px] font-bold uppercase tracking-wide text-muted-foreground/50">{caption}</div>
+      )}
+      <pre className="text-[11px] leading-relaxed font-mono text-foreground/85 overflow-x-auto whitespace-pre p-3 pr-11">{code}</pre>
+      <button
+        type="button"
+        onClick={() => void copy()}
+        title="Copy"
+        className="absolute top-2 right-2 flex items-center justify-center h-7 w-7 rounded-md border border-border/50 bg-card/80 hover:bg-muted transition-colors"
+      >
+        {copied ? <Check className="h-3.5 w-3.5 text-emerald-500" /> : <Copy className="h-3.5 w-3.5" />}
+      </button>
+    </div>
+  );
+}
+
+/** One numbered step in a how-to list. */
+function Step({ n, children }: { n: number; children: ReactNode }) {
+  return (
+    <div className="flex gap-3">
+      <span className="shrink-0 mt-0.5 h-5 w-5 rounded-full bg-primary/15 text-primary text-[11px] font-bold flex items-center justify-center">{n}</span>
+      <div className="min-w-0 flex-1 text-sm text-foreground/80 leading-relaxed space-y-2">{children}</div>
+    </div>
+  );
+}
+
+const GUIDE_TABS = [
+  { id: 'claude', label: 'Claude Code', icon: Terminal },
+  { id: 'cursor', label: 'Cursor', icon: Bot },
+  { id: 'vscode', label: 'VS Code', icon: Code2 },
+  { id: 'plugin', label: 'Plugin', icon: Puzzle },
+  { id: 'manual', label: 'Other / Manual', icon: Globe },
+] as const;
+type GuideTab = (typeof GUIDE_TABS)[number]['id'];
+
+/** Tabbed "how to connect" guide. The MCP URL is environment-aware: it points at
+ * whatever server this app talks to (local in dev, your domain in production). */
+function ConnectionGuide({ mcpBase, token }: { mcpBase: string; token: string | null }) {
+  const [tab, setTab] = useState<GuideTab>('claude');
+  const tok = token || '<your-token>';
+  const jsonConfig = `{
+  "mcpServers": {
+    "zet": {
+      "url": "${mcpBase}",
+      "headers": { "Authorization": "Bearer ${tok}" }
+    }
+  }
+}`;
+
+  return (
+    <div className="rounded-xl border border-border/40 bg-card/40 overflow-hidden">
+      {/* Navbar-style tab selector */}
+      <div className="flex items-center gap-1 overflow-x-auto border-b border-border/30 bg-muted/20 px-1.5 py-1.5">
+        {GUIDE_TABS.map(t => {
+          const Icon = t.icon;
+          const active = tab === t.id;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id)}
+              className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                active ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
+              }`}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Current server line — proves which URL you're wiring */}
+      <div className="px-4 pt-3">
+        <p className="text-[11px] text-muted-foreground/55">
+          Connecting to this ZET server: <span className="font-mono text-foreground/75">{mcpBase}</span>
+        </p>
+      </div>
+
+      <div className="p-4 space-y-4">
+        {tab === 'claude' && (
+          <div className="space-y-3.5">
+            <p className="text-sm text-muted-foreground/75">Add ZET as an MCP server in the Claude Code CLI.</p>
+            <Step n={1}>
+              <span>Easiest — sign in with your browser (OAuth). Run in a terminal:</span>
+              <CodeBlock code={`claude mcp add zet --transport http ${mcpBase}`} />
+            </Step>
+            <Step n={2}>
+              <span>Restart Claude Code, then run <span className="font-mono text-foreground">/mcp</span> in the chat, pick <span className="font-semibold">zet</span> → <span className="font-semibold">Authenticate</span>. Your browser opens the ZET login.</span>
+            </Step>
+            <Step n={3}>
+              <span>Prefer a token instead of browser login? Generate one below and add it directly:</span>
+              <CodeBlock code={`claude mcp add zet --transport http ${mcpBase} --header "Authorization: Bearer ${tok}"`} />
+            </Step>
+            <Step n={4}>
+              <span>Verify: <span className="font-mono text-foreground">/mcp</span> shows <span className="font-semibold">zet</span> connected. Try asking “list my ZET tasks”.</span>
+            </Step>
+          </div>
+        )}
+
+        {tab === 'cursor' && (
+          <div className="space-y-3.5">
+            <p className="text-sm text-muted-foreground/75">Add ZET in Cursor's MCP settings.</p>
+            <Step n={1}><span>Open <span className="font-semibold">Cursor → Settings → MCP → Add new MCP server</span> (HTTP type).</span></Step>
+            <Step n={2}>
+              <span>Paste this config (generate a token below, or drop the <span className="font-mono">headers</span> line to use browser login):</span>
+              <CodeBlock caption="~/.cursor/mcp.json" code={jsonConfig} />
+            </Step>
+            <Step n={3}><span>Save and reload. Cursor now exposes the ZET tools — ask it “log 2h on the Platform project today”.</span></Step>
+          </div>
+        )}
+
+        {tab === 'vscode' && (
+          <div className="space-y-3.5">
+            <p className="text-sm text-muted-foreground/75">For VS Code MCP clients (Continue, Cline, Copilot MCP, etc.).</p>
+            <Step n={1}><span>Open your client's MCP config file (e.g. <span className="font-mono">.vscode/mcp.json</span> or the extension's settings).</span></Step>
+            <Step n={2}>
+              <span>Add the ZET server:</span>
+              <CodeBlock caption=".vscode/mcp.json" code={jsonConfig} />
+            </Step>
+            <Step n={3}><span>Reload the window. The ZET tools appear in your assistant.</span></Step>
+          </div>
+        )}
+
+        {tab === 'plugin' && (
+          <div className="space-y-3.5">
+            <p className="text-sm text-muted-foreground/75">
+              The ZET <span className="font-semibold">plugin</span> for Claude Code bundles the connection <span className="italic">and</span> ready-made slash commands
+              (<span className="font-mono">/zet:tasks</span>, <span className="font-mono">/zet:log</span>, <span className="font-mono">/zet:standup</span>…).
+            </p>
+            <Step n={1}>
+              <span>Add the plugin marketplace (point it at the <span className="font-mono">zet-plugin</span> folder), then install:</span>
+              <CodeBlock code={`/plugin marketplace add <path-to>/zet-plugin
+/plugin install zet@zet-marketplace`} />
+            </Step>
+            <Step n={2}><span>Restart Claude Code so it loads the server and commands.</span></Step>
+            <Step n={3}>
+              <span>Authenticate (token route): re-add the server with your token —</span>
+              <CodeBlock code={`claude mcp add zet --transport http ${mcpBase} --header "Authorization: Bearer ${tok}"`} />
+              <span>— or just run a command and complete the browser login.</span>
+            </Step>
+            <Step n={4}><span>Try <span className="font-mono text-foreground">/zet:whoami</span>. It should print your name and role.</span></Step>
+          </div>
+        )}
+
+        {tab === 'manual' && (
+          <div className="space-y-3.5">
+            <p className="text-sm text-muted-foreground/75">Any MCP client that speaks streamable HTTP can connect.</p>
+            <Step n={1}><span>Point the client at the MCP URL: <span className="font-mono text-foreground/80">{mcpBase}</span> (keep the trailing <span className="font-mono">/</span>).</span></Step>
+            <Step n={2}>
+              <span>Two ways to authenticate:</span>
+              <ul className="list-disc pl-4 space-y-1 text-[13px] text-muted-foreground/75">
+                <li><span className="font-semibold text-foreground/80">OAuth</span> — give just the URL; the client registers itself and you log in to ZET in the browser.</li>
+                <li><span className="font-semibold text-foreground/80">Token</span> — generate one below and send it as an <span className="font-mono">Authorization: Bearer</span> header.</li>
+              </ul>
+              <CodeBlock caption="generic config" code={jsonConfig} />
+            </Step>
+            <Step n={3}><span>Tools are role-aware: managers/admins get management tools, employees only what they can use — enforced on the server.</span></Step>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export default function SettingsPage() {
@@ -211,7 +391,7 @@ export default function SettingsPage() {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={pageEnter}
-      className="flex flex-col h-[calc(100dvh-3.5rem)] min-h-0"
+      className="min-h-full"
     >
       {/* ── Header ──────────────────────────────────────────────── */}
       <div className="shrink-0 px-4 sm:px-8 pt-6 sm:pt-7 pb-5 border-b border-border/30 bg-gradient-to-b from-muted/20 to-transparent">
@@ -226,7 +406,7 @@ export default function SettingsPage() {
       </div>
 
       {/* ── Scrollable body ──────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto min-h-0 p-4 sm:p-8">
+      <div className="p-4 sm:p-8">
         <div className="space-y-6">
 
           {/* ── Profile Card ─────────────────────────────────────── */}
@@ -493,6 +673,12 @@ export default function SettingsPage() {
                   <p className="text-[11px] text-muted-foreground/45">
                     Uses OAuth — the client registers itself and you sign in to ZET in your browser.
                   </p>
+                </div>
+
+                {/* How to connect — tabbed, per-platform guide */}
+                <div className="space-y-2 pt-1">
+                  <label className="text-xs font-bold text-muted-foreground/60 uppercase tracking-wide">How to connect</label>
+                  <ConnectionGuide mcpBase={MCP_BASE} token={mcpToken} />
                 </div>
 
                 {/* Connected apps & tokens — revoke access here */}
