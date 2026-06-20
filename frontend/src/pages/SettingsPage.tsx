@@ -4,8 +4,9 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   User, Lock, Sun, Moon, Camera, Check, Eye, EyeOff,
   Shield, Mail, Briefcase, Terminal, Copy, AlertTriangle, Trash2, Plug,
-  ShieldCheck, Search, X, RefreshCw, ChevronDown, ChevronRight, Puzzle, Code2, Bot,
+  ShieldCheck, Search, X, RefreshCw, ChevronDown, Puzzle, Code2, Bot,
 } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { toast } from 'sonner';
 import { pageEnter } from '@/lib/motion';
 import { api } from '@/lib/api';
@@ -60,12 +61,13 @@ function fmtDate(iso: string): string {
 
 // ── Connection guide (Developer settings) ──────────────────────────────────────
 
-/** A copyable code / config block with a corner copy button. */
-function CodeBlock({ code, caption }: { code: string; caption?: string }) {
+/** A copyable code / config block with a corner copy button. `copyText` lets the
+ * displayed code be masked while the copy still yields the real value. */
+function CodeBlock({ code, caption, copyText }: { code: string; caption?: string; copyText?: string }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
-      await navigator.clipboard.writeText(code);
+      await navigator.clipboard.writeText(copyText ?? code);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch { /* clipboard blocked */ }
@@ -88,46 +90,47 @@ function CodeBlock({ code, caption }: { code: string; caption?: string }) {
   );
 }
 
-// Per-platform theming. Static class strings so Tailwind keeps them.
+// Per-platform theming + config-file location. Static class strings so Tailwind keeps them.
 const PLATFORMS = [
   {
-    id: 'claude', label: 'Claude Code', icon: Terminal,
+    id: 'claude', label: 'Claude Code', icon: Terminal, location: '.mcp.json   (in your project root)',
     activeTab: 'bg-orange-500 text-white shadow-md shadow-orange-500/30',
     dot: 'bg-orange-500', text: 'text-orange-500', soft: 'bg-orange-500/10', edge: 'border-orange-500/40',
   },
   {
-    id: 'cursor', label: 'Cursor', icon: Bot,
+    id: 'cursor', label: 'Cursor', icon: Bot, location: '~/.cursor/mcp.json',
     activeTab: 'bg-zinc-900 text-white shadow-md shadow-black/30 dark:bg-white dark:text-zinc-900',
     dot: 'bg-zinc-900 dark:bg-white', text: 'text-zinc-900 dark:text-zinc-100', soft: 'bg-zinc-500/10', edge: 'border-zinc-500/40',
   },
   {
-    id: 'vscode', label: 'VS Code', icon: Code2,
+    id: 'vscode', label: 'VS Code', icon: Code2, location: '.vscode/mcp.json',
     activeTab: 'bg-blue-500 text-white shadow-md shadow-blue-500/30',
     dot: 'bg-blue-500', text: 'text-blue-500', soft: 'bg-blue-500/10', edge: 'border-blue-500/40',
   },
   {
-    id: 'plugin', label: 'Plugin', icon: Puzzle,
+    id: 'plugin', label: 'Plugin', icon: Puzzle, location: '',
     activeTab: 'bg-violet-500 text-white shadow-md shadow-violet-500/30',
     dot: 'bg-violet-500', text: 'text-violet-500', soft: 'bg-violet-500/10', edge: 'border-violet-500/40',
   },
 ] as const;
 type PlatformId = (typeof PLATFORMS)[number]['id'];
 
-/** A small Microsoft "four squares" logo. */
-function MsLogo({ className = 'h-3.5 w-3.5' }: { className?: string }) {
+/** One numbered step. The badge takes the active platform's color. */
+function Step({ n, title, color, children }: { n: number; title: string; color: string; children?: ReactNode }) {
   return (
-    <svg viewBox="0 0 21 21" className={className} aria-hidden>
-      <rect x="1" y="1" width="9" height="9" fill="#F25022" />
-      <rect x="11" y="1" width="9" height="9" fill="#7FBA00" />
-      <rect x="1" y="11" width="9" height="9" fill="#00A4EF" />
-      <rect x="11" y="11" width="9" height="9" fill="#FFB900" />
-    </svg>
+    <div className="flex gap-3">
+      <span className={`shrink-0 mt-0.5 h-6 w-6 rounded-full text-white text-[12px] font-bold flex items-center justify-center ${color}`}>{n}</span>
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <p className="text-sm font-semibold text-foreground">{title}</p>
+        {children}
+      </div>
+    </div>
   );
 }
 
-/** Tabbed, per-platform connection guide. Two auth paths: Microsoft browser login,
- * or a Bearer token shown inline. The MCP URL is environment-aware (local in dev,
- * your domain in production). */
+/** Tabbed, per-platform connection guide. Default path is just the URL config (OAuth —
+ * the client opens a browser login). A "Can't use OAuth?" fallback generates a bearer
+ * token and shows the exact payload to paste instead. The MCP URL is environment-aware. */
 function ConnectionGuide({
   mcpBase, token, onGenerate, generating,
 }: {
@@ -137,32 +140,34 @@ function ConnectionGuide({
   generating: boolean;
 }) {
   const [tab, setTab] = useState<PlatformId>('claude');
-  const [auth, setAuth] = useState<'microsoft' | 'token'>('microsoft');
   const [reveal, setReveal] = useState(false);
 
   const p = PLATFORMS.find(x => x.id === tab)!;
-  const usingToken = auth === 'token';
   const tok = token || '<your-token>';
   const tokenMasked = token && !reveal ? `${token.slice(0, 6)}${'•'.repeat(20)}` : tok;
+  const isPlugin = tab === 'plugin';
 
-  // Per-platform config string, dependent on the chosen auth path.
-  const cliCmd = usingToken
-    ? `claude mcp add zet --transport http ${mcpBase} --header "Authorization: Bearer ${tok}"`
-    : `claude mcp add zet --transport http ${mcpBase}`;
-  const jsonCmd = usingToken
-    ? `{
-  "mcpServers": {
-    "zet": {
-      "url": "${mcpBase}",
-      "headers": { "Authorization": "Bearer ${tok}" }
-    }
-  }
-}`
-    : `{
+  // Default payload — URL only (client does OAuth / browser login).
+  const urlOnly = `{
   "mcpServers": {
     "zet": { "url": "${mcpBase}" }
   }
 }`;
+  // Token fallback payload — what to paste in step 3 instead (or the CLI command for the
+  // plugin). Displayed masked until the user reveals; copy always yields the real value.
+  const mkPayload = (t: string) => isPlugin
+    ? `claude mcp add zet --transport http ${mcpBase} --header "Authorization: Bearer ${t}"`
+    : `{
+  "mcpServers": {
+    "zet": {
+      "url": "${mcpBase}",
+      "headers": { "Authorization": "Bearer ${t}" }
+    }
+  }
+}`;
+  const payloadTok = token && !reveal ? `zet_pat_${'•'.repeat(20)}` : tok;
+  const tokenPayload = mkPayload(payloadTok);
+  const tokenPayloadReal = mkPayload(tok);
 
   return (
     <div className="rounded-2xl border border-border/40 bg-gradient-to-b from-card to-muted/10 overflow-hidden shadow-sm">
@@ -175,7 +180,7 @@ function ConnectionGuide({
             <button
               key={x.id}
               type="button"
-              onClick={() => setTab(x.id)}
+              onClick={() => { setTab(x.id); setReveal(false); }}
               className={`shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all ${
                 active ? x.activeTab : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
               }`}
@@ -187,7 +192,7 @@ function ConnectionGuide({
         })}
       </div>
 
-      <div className={`p-4 sm:p-5 space-y-4 border-l-2 ${p.edge}`}>
+      <div className={`p-4 sm:p-5 space-y-5 border-l-2 ${p.edge}`}>
         {/* Header: platform + server */}
         <div className="flex items-center gap-2.5">
           <span className={`h-8 w-8 rounded-xl flex items-center justify-center ${p.soft}`}>
@@ -199,103 +204,78 @@ function ConnectionGuide({
           </div>
         </div>
 
-        {/* ── Connect your account ───────────────────────────────── */}
-        <div className="space-y-3">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground/50">Connect your account</p>
-
-          {/* Primary path — Microsoft (hero) */}
-          <button
-            type="button"
-            onClick={() => setAuth('microsoft')}
-            className={`group w-full flex items-center gap-3.5 rounded-2xl border p-4 text-left transition-all ${
-              auth === 'microsoft'
-                ? 'border-primary/40 bg-primary/[0.06] ring-2 ring-primary/25 shadow-sm'
-                : 'border-border/50 bg-card hover:border-border hover:bg-muted/30 hover:shadow-sm'
-            }`}
-          >
-            <span className="shrink-0 h-11 w-11 rounded-xl bg-white border border-border/30 flex items-center justify-center shadow-sm transition-transform group-hover:scale-105">
-              <MsLogo className="h-5 w-5" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-bold text-foreground">Sign in with Microsoft</span>
-                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-500 font-bold uppercase tracking-wide">Recommended</span>
-              </span>
-              <span className="block text-[12px] text-muted-foreground/65 mt-0.5">Recommended authentication method — sign in through your browser, no token to manage.</span>
-            </span>
-            <ChevronRight className={`shrink-0 h-4 w-4 transition-all ${auth === 'microsoft' ? 'text-primary translate-x-0' : 'text-muted-foreground/40 group-hover:translate-x-0.5'}`} />
-          </button>
-
-          {/* Separator */}
-          <div className="flex items-center gap-3 pt-1">
-            <div className="h-px flex-1 bg-border/40" />
-            <span className="text-[11px] text-muted-foreground/45">Can't use Microsoft authentication?</span>
-            <div className="h-px flex-1 bg-border/40" />
+        {/* Steps */}
+        {isPlugin ? (
+          <div className="space-y-3.5">
+            <Step n={1} title="Open Claude Code" color={p.dot} />
+            <Step n={2} title="Add the ZET marketplace" color={p.dot}>
+              <CodeBlock code="/plugin marketplace add DRIFTALTECH/zet-TaskManager" />
+            </Step>
+            <Step n={3} title="Install the plugin" color={p.dot}>
+              <CodeBlock code="/plugin install zet@zet-marketplace" />
+            </Step>
+            <Step n={4} title="Restart Claude Code" color={p.dot}>
+              <p className="text-[12px] text-muted-foreground/60">Then run <span className="font-mono text-foreground">/zet:whoami</span> to verify. First use opens a browser login.</p>
+            </Step>
           </div>
+        ) : (
+          <div className="space-y-3.5">
+            <Step n={1} title={`Open ${p.label}`} color={p.dot} />
+            <Step n={2} title="Open your MCP config file" color={p.dot}>
+              <p className="text-[12px] text-muted-foreground/60">{tab === 'claude' ? 'Settings → MCP, or create/edit this file:' : 'Create or edit this file:'}</p>
+              <CodeBlock code={p.location} />
+            </Step>
+            <Step n={3} title="Add this exactly" color={p.dot}>
+              <CodeBlock code={urlOnly} />
+            </Step>
+            <Step n={4} title={`Restart ${p.label}`} color={p.dot}>
+              <p className="text-[12px] text-muted-foreground/60">On first use it opens a browser login — sign in to ZET. Done.</p>
+            </Step>
+          </div>
+        )}
 
-          {/* Alternative path — Bearer token */}
-          {token ? (
-            <div className={`rounded-2xl border ${p.edge} ${p.soft} p-4 space-y-2`}>
-              <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground/55">Your bearer token</p>
-              <div className="flex gap-2">
-                <code className="flex-1 min-w-0 rounded-lg border border-border/50 bg-background px-3 py-2 text-[11px] font-mono truncate">{tokenMasked}</code>
-                <button type="button" onClick={() => setReveal(v => !v)} title={reveal ? 'Hide' : 'Reveal'}
-                  className="shrink-0 flex items-center px-2.5 rounded-lg border border-border/50 bg-card hover:bg-muted transition-colors">
-                  {reveal ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-                <button type="button" onClick={() => { void navigator.clipboard.writeText(token); }} title="Copy"
-                  className="shrink-0 flex items-center px-2.5 rounded-lg border border-border/50 bg-card hover:bg-muted transition-colors">
-                  <Copy className="h-4 w-4" />
-                </button>
-              </div>
-              <p className="text-[11px] text-muted-foreground/50">Shown once — copy it now. Acts on ZET as you; keep it secret.</p>
-            </div>
+        {/* Fallback — token (for orgs that block OAuth / browser login) */}
+        <div className={`rounded-2xl border ${p.edge} ${p.soft} p-4 space-y-3`}>
+          <div className="flex items-center gap-2">
+            <Lock className={`h-4 w-4 ${p.text}`} />
+            <p className="text-sm font-bold text-foreground">Can&apos;t use OAuth?</p>
+          </div>
+          <p className="text-[12px] text-muted-foreground/65 leading-relaxed">
+            If your organization blocks browser / OAuth login, generate a token and{' '}
+            {isPlugin ? 'run this command instead of step 2' : 'paste this in step 3 instead of the config above'}.
+          </p>
+
+          {!token ? (
+            <button
+              type="button"
+              onClick={onGenerate}
+              disabled={generating}
+              className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold text-white transition-all disabled:opacity-50 ${p.dot}`}
+            >
+              <Lock className="h-4 w-4" />
+              {generating ? 'Generating…' : 'Generate Token'}
+            </button>
           ) : (
-            <div className="space-y-2">
-              <button
-                type="button"
-                onClick={() => { setAuth('token'); onGenerate(); }}
-                disabled={generating}
-                className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl border border-border/60 bg-muted/30 text-sm font-bold text-foreground hover:bg-muted/60 hover:border-border transition-all disabled:opacity-50"
-              >
-                <Lock className="h-4 w-4" />
-                {generating ? 'Generating…' : 'Generate Bearer Token'}
-              </button>
-              <p className="text-[12px] text-center text-muted-foreground/55 leading-relaxed px-2">
-                Use this option if your organization restricts Microsoft login or external authentication.
-              </p>
+            <div className="space-y-2.5">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground/55 mb-1.5">Your token</p>
+                <div className="flex gap-2">
+                  <code className="flex-1 min-w-0 rounded-lg border border-border/50 bg-background px-3 py-2 text-[11px] font-mono truncate">{tokenMasked}</code>
+                  <button type="button" onClick={() => setReveal(v => !v)} title={reveal ? 'Hide' : 'Reveal'}
+                    className="shrink-0 flex items-center px-2.5 rounded-lg border border-border/50 bg-card hover:bg-muted transition-colors">
+                    {reveal ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                  <button type="button" onClick={() => { void navigator.clipboard.writeText(token); }} title="Copy token"
+                    className="shrink-0 flex items-center px-2.5 rounded-lg border border-border/50 bg-card hover:bg-muted transition-colors">
+                    <Copy className="h-4 w-4" />
+                  </button>
+                </div>
+                <p className="text-[11px] text-muted-foreground/50 mt-1">Shown once — copy it now. Acts on ZET as you; keep it secret.</p>
+              </div>
+              <CodeBlock caption={isPlugin ? 'run this command' : `paste this in step 3 — ${p.location.trim()}`} code={tokenPayload} copyText={tokenPayloadReal} />
             </div>
           )}
         </div>
-
-        {/* Steps + config — one block, per platform */}
-        {tab === 'plugin' ? (
-          <div className="space-y-2.5 text-sm text-foreground/80">
-            <p>Install the plugin (adds the <span className="font-mono text-xs">/zet:</span> slash commands), then restart Claude Code:</p>
-            <CodeBlock code={`/plugin marketplace add <path-to>/zet-plugin\n/plugin install zet@zet-marketplace`} />
-            <p>{usingToken ? 'Connect with your token:' : 'Connect via browser — run any command and sign in with Microsoft:'}</p>
-            <CodeBlock code={cliCmd} />
-            <p className="text-[12px] text-muted-foreground/60">Then try <span className="font-mono text-foreground">/zet:whoami</span>.</p>
-          </div>
-        ) : tab === 'claude' ? (
-          <div className="space-y-2.5 text-sm text-foreground/80">
-            <p>Add the server, then restart Claude Code:</p>
-            <CodeBlock code={cliCmd} />
-            <p className="text-[12px] text-muted-foreground/60">
-              {usingToken
-                ? <>Run <span className="font-mono text-foreground">/mcp</span> to confirm <span className="font-semibold">zet</span> is connected.</>
-                : <>Run <span className="font-mono text-foreground">/mcp</span> → pick <span className="font-semibold">zet</span> → <span className="font-semibold">Authenticate</span> → sign in with Microsoft.</>}
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-2.5 text-sm text-foreground/80">
-            <p>{tab === 'cursor' ? 'Cursor → Settings → MCP → Add new server (HTTP), then paste:' : 'Add to your client\'s MCP config (e.g. .vscode/mcp.json):'}</p>
-            <CodeBlock caption={tab === 'cursor' ? '~/.cursor/mcp.json' : '.vscode/mcp.json'} code={jsonCmd} />
-            <p className="text-[12px] text-muted-foreground/60">
-              {usingToken ? 'Reload — the ZET tools appear in your assistant.' : 'Reload — on first use, sign in to ZET with Microsoft in the browser.'}
-            </p>
-          </div>
-        )}
       </div>
     </div>
   );

@@ -122,6 +122,20 @@ function spanSecondsFromCompact(fromCompact: string, toCompact: string): number 
   }
 }
 
+/** Add `seconds` to a compact HHMM time, wrapping at midnight → compact HHMM. */
+function addSecondsToCompact(fromCompact: string, seconds: number): string {
+  try {
+    const [h, m] = compactTimeToApi(fromCompact).split(':').map(Number);
+    let total = h * 3600 + m * 60 + seconds;
+    total = ((total % 86400) + 86400) % 86400;
+    const nh = Math.floor(total / 3600);
+    const nm = Math.floor((total % 3600) / 60);
+    return `${String(nh).padStart(2, '0')}${String(nm).padStart(2, '0')}`;
+  } catch {
+    return fromCompact;
+  }
+}
+
 function formatDurationHMS(seconds: number | null): string {
   if (seconds === null || seconds < 0) return '00:00:00';
   const h = Math.floor(seconds / 3600) % 100;
@@ -640,8 +654,11 @@ const TimesheetPage = () => {
   const [quickDesc, setQuickDesc] = useState('');
   const [quickProjectId, setQuickProjectId] = useState('');
   const [quickSectionId, setQuickSectionId] = useState('');
-  const [quickFrom, setQuickFrom] = useState('0900');
-  const [quickTo, setQuickTo] = useState('1700');
+  const [quickFrom, setQuickFrom] = useState('');
+  const [quickTo, setQuickTo] = useState('');
+  // Suggested start/end (placeholder + fallback). Auto-advances to the last entry's end.
+  const [quickFromSuggest, setQuickFromSuggest] = useState('0900');
+  const [quickToSuggest, setQuickToSuggest] = useState('1700');
   const [quickBillable, setQuickBillable] = useState(true);
   const [quickWorkDate, setQuickWorkDate] = useState<string | null>(null);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
@@ -803,7 +820,10 @@ const TimesheetPage = () => {
 
   const quickSelectedProject = userProjects.find(p => p.id === quickProjectId);
   const quickSectionOptions = quickSelectedProject?.sections ?? [];
-  const quickDurationPreview = spanSecondsFromCompact(quickFrom, quickTo);
+  // Empty field falls back to the suggested value (shown as placeholder).
+  const effQuickFrom = quickFrom || quickFromSuggest;
+  const effQuickTo = quickTo || quickToSuggest;
+  const quickDurationPreview = spanSecondsFromCompact(effQuickFrom, effQuickTo);
 
   const saveQuickEntry = async () => {
     const workDate = quickWorkDate ?? defaultNewDate;
@@ -814,8 +834,8 @@ const TimesheetPage = () => {
     let timeFromApi: string;
     let timeToApi: string;
     try {
-      timeFromApi = compactTimeToApi(quickFrom);
-      timeToApi = compactTimeToApi(quickTo);
+      timeFromApi = compactTimeToApi(effQuickFrom);
+      timeToApi = compactTimeToApi(effQuickTo);
     } catch {
       toast.error('Enter valid start and end times (24h, e.g. 0930).');
       return;
@@ -832,7 +852,14 @@ const TimesheetPage = () => {
         billable: quickBillable,
       });
       toast.success('Entry added');
+      // Auto-advance: next entry starts where this one ended, same duration.
+      const dur = spanSecondsFromCompact(effQuickFrom, effQuickTo) ?? 3600;
+      const nextFrom = apiTimeToCompactDisplay(timeToApi);
+      setQuickFromSuggest(nextFrom);
+      setQuickToSuggest(addSecondsToCompact(nextFrom, dur));
       setQuickDesc('');
+      setQuickFrom('');
+      setQuickTo('');
       await reloadEntries();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not save');
@@ -1138,27 +1165,29 @@ const TimesheetPage = () => {
               <DollarSign className="h-4 w-4" />
             </button>
 
-            <div className="flex items-center gap-1.5 px-2 font-mono text-xs tabular-nums text-foreground/80">
+            <div className="flex items-center gap-2 px-2 font-mono tabular-nums text-foreground">
               <input
                 type="text"
                 inputMode="numeric"
                 maxLength={4}
-                placeholder="0900"
+                placeholder={quickFromSuggest}
                 value={quickFrom}
+                onFocus={() => setQuickFrom('')}
                 onChange={e => setQuickFrom(e.target.value.replace(/\D/g, '').slice(0, 4))}
                 disabled={saving || userProjects.length === 0}
-                className="w-12 bg-muted/30 rounded-md border border-border/40 px-1.5 py-1 text-center text-xs"
+                className="w-16 bg-background rounded-lg border border-border/60 px-2 py-1.5 text-center text-sm font-semibold tracking-wider focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 placeholder:text-muted-foreground/40 placeholder:font-normal"
               />
-              <span className="text-muted-foreground/50">–</span>
+              <span className="text-muted-foreground/60 font-semibold">–</span>
               <input
                 type="text"
                 inputMode="numeric"
                 maxLength={4}
-                placeholder="1700"
+                placeholder={quickToSuggest}
                 value={quickTo}
+                onFocus={() => setQuickTo('')}
                 onChange={e => setQuickTo(e.target.value.replace(/\D/g, '').slice(0, 4))}
                 disabled={saving || userProjects.length === 0}
-                className="w-12 bg-muted/30 rounded-md border border-border/40 px-1.5 py-1 text-center text-xs"
+                className="w-16 bg-background rounded-lg border border-border/60 px-2 py-1.5 text-center text-sm font-semibold tracking-wider focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 placeholder:text-muted-foreground/40 placeholder:font-normal"
               />
             </div>
 
@@ -1388,7 +1417,7 @@ const TimesheetPage = () => {
                       </div>
                     ) : (
                       <ul className="divide-y divide-border/20">
-                        {day.entriesForDay.map(entry => {
+                        {[...day.entriesForDay].sort((a, b) => b.timeFrom.localeCompare(a.timeFrom)).map(entry => {
                           const project = projects.find(p => p.id === entry.projectId);
                           const section = project?.sections.find(s => s.id === entry.sectionId);
                           return (
@@ -1429,7 +1458,16 @@ const TimesheetPage = () => {
                               </div>
 
                               {/* Actions */}
-                              <div className="shrink-0 self-start sm:self-center opacity-0 group-hover:opacity-100 transition-opacity">
+                              <div className="shrink-0 self-start sm:self-center flex items-center gap-1">
+                                {entry.billable && (
+                                  <span
+                                    title="Billable"
+                                    className="flex items-center justify-center h-7 w-7 rounded-lg bg-emerald-500/10 text-emerald-500"
+                                  >
+                                    <DollarSign className="h-4 w-4" />
+                                  </span>
+                                )}
+                                <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
                                     <button
@@ -1455,6 +1493,7 @@ const TimesheetPage = () => {
                                     </DropdownMenuItem>
                                   </DropdownMenuContent>
                                 </DropdownMenu>
+                                </div>
                               </div>
                             </li>
                           );

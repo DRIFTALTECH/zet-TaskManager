@@ -40,7 +40,13 @@ def download_attachment(
     db: Session = Depends(get_db),
 ):
     file_path, filename, content_type = attachment_logic.resolve_for_download(db, task_id, attachment_id)
-    return FileResponse(path=str(file_path), filename=filename, media_type=content_type)
+    # filename=… forces Content-Disposition: attachment; nosniff blocks MIME-sniffing.
+    return FileResponse(
+        path=str(file_path),
+        filename=filename,
+        media_type=content_type,
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
 
 
 @router.delete("/{attachment_id}", status_code=204)

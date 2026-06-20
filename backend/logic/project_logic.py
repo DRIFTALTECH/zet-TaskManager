@@ -19,6 +19,7 @@ PROJECT_MEDIA_DIR = Path(__file__).resolve().parent.parent / "data" / "project_m
 PROJECT_MEDIA_DIR.mkdir(parents=True, exist_ok=True)
 MEDIA_URL_PREFIX = "/project-media/"
 MAX_MEDIA_BYTES = 6 * 1024 * 1024  # 6 MB
+ALLOWED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"}
 
 
 def _unlink_if_local(value: str | None) -> None:
@@ -176,8 +177,9 @@ def upload_media(
     ensure_project_member(db, project_id, user_id)
     if kind not in ("background", "project"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "kind must be 'background' or 'project'")
-    if not content_type or not content_type.startswith("image/"):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "File must be an image")
+    # Raster images only — SVG/HTML are rejected (script-bearing, stored-XSS risk).
+    if (content_type or "").lower() not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "File must be a PNG, JPEG, WebP, or GIF image")
     if len(content) > MAX_MEDIA_BYTES:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Image exceeds 6 MB limit")
 

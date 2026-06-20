@@ -13,13 +13,28 @@ stays the same.
 """
 
 import asyncio
+import json
 import logging
+import os
 import threading
 
 log = logging.getLogger("zet.realtime")
 
 _lock = threading.Lock()
 _versions: dict[str, int] = {"tasks": 0, "projects": 0, "users": 0}
+CHANNELS = ("tasks", "projects", "users")
+
+# ── Optional Redis fan-out (multi-worker / multi-container) ─────────────────────
+# When REDIS_URL is set, version counters live in Redis (shared across workers)
+# and writes are published so every worker pushes to its own WS clients. Unset →
+# pure in-process behaviour (single worker), unchanged.
+_REDIS_URL = os.environ.get("REDIS_URL", "").strip()
+_REDIS_CHANNEL = "zet:sync"
+try:
+    import redis as _redis_sync_mod
+except Exception:
+    _redis_sync_mod = None
+_redis_pub = _redis_sync_mod.from_url(_REDIS_URL) if (_REDIS_URL and _redis_sync_mod) else None
 
 # WebSocket fan-out state. `_subscribers` holds live sockets; `_loop` is the
 # server's running event loop, captured on the first connection so that the
@@ -76,15 +91,60 @@ def bump(*channels: str) -> None:
     with _lock:
         for ch in channels:
             _versions[ch] = _versions.get(ch, 0) + 1
-    _notify()
+    if _redis_pub is not None:
+        try:
+            pipe = _redis_pub.pipeline()
+            for ch in channels:
+                pipe.incr(f"zet:ver:{ch}")
+            pipe.publish(_REDIS_CHANNEL, json.dumps(list(channels)))
+            pipe.execute()
+        except Exception:
+            log.debug("redis publish failed", exc_info=True)
+    _notify()  # push to this worker's own WS clients
 
 
 def current(channel: str) -> int:
     """Current version for a single channel."""
-    return _versions.get(channel, 0)
+    return snapshot().get(channel, 0)
 
 
 def snapshot() -> dict[str, int]:
-    """All channel versions at once (for the /sync/version poll endpoint)."""
+    """All channel versions at once (for the /sync/version poll endpoint).
+    Reads shared counters from Redis when configured, else the in-process map."""
+    if _redis_pub is not None:
+        try:
+            vals = _redis_pub.mget(*[f"zet:ver:{c}" for c in CHANNELS])
+            return {c: int(v or 0) for c, v in zip(CHANNELS, vals)}
+        except Exception:
+            log.debug("redis snapshot failed; using local", exc_info=True)
     with _lock:
         return dict(_versions)
+
+
+async def redis_subscriber() -> None:
+    """Per-worker task: on any worker's write, broadcast to THIS worker's WS clients.
+    No-op unless REDIS_URL is set and redis is installed."""
+    if not _REDIS_URL:
+        return
+    try:
+        import redis.asyncio as redis_async
+    except Exception:
+        log.warning("REDIS_URL set but redis package unavailable; multi-worker fan-out disabled")
+        return
+    r = redis_async.from_url(_REDIS_URL)
+    ps = r.pubsub()
+    await ps.subscribe(_REDIS_CHANNEL)
+    log.info("realtime: subscribed to Redis %s", _REDIS_CHANNEL)
+    try:
+        async for msg in ps.listen():
+            if msg.get("type") != "message":
+                continue
+            await _broadcast({"type": "sync", "versions": snapshot()})
+    except asyncio.CancelledError:
+        pass
+    finally:
+        try:
+            await ps.unsubscribe(_REDIS_CHANNEL)
+            await r.aclose()
+        except Exception:
+            pass

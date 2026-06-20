@@ -48,6 +48,10 @@ def _supports_strict_json_schema(model: str) -> bool:
     return "gpt-oss" in m or "llama-4" in m or "kimi" in m
 _FALLBACK_ENABLED = os.getenv("AI_OLLAMA_FALLBACK", "1").lower() not in ("0", "false", "no", "")
 
+# Don't let a hung provider wedge a request thread.
+_LLM_TIMEOUT = float(os.getenv("AI_REQUEST_TIMEOUT", "45"))
+_LLM_MAX_RETRIES = int(os.getenv("AI_MAX_RETRIES", "2"))
+
 T = TypeVar("T", bound=BaseModel)
 
 
@@ -58,7 +62,10 @@ def _groq(model: str, temperature: float):
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
         return None
-    return ChatGroq(model=model, temperature=temperature, api_key=api_key)
+    return ChatGroq(
+        model=model, temperature=temperature, api_key=api_key,
+        timeout=_LLM_TIMEOUT, max_retries=_LLM_MAX_RETRIES,
+    )
 
 
 def _ollama(temperature: float):
@@ -69,7 +76,7 @@ def _ollama(temperature: float):
         from langchain_ollama import ChatOllama
     except Exception:
         return None
-    kwargs: dict = {"model": OLLAMA_MODEL, "base_url": OLLAMA_BASE_URL, "temperature": temperature}
+    kwargs: dict = {"model": OLLAMA_MODEL, "base_url": OLLAMA_BASE_URL, "temperature": temperature, "timeout": _LLM_TIMEOUT}
     if OLLAMA_API_KEY:
         # Ollama Cloud auth — Bearer header on the underlying client.
         kwargs["client_kwargs"] = {"headers": {"Authorization": f"Bearer {OLLAMA_API_KEY}"}}

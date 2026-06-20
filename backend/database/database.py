@@ -2,12 +2,17 @@ import os
 import sqlite3
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.pool import NullPool
 
 _BACKEND_ROOT = Path(__file__).resolve().parent.parent
 _DATA_DIR = _BACKEND_ROOT / "data"
+
+# Set DATABASE_URL to use Postgres etc. in production (e.g.
+# postgresql+psycopg://user:pass@host/db). Unset → local SQLite (dev default).
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+USING_SQLITE = not DATABASE_URL or DATABASE_URL.startswith("sqlite")
 
 
 def _db_path() -> Path:
@@ -43,11 +48,24 @@ def _sqlite_connect():
     )
 
 
-engine = create_engine(
-    "sqlite://",
-    creator=_sqlite_connect,
-    poolclass=NullPool,
-)
+if DATABASE_URL and not DATABASE_URL.startswith("sqlite"):
+    # Postgres / other server DB — pool_pre_ping avoids stale connections.
+    engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+else:
+    engine = create_engine(
+        "sqlite://",
+        creator=_sqlite_connect,
+        poolclass=NullPool,
+    )
+
+    # Enforce foreign keys (and cascades) — SQLite ignores them unless enabled
+    # per-connection. Without this, ON DELETE CASCADE silently does nothing.
+    @event.listens_for(engine, "connect")
+    def _sqlite_fk_pragma(dbapi_conn, _rec):
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA foreign_keys=ON")
+        cur.close()
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -60,14 +78,15 @@ def get_db():
         db.close()
 
 
-# Helpful surface misconfiguration early (permissions, read-only FS)
-if not os.access(_DB_FILE.parent, os.W_OK):
-    raise RuntimeError(
-        f"ZET database directory is not writable: {_DB_FILE.parent}. "
-        "Fix permissions or set TASKMANAGER_SQLITE_PATH to a writable path."
-    )
-if _DB_FILE.exists() and not os.access(_DB_FILE, os.W_OK):
-    raise RuntimeError(
-        f"ZET database file is not writable: {_DB_FILE}. "
-        "Run: chmod u+w on the file and data directory, or set TASKMANAGER_SQLITE_PATH."
-    )
+# Helpful surface misconfiguration early (permissions, read-only FS) — SQLite only.
+if USING_SQLITE:
+    if not os.access(_DB_FILE.parent, os.W_OK):
+        raise RuntimeError(
+            f"ZET database directory is not writable: {_DB_FILE.parent}. "
+            "Fix permissions or set TASKMANAGER_SQLITE_PATH to a writable path."
+        )
+    if _DB_FILE.exists() and not os.access(_DB_FILE, os.W_OK):
+        raise RuntimeError(
+            f"ZET database file is not writable: {_DB_FILE}. "
+            "Run: chmod u+w on the file and data directory, or set TASKMANAGER_SQLITE_PATH."
+        )

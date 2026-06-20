@@ -171,9 +171,15 @@ def create_perf_indexes() -> None:
     """
     stmts = [
         "CREATE INDEX IF NOT EXISTS ix_tasks_project_id ON tasks (project_id)",
+        "CREATE INDEX IF NOT EXISTS ix_tasks_section_id ON tasks (section_id)",
+        "CREATE INDEX IF NOT EXISTS ix_tasks_assigned_to ON tasks (assigned_to)",
         "CREATE INDEX IF NOT EXISTS ix_project_members_user_id ON project_members (user_id)",
         "CREATE INDEX IF NOT EXISTS ix_task_time_logs_user_id ON task_time_logs (user_id)",
+        # user_id is NOT the leading PK column on task_assignees → needs its own index
+        # for the hot "tasks assigned to me" / member-contribution queries.
+        "CREATE INDEX IF NOT EXISTS ix_task_assignees_user_id ON task_assignees (user_id)",
         "CREATE INDEX IF NOT EXISTS ix_sections_project_id ON sections (project_id)",
+        "CREATE INDEX IF NOT EXISTS ix_timesheet_entries_project_id ON timesheet_entries (project_id)",
     ]
     with engine.begin() as conn:
         for s in stmts:

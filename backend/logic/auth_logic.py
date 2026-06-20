@@ -13,21 +13,21 @@ from sqlalchemy.orm import Session
 
 import crud.settings as settings_crud
 import crud.users as users_crud
+from config import ADMIN_PASSWORD, JWT_SECRET
 from logic import user_logic
 from logic.schemas import LoginBody, LoginResponse, MicrosoftAuthBody, RegisterBody
 
-JWT_SECRET = os.environ.get("TASKMANAGER_JWT_SECRET", "dev-secret-change-me")
+# JWT_SECRET imported from config (fail-fast on weak/default in production).
 JWT_ALGO = "HS256"
 JWT_EXPIRE_HOURS_DEFAULT = 24         # 1 day when "remember me" is off
 JWT_EXPIRE_HOURS_REMEMBER = 24 * 30   # 30 days when "remember me" is on
 
 # ── Admin console credentials ──────────────────────────────────────────────────
 # A standalone admin (NOT a normal user row) manages accounts at /admin.
-# Defaults to admin / Default@123; override via env. The password can also be
-# changed at runtime, which persists a bcrypt hash in app_settings that wins
-# over the env value.
+# ADMIN_PASSWORD imported from config (rejects the default in production). The
+# password can also be changed at runtime, which persists a bcrypt hash in
+# app_settings that wins over the env value.
 ADMIN_USERNAME = (os.environ.get("ADMIN_USERNAME", "").strip() or "admin")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "Default@123")
 ADMIN_SUBJECT = "__admin__"
 _ADMIN_PW_KEY = "admin_password_hash"
 
