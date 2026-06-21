@@ -410,3 +410,33 @@ class ScrumDaySummary(BaseModel):
     summary: str = ""
     parseStatus: str = "empty"
     updatedByName: str = ""
+
+
+# ── Teams → MOM integration ─────────────────────────────────────────────────────
+
+class TeamsImportBody(BaseModel):
+    """Import one Teams meeting's transcript into MOM by its join link."""
+    organizerEmail: str = Field(..., max_length=320)
+    joinUrl: str = Field(..., max_length=2000)
+    date: str | None = Field(None, max_length=10)   # YYYY-MM-DD; defaults to meeting/transcript date
+    title: str | None = Field(None, max_length=120)
+
+
+class TeamsSyncBody(BaseModel):
+    """Pull every not-yet-imported transcript for an organizer (the automation)."""
+    organizerEmail: str = Field(..., max_length=320)
+    since: str | None = Field(None, max_length=10)  # YYYY-MM-DD lower bound (optional)
+
+
+class TeamsStatusOut(BaseModel):
+    configured: bool
+    tenantConfigured: bool
+    clientConfigured: bool
+    secretConfigured: bool
+
+
+class TeamsImportResult(BaseModel):
+    imported: int
+    skipped: int
+    scrums: list[ScrumOut] = []
+    message: str = ""

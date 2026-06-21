@@ -26,6 +26,34 @@ def list_for_project(db: Session, project_id: str) -> list[TimesheetEntry]:
     )
 
 
+def list_for_range_all(db: Session, start_date: str, end_date: str) -> list[TimesheetEntry]:
+    """Every user's rows in a date range (admin team report)."""
+    return (
+        db.query(TimesheetEntry)
+        .filter(TimesheetEntry.work_date >= start_date, TimesheetEntry.work_date <= end_date)
+        .order_by(TimesheetEntry.work_date, TimesheetEntry.created_at)
+        .all()
+    )
+
+
+def list_for_range_in_projects(
+    db: Session, project_ids: list[str], start_date: str, end_date: str
+) -> list[TimesheetEntry]:
+    """Rows in a date range scoped to a set of projects (manager team report)."""
+    if not project_ids:
+        return []
+    return (
+        db.query(TimesheetEntry)
+        .filter(
+            TimesheetEntry.work_date >= start_date,
+            TimesheetEntry.work_date <= end_date,
+            TimesheetEntry.project_id.in_(project_ids),
+        )
+        .order_by(TimesheetEntry.work_date, TimesheetEntry.created_at)
+        .all()
+    )
+
+
 def get_by_id(db: Session, entry_id: str) -> TimesheetEntry | None:
     return db.query(TimesheetEntry).filter(TimesheetEntry.id == entry_id).first()
 

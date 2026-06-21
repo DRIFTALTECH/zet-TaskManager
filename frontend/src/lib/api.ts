@@ -146,6 +146,10 @@ export const api = {
     return request(`/projects/${projectId}/sections/${sectionId}`, { method: 'DELETE' });
   },
 
+  async deleteProject(projectId: string): Promise<{ ok: boolean }> {
+    return request(`/projects/${projectId}`, { method: 'DELETE' });
+  },
+
   async addProjectMember(projectId: string, userId: string): Promise<Project> {
     return request(`/projects/${projectId}/members`, {
       method: 'POST',
@@ -206,8 +210,34 @@ export const api = {
     return request(`/meeting-notes/scrum/${id}/reparse`, { method: 'POST' });
   },
 
+  async transcribeScrumAudio(file: File): Promise<{ text: string }> {
+    const form = new FormData();
+    form.append('file', file);
+    // FormData body → request() omits Content-Type so the browser sets the multipart boundary.
+    return request('/meeting-notes/transcribe', { method: 'POST', body: form });
+  },
+
   async deleteScrum(id: string): Promise<{ ok: boolean }> {
     return request(`/meeting-notes/scrum/${id}`, { method: 'DELETE' });
+  },
+
+  // ── Teams → MOM integration ──────────────────────────────────────────────
+  async teamsStatus(): Promise<{
+    configured: boolean; tenantConfigured: boolean; clientConfigured: boolean; secretConfigured: boolean;
+  }> {
+    return request('/integrations/teams/status');
+  },
+
+  async teamsImport(body: { organizerEmail: string; joinUrl: string; date?: string; title?: string }): Promise<{
+    imported: number; skipped: number; scrums: import('@/types').Scrum[]; message: string;
+  }> {
+    return request('/integrations/teams/import', { method: 'POST', body: JSON.stringify(body) });
+  },
+
+  async teamsSync(body: { organizerEmail: string; since?: string }): Promise<{
+    imported: number; skipped: number; scrums: import('@/types').Scrum[]; message: string;
+  }> {
+    return request('/integrations/teams/sync', { method: 'POST', body: JSON.stringify(body) });
   },
 
   async createTask(body: {
@@ -312,6 +342,12 @@ export const api = {
   async getTimesheetWorkEntriesForUser(userId: string, start: string, end: string): Promise<TimesheetWorkEntry[]> {
     const q = new URLSearchParams({ start, end });
     return request(`/timesheet/users/${userId}/entries?${q.toString()}`);
+  },
+
+  /** Manager/admin: every member's entries in the date range (visibility-scoped). */
+  async getTeamTimesheetEntries(start: string, end: string): Promise<TimesheetWorkEntry[]> {
+    const q = new URLSearchParams({ start, end });
+    return request(`/timesheet/entries/all?${q.toString()}`);
   },
 
   /** Manager-only: every timesheet entry logged against a project, across all members. */

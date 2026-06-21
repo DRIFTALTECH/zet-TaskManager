@@ -220,3 +220,17 @@ def remove_member(db: Session, manager_id: str, project_id: str, user_id: str) -
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
     projects_crud.remove_member(db, project_id, user_id)
     return to_project_out(db, p)
+
+
+def delete_project(db: Session, user_id: str, project_id: str) -> None:
+    """Delete a project and all its data. Employees can't; a manager may delete
+    only projects they belong to; admins may delete any."""
+    p = projects_crud.get_by_id(db, project_id)
+    if not p:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+    ensure_manager(db, user_id)
+    ensure_project_member(db, project_id, user_id)  # admin bypasses the membership check
+    from logic.audit import log_audit
+
+    log_audit(db, user_id, "project.deleted", "project", project_id, p.name, {})
+    projects_crud.delete_project(db, project_id)  # commits

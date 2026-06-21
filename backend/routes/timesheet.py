@@ -39,6 +39,17 @@ def list_entries(
     return timesheet_logic.list_entries(db, user_id, start, end)
 
 
+@router.get("/entries/all", response_model=list[TimesheetEntryOut])
+def list_team_entries(
+    start: str,
+    end: str,
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    """Manager/admin team report — all members' rows in range (visibility-scoped)."""
+    return timesheet_logic.list_entries_team(db, user_id, start, end)
+
+
 @router.post("/entries", response_model=TimesheetEntryOut)
 def create_entry(
     body: TimesheetEntryCreate,

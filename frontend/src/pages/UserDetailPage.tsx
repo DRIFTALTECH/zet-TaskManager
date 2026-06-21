@@ -12,7 +12,7 @@ import {
   ArrowLeft, Mail, Briefcase, ChevronLeft, ChevronRight,
   Clock, AlertTriangle, CheckCircle2, Circle, BarChart2,
   CalendarDays, ListChecks, Flame, FolderKanban,
-  Sparkles,
+  Sparkles, FolderPlus, Check, Loader2,
 } from 'lucide-react';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip,
@@ -455,9 +455,11 @@ type View = 'analytics' | 'timesheet';
 
 export default function UserDetailPage() {
   const { userId } = useParams<{ userId: string }>();
-  const { users, tasks, projects, kanbanColumns } = useAppStore();
+  const { users, tasks, projects, kanbanColumns, addMemberToProject, removeMemberFromProject } = useAppStore();
 
   const [view, setView]             = useState<View>('analytics');
+  const [addProjOpen, setAddProjOpen] = useState(false);
+  const [togglingProj, setTogglingProj] = useState<Set<string>>(new Set());
   const [wkOff, setWkOff]           = useState(0);
   const [weekEntries, setWeekEntries] = useState<TimesheetWorkEntry[]>([]);
   const [loadingWeek, setLoadingWeek] = useState(false);
@@ -489,6 +491,21 @@ export default function UserDetailPage() {
     if (!user) return [] as Task[];
     return tasks.filter(t => isTaskAssignedTo(t, user.id) || t.createdBy === user.id);
   }, [tasks, user]);
+
+  // Bulk-manage this user's membership across the manager's controlled projects
+  // (store.projects is already visibility-scoped: admin → all, manager → theirs).
+  const toggleProjectMembership = async (projectId: string, isMember: boolean) => {
+    if (!user) return;
+    setTogglingProj(prev => new Set(prev).add(projectId));
+    try {
+      if (isMember) { await removeMemberFromProject(projectId, user.id); toast.success('Removed from project'); }
+      else { await addMemberToProject(projectId, user.id); toast.success('Added to project'); }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not update membership');
+    } finally {
+      setTogglingProj(prev => { const n = new Set(prev); n.delete(projectId); return n; });
+    }
+  };
 
   const doneTasks   = userTasks.filter(t => t.status === 'completed');
   const active      = userTasks.filter(t => t.status !== 'completed');
@@ -731,6 +748,14 @@ export default function UserDetailPage() {
               </div>
             </div>
 
+            <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setAddProjOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-primary/40 bg-primary/5 text-primary text-sm font-semibold hover:bg-primary/10 transition-colors"
+            >
+              <FolderPlus className="h-4 w-4" /> Add to projects
+            </button>
             {/* tab switcher */}
             <div className="flex items-center gap-1 bg-muted/40 border border-border/40 rounded-xl p-1">
               {([
@@ -747,6 +772,7 @@ export default function UserDetailPage() {
                   {t.label}
                 </button>
               ))}
+            </div>
             </div>
           </div>
         </motion.div>
@@ -1610,6 +1636,48 @@ export default function UserDetailPage() {
           entries={weekEntries}
           projects={projects}
         />
+
+        {/* Add / remove this user across the manager's projects */}
+        <Dialog open={addProjOpen} onOpenChange={setAddProjOpen}>
+          <DialogContent className="w-[94vw] max-w-md border-border/60 bg-card sm:rounded-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-lg">
+                <FolderPlus className="h-5 w-5 text-primary" /> {user.name}'s projects
+              </DialogTitle>
+              <DialogDescription>Toggle the projects this person belongs to.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-1.5 max-h-[55vh] overflow-y-auto pr-1">
+              {projects.length === 0 && (
+                <p className="text-sm text-muted-foreground/60 py-6 text-center">No projects under your control.</p>
+              )}
+              {projects.map(p => {
+                const isMember = p.members.includes(user.id);
+                const busy = togglingProj.has(p.id);
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void toggleProjectMembership(p.id, isMember)}
+                    className={`w-full flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors disabled:opacity-60 ${
+                      isMember ? 'border-primary/50 bg-primary/5' : 'border-border/60 hover:bg-muted/40'
+                    }`}
+                  >
+                    <FolderKanban className={`h-4 w-4 shrink-0 ${isMember ? 'text-primary' : 'text-muted-foreground/60'}`} />
+                    <span className="flex-1 truncate text-sm font-medium">{p.name}</span>
+                    {busy ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                    ) : isMember ? (
+                      <span className="flex items-center gap-1 text-xs font-semibold text-primary"><Check className="h-3.5 w-3.5" /> Member</span>
+                    ) : (
+                      <span className="text-xs font-semibold text-muted-foreground/60">Add</span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );

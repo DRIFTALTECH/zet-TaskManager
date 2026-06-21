@@ -4,7 +4,7 @@
  * the parsed breakdown can also be hand-edited. Parsed people are matched to
  * real app users so their profile photos show.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval,
@@ -12,7 +12,7 @@ import {
 } from 'date-fns';
 import {
   CalendarDays, ChevronLeft, ChevronRight, Sparkles, Pencil, Plus, Trash2,
-  Users, AlertCircle, Check, FileText, ListChecks, X,
+  Users, AlertCircle, Check, FileText, ListChecks, X, Mic, Loader2, Square, Video,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { pageEnter, snappy } from '@/lib/motion';
@@ -37,6 +37,9 @@ function matchUser(name: string, users: User[]): User | undefined {
 
 export default function MeetingNotesPage() {
   const users = useAppStore(s => s.users);
+  const currentUser = useAppStore(s => s.currentUser);
+  const isManagerial = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  const [teamsOpen, setTeamsOpen] = useState(false);
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
   const [summaries, setSummaries] = useState<Record<string, ScrumDaySummary>>({});
   const [loadingMonth, setLoadingMonth] = useState(false);
@@ -131,7 +134,13 @@ export default function MeetingNotesPage() {
               Add one or more scrums per day — the AI agent structures each one per person automatically.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {isManagerial && (
+              <button onClick={() => setTeamsOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-primary/40 bg-primary/5 text-primary text-xs font-semibold hover:bg-primary/10 transition-colors">
+                <Video className="h-3.5 w-3.5" /> Import from Teams
+              </button>
+            )}
             <button onClick={() => setCursor(c => addMonths(c, -1))} className="p-2 rounded-xl border border-border/50 bg-muted/30 hover:bg-muted/60 transition-colors">
               <ChevronLeft className="h-4 w-4" />
             </button>
@@ -204,6 +213,14 @@ export default function MeetingNotesPage() {
         </div>
         {loadingMonth && <p className="text-center text-xs text-muted-foreground/40 mt-4">Loading…</p>}
       </div>
+
+      {/* Import-from-Teams dialog */}
+      <TeamsImportDialog
+        open={teamsOpen}
+        defaultDate={openDate}
+        onClose={() => setTeamsOpen(false)}
+        onImported={async () => { await loadMonth(); if (openDate) await loadDay(openDate); }}
+      />
 
       {/* Day dialog */}
       <Dialog open={!!openDate} onOpenChange={o => !o && closeDay()}>
@@ -442,6 +459,124 @@ function ScrumCard({ scrum, users, onChanged, onDeleted }: {
   );
 }
 
+// ── Import from Teams dialog ──────────────────────────────────────────────────
+
+function TeamsImportDialog({ open, defaultDate, onClose, onImported }: {
+  open: boolean;
+  defaultDate: string | null;
+  onClose: () => void;
+  onImported: () => Promise<void>;
+}) {
+  const currentUser = useAppStore(s => s.currentUser);
+  const [organizer, setOrganizer] = useState('');
+  const [joinUrl, setJoinUrl] = useState('');
+  const [date, setDate] = useState('');
+  const [title, setTitle] = useState('');
+  const [busy, setBusy] = useState<'import' | 'sync' | null>(null);
+  const [configured, setConfigured] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setOrganizer(currentUser?.email ?? '');
+    setJoinUrl('');
+    setDate(defaultDate ?? '');
+    setTitle('');
+    void api.teamsStatus().then(s => setConfigured(s.configured)).catch(() => setConfigured(false));
+  }, [open, defaultDate, currentUser?.email]);
+
+  const doImport = async () => {
+    if (!organizer.trim() || !joinUrl.trim()) { toast.error('Organizer email and meeting link required'); return; }
+    setBusy('import');
+    try {
+      const r = await api.teamsImport({
+        organizerEmail: organizer.trim(), joinUrl: joinUrl.trim(),
+        date: date || undefined, title: title.trim() || undefined,
+      });
+      toast.success(r.message || `Imported ${r.imported}`);
+      await onImported();
+      if (r.imported > 0) onClose();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Import failed');
+    } finally { setBusy(null); }
+  };
+
+  const doSync = async () => {
+    if (!organizer.trim()) { toast.error('Organizer email required'); return; }
+    setBusy('sync');
+    try {
+      const r = await api.teamsSync({ organizerEmail: organizer.trim() });
+      toast.success(r.message || `Imported ${r.imported}`);
+      await onImported();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Sync failed');
+    } finally { setBusy(null); }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={o => !o && onClose()}>
+      <DialogContent className="rounded-2xl w-[94vw] max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-lg font-bold">
+            <Video className="h-4 w-4 text-primary/70" /> Import from Teams
+          </DialogTitle>
+        </DialogHeader>
+
+        {configured === false && (
+          <div className="flex items-start gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+            <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+            <span>Microsoft Graph isn't configured on the server yet. Set the Entra app credentials (see setup notes), then this will pull the transcript automatically.</span>
+          </div>
+        )}
+
+        <div className="space-y-3 pt-1">
+          <div>
+            <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/60">Meeting organizer email</label>
+            <input value={organizer} onChange={e => setOrganizer(e.target.value)} placeholder="organizer@company.com"
+              className="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-border/60 bg-background/60 focus:outline-none focus:border-primary/50" />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/60">Teams meeting link</label>
+            <input value={joinUrl} onChange={e => setJoinUrl(e.target.value)} placeholder="https://teams.microsoft.com/l/meetup-join/…"
+              className="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-border/60 bg-background/60 focus:outline-none focus:border-primary/50 font-mono text-xs" />
+          </div>
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/60">Date (optional)</label>
+              <input type="date" value={date} onChange={e => setDate(e.target.value)}
+                className="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-border/60 bg-background/60 focus:outline-none focus:border-primary/50" />
+            </div>
+            <div className="flex-1">
+              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/60">Title (optional)</label>
+              <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Meeting subject"
+                className="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-border/60 bg-background/60 focus:outline-none focus:border-primary/50" />
+            </div>
+          </div>
+          <p className="text-[11px] text-muted-foreground/55 leading-relaxed">
+            Pulls the meeting's Teams transcript, then the AI structures it per person — same as a pasted scrum.
+            <strong className="text-foreground/70"> Transcription must have been on</strong> for the meeting.
+          </p>
+          <div className="flex items-center justify-between gap-2 pt-1">
+            <button onClick={() => void doSync()} disabled={!!busy}
+              title="Pull every new transcript for this organizer"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border/60 bg-muted/30 text-xs font-semibold hover:bg-muted/60 transition-colors disabled:opacity-50">
+              {busy === 'sync' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ListChecks className="h-3.5 w-3.5" />}
+              Sync all new
+            </button>
+            <div className="flex gap-2">
+              <button onClick={onClose} className="px-3 py-2 rounded-xl border border-border/60 bg-muted/30 text-sm hover:bg-muted/60 transition-colors">Cancel</button>
+              <button onClick={() => void doImport()} disabled={!!busy}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-50">
+                {busy === 'import' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Video className="h-3.5 w-3.5" />}
+                {busy === 'import' ? 'Importing…' : 'Import meeting'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── New scrum form ────────────────────────────────────────────────────────────
 
 function NewScrumForm({ date, onCancel, onCreated }: {
@@ -452,9 +587,66 @@ function NewScrumForm({ date, onCancel, onCreated }: {
   const [title, setTitle] = useState('Daily Scrum');
   const [raw, setRaw] = useState('');
   const [busy, setBusy] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopTimer = () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
+
+  const startRecording = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) { toast.error('Recording not supported in this browser'); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const rec = new MediaRecorder(stream);
+      chunksRef.current = [];
+      rec.ondataavailable = e => { if (e.data.size) chunksRef.current.push(e.data); };
+      rec.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(chunksRef.current, { type: rec.mimeType || 'audio/webm' });
+        const ext = (rec.mimeType || 'audio/webm').includes('mp4') ? 'mp4' : 'webm';
+        void transcribe(new File([blob], `scrum-recording.${ext}`, { type: blob.type }));
+      };
+      recorderRef.current = rec;
+      rec.start();
+      setRecording(true);
+      setElapsed(0);
+      timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
+    } catch {
+      toast.error('Microphone permission denied');
+    }
+  };
+
+  const stopRecording = () => {
+    stopTimer();
+    setRecording(false);
+    recorderRef.current?.stop();
+  };
+
+  useEffect(() => () => { stopTimer(); recorderRef.current?.stop(); }, []);
+
+  const transcribe = async (file: File) => {
+    if (!file.type.startsWith('audio/') && !/\.(mp3|wav|m4a|webm|ogg|oga|flac|mp4|mpeg|mpga|aac)$/i.test(file.name)) {
+      toast.error('Drop an audio file');
+      return;
+    }
+    setTranscribing(true);
+    try {
+      const { text } = await api.transcribeScrumAudio(file);
+      // Append to whatever's already typed so a recording adds to notes, not clobbers.
+      setRaw(prev => (prev.trim() ? `${prev.trim()}\n\n${text}` : text));
+      toast.success('Audio transcribed — review, then add & parse');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not transcribe audio');
+    } finally { setTranscribing(false); }
+  };
 
   const create = async () => {
-    if (!raw.trim()) { toast.error('Paste the scrum notes first'); return; }
+    if (!raw.trim()) { toast.error('Paste notes or drop an audio file first'); return; }
     setBusy(true);
     try {
       await api.createScrum(date, title.trim() || 'Scrum', raw);
@@ -469,8 +661,46 @@ function NewScrumForm({ date, onCancel, onCreated }: {
     <div className="rounded-2xl border border-primary/30 bg-primary/[0.03] p-4 space-y-3">
       <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Scrum title (e.g. Daily Standup)"
         className="w-full px-3 py-2 text-sm font-semibold rounded-lg border border-border/60 bg-background/60 focus:outline-none focus:border-primary/50" />
+
+      {/* Audio: record in-browser OR drop/upload a file — both go through Whisper */}
+      <div className="flex items-stretch gap-2">
+        <button
+          type="button"
+          onClick={() => (recording ? stopRecording() : void startRecording())}
+          disabled={transcribing}
+          className={[
+            'flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-xs font-semibold transition-colors shrink-0 disabled:opacity-50',
+            recording
+              ? 'border-red-500/60 bg-red-500/15 text-red-400 hover:bg-red-500/25'
+              : 'border-border/60 text-muted-foreground hover:border-primary/50 hover:text-primary',
+          ].join(' ')}
+        >
+          {recording
+            ? <><Square className="h-3.5 w-3.5 fill-current" /> Stop · {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')}</>
+            : <><Mic className="h-3.5 w-3.5" /> Record</>}
+        </button>
+        <div
+          onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) void transcribe(f); }}
+          onClick={() => !transcribing && !recording && fileInput.current?.click()}
+          className={[
+            'flex-1 flex items-center justify-center gap-2 rounded-xl border border-dashed px-3 py-3 text-xs font-semibold cursor-pointer transition-colors',
+            dragOver ? 'border-primary bg-primary/10 text-primary' : 'border-border/60 text-muted-foreground hover:border-primary/50 hover:text-primary',
+            (transcribing || recording) ? 'opacity-60 pointer-events-none' : '',
+          ].join(' ')}
+        >
+          {transcribing
+            ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Transcribing audio…</>
+            : <><FileText className="h-3.5 w-3.5" /> Drop or click to upload an audio file</>}
+        </div>
+      </div>
+      <input ref={fileInput} type="file" accept="audio/*,.mp3,.wav,.m4a,.webm,.ogg,.oga,.flac,.mp4,.aac"
+        className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) void transcribe(f); e.target.value = ''; }} />
+
       <textarea autoFocus value={raw} onChange={e => setRaw(e.target.value)} rows={10}
-        placeholder="Paste the raw scrum / meeting notes here…"
+        placeholder="Paste the raw scrum / meeting notes here — or drop an audio file above to transcribe…"
         className="w-full px-3.5 py-3 text-sm rounded-xl border border-border/60 bg-background/60 focus:outline-none focus:border-primary/50 resize-y leading-relaxed font-mono" />
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className="px-3 py-2 rounded-xl border border-border/60 bg-muted/30 text-sm hover:bg-muted/60 transition-colors">Cancel</button>

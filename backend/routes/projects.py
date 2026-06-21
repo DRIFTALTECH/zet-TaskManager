@@ -68,6 +68,16 @@ def delete_section_route(
     return project_logic.delete_section(db, user_id, project_id, section_id)
 
 
+@router.delete("/{project_id}")
+def delete_project_route(
+    project_id: str,
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    project_logic.delete_project(db, user_id, project_id)
+    return {"ok": True}
+
+
 @router.post("/{project_id}/members", response_model=ProjectOut)
 def add_member(
     project_id: str,

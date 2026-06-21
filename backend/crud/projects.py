@@ -82,6 +82,22 @@ def remove_member(db: Session, project_id: str, user_id: str) -> None:
     realtime.bump("projects", "users")
 
 
+def delete_project(db: Session, project_id: str) -> None:
+    """Delete a project and everything under it. Project-referencing FKs have no
+    DB cascade, so we delete dependents in order; task children (assignees, logs,
+    feedback, checklists, attachments, timer runs) DO cascade on task delete via
+    their ondelete=CASCADE FKs (SQLite foreign_keys pragma is enabled)."""
+    from database.models import Section, Task, TimesheetEntry
+
+    db.query(TimesheetEntry).filter(TimesheetEntry.project_id == project_id).delete(synchronize_session=False)
+    db.query(Task).filter(Task.project_id == project_id).delete(synchronize_session=False)
+    db.query(Section).filter(Section.project_id == project_id).delete(synchronize_session=False)
+    db.query(ProjectMember).filter(ProjectMember.project_id == project_id).delete(synchronize_session=False)
+    db.query(Project).filter(Project.id == project_id).delete(synchronize_session=False)
+    db.commit()
+    realtime.bump("projects", "tasks", "users")
+
+
 def member_ids(db: Session, project_id: str) -> list[str]:
     rows = db.query(ProjectMember.user_id).filter(ProjectMember.project_id == project_id).all()
     return [r[0] for r in rows]

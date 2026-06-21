@@ -277,3 +277,16 @@ class Scrum(Base):
     updated_by = Column(String, ForeignKey("users.id"), nullable=True)
     updated_at = Column(String, nullable=False, default="")
     created_at = Column(String, nullable=False, default="")
+
+
+class TeamsTranscriptImport(Base):
+    """Dedup ledger for Teams meeting transcripts pulled into MOM. Keyed by the
+    Graph transcript id so a poll/sync never creates the same scrum twice."""
+
+    __tablename__ = "teams_transcript_imports"
+
+    transcript_id = Column(String, primary_key=True)
+    meeting_id = Column(String, nullable=False, default="")
+    scrum_id = Column(String, ForeignKey("scrums.id", ondelete="SET NULL"), nullable=True)
+    imported_by = Column(String, ForeignKey("users.id"), nullable=True)
+    imported_at = Column(String, nullable=False, default="")

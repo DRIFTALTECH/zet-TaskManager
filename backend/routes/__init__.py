@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from routes import admin, audit, auth, kanban, notifications, projects, tasks, timesheet, users
 from routes import checklists, attachments, sync, meeting_notes, tokens, oauth_consent, oauth_well_known, health
+from routes import integrations_teams
 from ai.router import router as ai_router
 
 
@@ -22,6 +23,7 @@ def register_routes() -> APIRouter:
     root.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
     root.include_router(sync.router, prefix="/sync", tags=["sync"])
     root.include_router(meeting_notes.router, prefix="/meeting-notes", tags=["meeting-notes"])
+    root.include_router(integrations_teams.router, prefix="/integrations/teams", tags=["teams"])
     # Nested sub-resources under /tasks/{task_id}
     root.include_router(
         checklists.router,

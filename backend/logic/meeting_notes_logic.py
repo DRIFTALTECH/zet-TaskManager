@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 import crud.meeting_notes as scrums_crud
 import crud.users as users_crud
-from ai import chains
+from ai import chains, service
 from database.init_db import new_id
 from database.models import Scrum
 from logic.audit import log_audit
@@ -85,6 +85,31 @@ def list_range(db: Session, start: str, end: str) -> list[ScrumDaySummary]:
         ))
     out.sort(key=lambda x: x.date)
     return out
+
+
+# Audio formats accepted for a dropped meeting recording (same set the task
+# extractor accepts — both go through the same Groq Whisper model).
+AUDIO_EXT = {"mp3", "wav", "m4a", "webm", "ogg", "oga", "flac", "mp4", "mpeg", "mpga", "aac"}
+
+
+def _ext(filename: str | None) -> str:
+    if not filename or "." not in filename:
+        return ""
+    return filename.rsplit(".", 1)[-1].lower()
+
+
+def transcribe_audio(audio_bytes: bytes, filename: str | None) -> str:
+    """Speech-to-text for a dropped meeting recording, via the same Groq Whisper
+    model task extraction uses (service.transcribe). Returns the raw transcript so
+    the user can review/edit it before it is parsed into the per-person MOM."""
+    if not audio_bytes:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No audio uploaded.")
+    if _ext(filename) not in AUDIO_EXT:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unsupported audio format.")
+    text = (service.transcribe(audio_bytes, filename or "audio.webm") or "").strip()
+    if not text:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Could not transcribe audio — empty result.")
+    return text
 
 
 def _parse_to_json(raw_text: str) -> tuple[str, str]:

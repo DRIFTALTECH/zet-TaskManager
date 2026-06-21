@@ -99,7 +99,7 @@ const ProjectDetailPage = () => {
   const {
     users, projects, tasks, kanbanColumns, currentUser,
     addSection, removeSection, addMemberToProject, removeMemberFromProject,
-    moveTask, approveTask, reopenTaskToBacklog, setProjectAppearance, uploadProjectMedia,
+    moveTask, approveTask, reopenTaskToBacklog, setProjectAppearance, uploadProjectMedia, deleteProject,
   } = useAppStore();
   const canEdit = currentUser?.role === 'manager' || currentUser?.role === 'admin';
 
@@ -129,6 +129,8 @@ const ProjectDetailPage = () => {
   // Appearance (background image + accent) editor.
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [savingAppearance, setSavingAppearance] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deletingProject, setDeletingProject] = useState(false);
   const [bgUrlInput, setBgUrlInput] = useState('');
   const [projImgUrlInput, setProjImgUrlInput] = useState('');
 
@@ -166,6 +168,19 @@ const ProjectDetailPage = () => {
     () => (project ? tasks.filter(t => t.projectId === project.id) : []),
     [project, tasks],
   );
+
+  // Same work-date range, applied to the task-based charts (status breakdown,
+  // member contribution, completion). A task counts as "in range" if it was
+  // created, due, or completed inside the window. No filter → every task.
+  const filteredProjectTasks = useMemo(() => {
+    if (!dateFrom && !dateTo) return projectTasks;
+    const inR = (d?: string) => {
+      if (!d) return false;
+      const day = d.slice(0, 10);
+      return (!dateFrom || day >= dateFrom) && (!dateTo || day <= dateTo);
+    };
+    return projectTasks.filter(t => inR(t.createdAt) || inR(t.completedAt) || inR(t.dueDate));
+  }, [projectTasks, dateFrom, dateTo]);
 
   // Total logged time for the project — purely from the timesheet.
   const projectSeconds = useMemo(() => timesheet.reduce((a, e) => a + (e.seconds || 0), 0), [timesheet]);
@@ -214,7 +229,7 @@ const ProjectDetailPage = () => {
 
   const statusBreakdown = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const t of projectTasks) counts.set(t.status, (counts.get(t.status) || 0) + 1);
+    for (const t of filteredProjectTasks) counts.set(t.status, (counts.get(t.status) || 0) + 1);
     const ordered = [...kanbanColumns.map(c => c.id), 'completed'];
     const seen = new Set<string>();
     const rows: { name: string; value: number; status: string }[] = [];
@@ -223,7 +238,7 @@ const ProjectDetailPage = () => {
     }
     for (const [id, v] of counts) if (!seen.has(id)) rows.push({ name: statusLabel(id, kanbanColumns), value: v, status: id });
     return rows;
-  }, [projectTasks, kanbanColumns]);
+  }, [filteredProjectTasks, kanbanColumns]);
 
   // Member contribution: every task assigned to a person (any status), plus the
   // hours that person has logged on this project (from the timesheet).
@@ -235,12 +250,12 @@ const ProjectDetailPage = () => {
       .map(id => {
         const u = users.find(x => x.id === id);
         const name = u?.name || 'Unknown';
-        const total = projectTasks.filter(t => isTaskAssignedTo(t, id)).length;
+        const total = filteredProjectTasks.filter(t => isTaskAssignedTo(t, id)).length;
         const seconds = secsByUser.get(id) || 0;
         return { userId: id, name: name.split(' ')[0], fullName: name, total, seconds, hours: hoursDecimal(seconds) };
       })
       .sort((a, b) => b.total - a.total || b.seconds - a.seconds);
-  }, [project, users, projectTasks, timesheet]);
+  }, [project, users, filteredProjectTasks, timesheet]);
   const hasContribution = memberContribution.some(m => m.total > 0 || m.seconds > 0);
 
   // ── Member drill-down popup (per-section hours + tasks for one person) ──────
@@ -271,23 +286,35 @@ const ProjectDetailPage = () => {
   );
 
   const completionTrend = useMemo(() => {
-    const weeks = 8;
-    const start = startOfWeek(addWeeks(new Date(), -(weeks - 1)), { weekStartsOn: 1 });
+    // With a date filter active, bucket weekly across the selected range (capped
+    // at 26 weeks); otherwise show the rolling last 8 weeks.
+    let start: Date;
+    let weeks: number;
+    if (dateFrom && dateTo) {
+      start = startOfWeek(new Date(dateFrom), { weekStartsOn: 1 });
+      const end = startOfWeek(new Date(dateTo), { weekStartsOn: 1 });
+      weeks = Math.min(26, Math.max(1, Math.round((end.getTime() - start.getTime()) / (7 * 864e5)) + 1));
+    } else {
+      weeks = 8;
+      start = startOfWeek(addWeeks(new Date(), -(weeks - 1)), { weekStartsOn: 1 });
+    }
     const buckets = Array.from({ length: weeks }, (_, i) => {
       const wStart = addWeeks(start, i);
       return { key: format(wStart, 'yyyy-MM-dd'), label: format(wStart, 'MMM d'), completed: 0 };
     });
     for (const t of projectTasks) {
       if (!t.completedAt) continue;
+      const day = t.completedAt.slice(0, 10);
+      if (dateFrom && day < dateFrom) continue;
+      if (dateTo && day > dateTo) continue;
       const d = new Date(t.completedAt);
       if (Number.isNaN(d.getTime())) continue;
-      const wStart = startOfWeek(d, { weekStartsOn: 1 });
-      const key = format(wStart, 'yyyy-MM-dd');
+      const key = format(startOfWeek(d, { weekStartsOn: 1 }), 'yyyy-MM-dd');
       const b = buckets.find(x => x.key === key);
       if (b) b.completed += 1;
     }
     return buckets;
-  }, [projectTasks]);
+  }, [projectTasks, dateFrom, dateTo]);
   const hasCompletionData = completionTrend.some(b => b.completed > 0);
 
   // ── Task grouping ─────────────────────────────────────────────────────────────
@@ -406,6 +433,18 @@ const ProjectDetailPage = () => {
     }
   };
 
+  const confirmDeleteProject = async () => {
+    setDeletingProject(true);
+    try {
+      await deleteProject(project.id);
+      toast.success(`Project "${project.name}" deleted`);
+      navigate('/manage');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not delete project');
+      setDeletingProject(false);
+    }
+  };
+
   const confirmRemoveMember = async () => {
     if (!memberToRemove) return;
     setRemovingMember(true);
@@ -468,6 +507,7 @@ const ProjectDetailPage = () => {
               <ArrowLeft className="h-3.5 w-3.5" /> All projects
             </Link>
 
+            <div className="flex items-center gap-2">
             <div className="flex items-center gap-1 rounded-xl border border-border/50 bg-card/70 backdrop-blur p-1 shadow-sm">
               {(['24h', '7d', '30d'] as const).map(p => (
                 <button
@@ -523,6 +563,17 @@ const ProjectDetailPage = () => {
                   </div>
                 </PopoverContent>
               </Popover>
+            </div>
+            {canEdit && (
+              <button
+                type="button"
+                onClick={() => setDeleteOpen(true)}
+                title="Delete project"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-destructive/40 bg-destructive/5 text-destructive text-xs font-semibold hover:bg-destructive/10 transition-colors shrink-0"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Delete project
+              </button>
+            )}
             </div>
           </div>
 
@@ -1015,6 +1066,27 @@ const ProjectDetailPage = () => {
       </Dialog>
 
       <TaskDetailModal task={selectedTask} open={!!selectedTask} onOpenChange={o => !o && setSelectedTask(null)} />
+
+      <AlertDialog open={deleteOpen} onOpenChange={o => !o && !deletingProject && setDeleteOpen(false)}>
+        <AlertDialogContent className="rounded-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete “{project.name}”?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently deletes the project and <strong>all its sections, tasks, and timesheet entries</strong>. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingProject}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deletingProject}
+              onClick={e => { e.preventDefault(); void confirmDeleteProject(); }}
+            >
+              {deletingProject ? 'Deleting…' : 'Delete project'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!memberToRemove} onOpenChange={o => !o && setMemberToRemove(null)}>
         <AlertDialogContent className="rounded-2xl">

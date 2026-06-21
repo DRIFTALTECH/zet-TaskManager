@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from sqlalchemy.orm import Session
 
 from database.database import get_db
@@ -27,6 +27,18 @@ def list_day(work_date: str, user_id: str = Depends(get_current_user_id), db: Se
 @router.post("/day/{work_date}", response_model=ScrumOut)
 def create_scrum(work_date: str, body: ScrumCreate, user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
     return meeting_notes_logic.create_scrum(db, work_date, body, user_id)
+
+
+@router.post("/transcribe")
+async def transcribe(
+    file: UploadFile = File(...),
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    """Transcribe a dropped meeting recording to text (for review before saving).
+    Returns {text}."""
+    audio = await file.read()
+    return {"text": meeting_notes_logic.transcribe_audio(audio, file.filename)}
 
 
 @router.put("/scrum/{scrum_id}", response_model=ScrumOut)

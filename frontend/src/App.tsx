@@ -12,6 +12,7 @@ import SignUpPage from "./pages/SignUpPage";
 import DashboardPage from "./pages/DashboardPage";
 import MyTasksPage from "./pages/MyTasksPage";
 import TimesheetPage from "./pages/TimesheetPage";
+import CalendarPage from "./pages/CalendarPage";
 import TimeReportPage from "./pages/TimeReportPage";
 import UsersPage from "./pages/UsersPage";
 import UserDetailPage from "./pages/UserDetailPage";
@@ -133,6 +134,7 @@ const App = () => (
           <Route path="/" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
           <Route path="/tasks" element={<ProtectedRoute><MyTasksPage /></ProtectedRoute>} />
           <Route path="/timesheet" element={<ProtectedRoute><TimesheetPage /></ProtectedRoute>} />
+          <Route path="/calendar" element={<ProtectedRoute><CalendarPage /></ProtectedRoute>} />
           <Route path="/meeting-notes" element={<ProtectedRoute><MeetingNotesPage /></ProtectedRoute>} />
           <Route path="/reports" element={<ProtectedRoute><TimeReportPage /></ProtectedRoute>} />
           <Route path="/users" element={<ProtectedRoute managerOnly><UsersPage /></ProtectedRoute>} />

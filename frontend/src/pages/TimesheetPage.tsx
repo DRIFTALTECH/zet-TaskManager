@@ -23,11 +23,13 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { snappy, pageEnter } from '@/lib/motion';
 import * as XLSX from 'xlsx';
-import type { TimesheetWorkEntry, AITimesheetRow } from '@/types';
+import type { TimesheetWorkEntry, AITimesheetRow, Task, Project } from '@/types';
+import { isTaskAssignedTo } from '@/lib/task-utils';
 import { api } from '@/lib/api';
 import { acquireGraphToken, hasMicrosoftSession, isMicrosoftAuthConfigured } from '@/lib/microsoftAuth';
 import UserAvatar from '@/components/UserAvatar';
 import ProjectSectionPicker from '@/components/ProjectSectionPicker';
+import TaskSuggest from '@/components/TaskSuggest';
 
 const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const dayShort = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -614,9 +616,10 @@ function TimesheetAIPanel({
 
 // ═══════════════════════════════════════════════════════════════════════════════
 const TimesheetPage = () => {
-  const { currentUser, projects, users, addSection } = useAppStore();
+  const { currentUser, projects, users, tasks, addSection } = useAppStore();
   const [weekOffset, setWeekOffset] = useState(0);
   const [entries, setEntries] = useState<TimesheetWorkEntry[]>([]);
+  const [togglingBillId, setTogglingBillId] = useState<string | null>(null);
   const [loadingEntries, setLoadingEntries] = useState(false);
 
   const [entryModal, setEntryModal] = useState<EntryModalState>(null);
@@ -752,7 +755,31 @@ const TimesheetPage = () => {
     finally { setCreatingSec(false); }
   };
 
+  // Tasks the current user works on — fed to the description autocomplete.
+  const myTasks = useMemo(() => {
+    if (!currentUser) return [] as Task[];
+    const mine = tasks.filter(t => isTaskAssignedTo(t, currentUser.id));  // assigned to me only
+    return mine.slice().sort((a, b) => Number(a.status === 'completed') - Number(b.status === 'completed'));
+  }, [tasks, currentUser]);
+
   const openNewModal = (workDate: string) => { resetForm(); setEntryModal({ mode: 'new', date: workDate }); };
+
+  // Selecting a suggested task fills description, and (when the user is on that
+  // project) the project + section too.
+  const applyTaskToQuick = (t: Task) => {
+    setQuickDesc(t.title);
+    if (userProjects.some(p => p.id === t.projectId)) {
+      setQuickProjectId(t.projectId);
+      if (t.sectionId) setQuickSectionId(t.sectionId);
+    }
+  };
+  const applyTaskToForm = (t: Task) => {
+    setFormDescription(t.title);
+    if (userProjects.some(p => p.id === t.projectId)) {
+      setFormProjectId(t.projectId);
+      if (t.sectionId) setFormSectionId(t.sectionId);
+    }
+  };
   const openEditModal = (entry: TimesheetWorkEntry) => {
     setFormProjectId(entry.projectId);
     setFormSectionId(entry.sectionId);
@@ -763,6 +790,20 @@ const TimesheetPage = () => {
     setEntryModal({ mode: 'edit', entry });
   };
   const closeEntryModal = () => { setEntryModal(null); resetForm(); };
+
+  // Optimistic billable toggle straight from the record's $ icon.
+  const toggleBillable = async (entry: TimesheetWorkEntry) => {
+    setTogglingBillId(entry.id);
+    setEntries(prev => prev.map(e => (e.id === entry.id ? { ...e, billable: !e.billable } : e)));
+    try {
+      await api.patchTimesheetWorkEntry(entry.id, { billable: !entry.billable });
+    } catch (e) {
+      setEntries(prev => prev.map(x => (x.id === entry.id ? { ...x, billable: entry.billable } : x)));
+      toast.error(e instanceof Error ? e.message : 'Could not update billable');
+    } finally {
+      setTogglingBillId(null);
+    }
+  };
 
   const toggleOnLeave = (date: string) => {
     setOnLeaveDays(prev => {
@@ -806,8 +847,6 @@ const TimesheetPage = () => {
     finally { setDeletingEntry(false); }
   };
 
-  if (!currentUser) return null;
-
   const defaultNewDate = visibleWeekDates.includes(todayStr) ? todayStr : (visibleWeekDates[visibleWeekDates.length - 1] ?? weekDates[0]);
 
   useEffect(() => {
@@ -817,6 +856,8 @@ const TimesheetPage = () => {
       return defaultNewDate;
     });
   }, [weekOffset, defaultNewDate, visibleWeekDates]);
+
+  if (!currentUser) return null;
 
   const quickSelectedProject = userProjects.find(p => p.id === quickProjectId);
   const quickSectionOptions = quickSelectedProject?.sections ?? [];
@@ -1066,20 +1107,7 @@ const TimesheetPage = () => {
     >
       {/* ── Page header ──────────────────────────────────────────────────── */}
       <div className="shrink-0 px-4 sm:px-8 pt-6 sm:pt-7 pb-5 border-b border-border/30 bg-gradient-to-b from-muted/20 to-transparent">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <Clock className="h-4 w-4 text-primary/60" />
-              <span className="text-xs font-bold text-muted-foreground/50 uppercase tracking-widest">Work Log</span>
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
-              Timesheet
-            </h1>
-            <p className="text-sm text-muted-foreground/60 mt-1.5">
-              Log work by day — entries ordered newest first
-            </p>
-          </div>
-
+        <div className="flex items-center justify-end gap-4 flex-wrap">
           {/* Action buttons */}
           <div className="flex items-center gap-2.5 mt-1 flex-wrap">
             <motion.button
@@ -1123,14 +1151,17 @@ const TimesheetPage = () => {
           )}
         >
           <div className="flex-1 min-w-[200px] flex items-center px-3 py-2.5 md:border-0">
-            <input
-              id="timesheet-quick-desc"
-              type="text"
-              placeholder="What have you worked on?"
+            <TaskSuggest
               value={quickDesc}
-              onChange={e => setQuickDesc(e.target.value)}
+              onChange={setQuickDesc}
+              onPick={applyTaskToQuick}
+              tasks={myTasks}
+              projects={projects}
               disabled={saving || userProjects.length === 0}
-              className="w-full bg-transparent text-sm placeholder:text-muted-foreground/45 focus:outline-none focus:ring-0 border-0 px-1 py-1"
+              inputId="timesheet-quick-desc"
+              placeholder="What have you worked on?"
+              inputClassName="w-full bg-transparent text-sm placeholder:text-muted-foreground/45 focus:outline-none focus:ring-0 border-0 px-1 py-1"
+              containerClassName="w-full"
             />
           </div>
 
@@ -1234,14 +1265,6 @@ const TimesheetPage = () => {
               {saving ? '…' : 'Add'}
             </button>
 
-            <div className="hidden md:flex flex-col border-l border-border/30 py-1 pl-1">
-              <button type="button" className="p-1.5 rounded-md text-primary bg-primary/10" title="Timer mode">
-                <Clock className="h-4 w-4" />
-              </button>
-              <button type="button" className="p-1.5 rounded-md text-muted-foreground/50 hover:text-muted-foreground" title="List view">
-                <List className="h-4 w-4" />
-              </button>
-            </div>
           </div>
         </div>
       </div>
@@ -1325,20 +1348,20 @@ const TimesheetPage = () => {
                     className="rounded-2xl border border-border/30 overflow-hidden bg-card shadow-sm hover:shadow-md transition-shadow duration-200"
                   >
                     {/* Day header */}
-                    <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5 border-b border-border/20 bg-muted/10">
+                    <div className="flex flex-wrap items-center justify-between gap-3 px-7 py-4 border-b border-border/20 bg-muted/10">
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className="flex items-baseline gap-2.5 min-w-0">
-                          <h2 className="text-sm font-bold text-foreground">{day.dayName}</h2>
-                          <span className="text-xs font-mono text-muted-foreground/60 tabular-nums">{formatDisplayDate(day.date)}</span>
+                        <div className="flex items-baseline gap-3 min-w-0">
+                          <h2 className="text-base sm:text-lg font-bold text-foreground">{day.dayName}</h2>
+                          <span className="text-sm font-mono text-muted-foreground/60 tabular-nums">{formatDisplayDate(day.date)}</span>
                           {isToday && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/15 text-primary border border-primary/20 font-bold">Today</span>
+                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-primary/15 text-primary border border-primary/20 font-bold">Today</span>
                           )}
                         </div>
                       </div>
 
                       <div className="flex items-center gap-2">
                         {/* Day total */}
-                        <span className={`text-sm font-bold tabular-nums px-3 py-1 rounded-xl border ${
+                        <span className={`text-base font-bold tabular-nums px-3.5 py-1.5 rounded-xl border ${
                           day.totalSeconds > 0
                             ? 'bg-primary/10 text-primary border-primary/20'
                             : 'text-muted-foreground/40 bg-muted/30 border-border/30'
@@ -1423,76 +1446,78 @@ const TimesheetPage = () => {
                           return (
                             <li
                               key={entry.id}
-                              className="flex flex-col sm:flex-row sm:items-start gap-3 px-5 py-4 hover:bg-muted/20 transition-colors group"
+                              className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 px-5 sm:px-7 py-4 sm:py-5 hover:bg-muted/20 transition-colors group"
                             >
-                              {/* Time block */}
-                              <div className="flex items-center gap-2.5 shrink-0">
-                                <div className="flex flex-col items-center gap-0.5">
-                                  <span className="inline-flex items-center rounded-xl border border-border/40 bg-muted/30 px-3 py-1 font-mono text-xs tabular-nums font-semibold text-foreground/70">
-                                    {entry.timeFrom} – {entry.timeTo}
-                                  </span>
-                                  <span className="text-xs font-bold tabular-nums text-foreground/70">
-                                    {formatDuration(entry.seconds)}
-                                  </span>
-                                </div>
-                              </div>
-
-                              {/* Content */}
-                              <div className="min-w-0 flex-1 space-y-1.5">
-                                <p className="text-sm text-foreground leading-snug break-words whitespace-pre-wrap [overflow-wrap:anywhere]">
+                              {/* Description — left, primary */}
+                              <div className="min-w-0 flex-1">
+                                <p className="text-base sm:text-[17px] font-medium text-foreground leading-snug break-words whitespace-pre-wrap [overflow-wrap:anywhere]">
                                   {entry.description?.trim()
                                     ? entry.description
-                                    : <span className="text-muted-foreground/40 italic">No description</span>
+                                    : <span className="text-muted-foreground/40 italic font-normal">No description</span>
                                   }
                                 </p>
-                                <div className="flex flex-wrap gap-1.5">
-                                  <span className={`text-[11px] px-2.5 py-0.5 rounded-full border font-semibold max-w-full break-words [overflow-wrap:anywhere] ${idPillColor(entry.projectId)}`}>
+                              </div>
+
+                              {/* Right cluster — project/section · time · duration · actions */}
+                              <div className="flex items-center gap-3 sm:gap-5 shrink-0 flex-wrap sm:flex-nowrap">
+                                <div className="flex flex-wrap gap-1.5 sm:justify-end max-w-[280px]">
+                                  <span className={`text-xs px-3 py-1 rounded-full border font-semibold max-w-full truncate ${idPillColor(entry.projectId)}`}>
                                     {project?.name ?? entry.projectId}
                                   </span>
                                   {section && (
-                                    <span className={`text-[11px] px-2.5 py-0.5 rounded-full border font-medium max-w-full break-words [overflow-wrap:anywhere] opacity-80 ${idPillColor(entry.sectionId)}`}>
+                                    <span className={`text-xs px-3 py-1 rounded-full border font-medium max-w-full truncate opacity-80 ${idPillColor(entry.sectionId)}`}>
                                       {section.name}
                                     </span>
                                   )}
                                 </div>
-                              </div>
 
-                              {/* Actions */}
-                              <div className="shrink-0 self-start sm:self-center flex items-center gap-1">
-                                {entry.billable && (
-                                  <span
-                                    title="Billable"
-                                    className="flex items-center justify-center h-7 w-7 rounded-lg bg-emerald-500/10 text-emerald-500"
-                                  >
-                                    <DollarSign className="h-4 w-4" />
-                                  </span>
-                                )}
-                                <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <button
-                                      type="button"
-                                      className="p-2 rounded-xl hover:bg-muted/60 text-muted-foreground/50 hover:text-foreground transition-all"
-                                      aria-label="Entry actions"
-                                    >
-                                      <MoreVertical className="h-4 w-4" />
-                                    </button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent align="end" className="w-40 rounded-xl">
-                                    <DropdownMenuItem
-                                      onClick={() => openEditModal(entry)}
-                                      className="rounded-lg cursor-pointer hover:text-primary transition-colors"
-                                    >
-                                      Edit
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                      className="text-destructive focus:text-destructive rounded-lg cursor-pointer"
-                                      onClick={() => setEntryToDelete(entry)}
-                                    >
-                                      Delete
-                                    </DropdownMenuItem>
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
+                                <span className="inline-flex items-center rounded-xl border border-border/40 bg-muted/30 px-3.5 py-2 font-mono text-sm tabular-nums font-semibold text-foreground/70 shrink-0">
+                                  {entry.timeFrom} – {entry.timeTo}
+                                </span>
+
+                                <span className="text-xl font-bold tabular-nums text-foreground shrink-0 w-[92px] text-right">
+                                  {formatDuration(entry.seconds)}
+                                </span>
+
+                                <button
+                                  type="button"
+                                  onClick={() => void toggleBillable(entry)}
+                                  disabled={togglingBillId === entry.id}
+                                  title={entry.billable ? 'Billable — click to mark non-billable' : 'Non-billable — click to mark billable'}
+                                  aria-pressed={entry.billable}
+                                  className={`flex items-center justify-center h-9 w-9 rounded-lg transition-colors disabled:opacity-50 shrink-0 ${
+                                    entry.billable ? 'text-emerald-500 hover:text-emerald-400' : 'text-muted-foreground/30 hover:text-muted-foreground/60'
+                                  }`}
+                                >
+                                  <DollarSign className="h-5 w-5" />
+                                </button>
+
+                                <div className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="p-2 rounded-xl hover:bg-muted/60 text-muted-foreground/50 hover:text-foreground transition-all"
+                                        aria-label="Entry actions"
+                                      >
+                                        <MoreVertical className="h-5 w-5" />
+                                      </button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end" className="w-40 rounded-xl">
+                                      <DropdownMenuItem
+                                        onClick={() => openEditModal(entry)}
+                                        className="rounded-lg cursor-pointer hover:text-primary transition-colors"
+                                      >
+                                        Edit
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                        className="text-destructive focus:text-destructive rounded-lg cursor-pointer"
+                                        onClick={() => setEntryToDelete(entry)}
+                                      >
+                                        Delete
+                                      </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
                                 </div>
                               </div>
                             </li>
@@ -1523,14 +1548,19 @@ const TimesheetPage = () => {
           <div className="space-y-4 pt-2">
             <div className="space-y-1.5">
               <Label className="text-xs font-bold text-muted-foreground/60 uppercase tracking-wide" htmlFor="ts-desc">Description</Label>
-              <textarea
-                id="ts-desc"
-                rows={3}
+              <TaskSuggest
                 value={formDescription}
-                onChange={e => setFormDescription(e.target.value)}
-                placeholder="What did you work on?"
-                className={textareaCls}
+                onChange={setFormDescription}
+                onPick={applyTaskToForm}
+                tasks={myTasks}
+                projects={projects}
                 disabled={saving}
+                inputId="ts-desc"
+                placeholder="What did you work on?"
+                multiline
+                rows={3}
+                inputClassName={textareaCls}
+                containerClassName="w-full"
               />
             </div>
 

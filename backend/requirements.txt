@@ -15,6 +15,9 @@ groq==0.37.1
 pypdf==4.3.1
 python-docx==1.2.0
 fastmcp==2.13.0.2
+# Microsoft Graph (Teams meeting transcripts → MOM); httpx ships with fastmcp/groq
+msal==1.36.0
+httpx==0.28.1
 # Optional: error monitoring (activated only when SENTRY_DSN is set)
 sentry-sdk==2.20.0
 # Optional: multi-worker realtime fan-out (activated only when REDIS_URL is set)

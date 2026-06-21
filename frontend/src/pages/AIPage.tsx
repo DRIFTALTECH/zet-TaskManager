@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import type { AIChatAction, AIChatMessage, AIExtractedTask, AIProposal, AICard,
   AICardTaskData, AICardStatData, AICardProjectData, AICardTimesheetData, Priority } from '@/types';
 import CreateTaskModal from '@/components/CreateTaskModal';
+import { ProgressiveFluxLoader } from '@/components/ui/progressive-flux-loader';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { snappy, pageEnter } from '@/lib/motion';
 import { cn } from '@/lib/utils';
@@ -1142,13 +1143,25 @@ export function TaskCreatorModal({
               </div>
             )}
 
-            <div className="flex justify-end">
-              <button onClick={() => void extract()} disabled={!canExtract || loading}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-violet-600 text-white text-sm font-semibold hover:bg-violet-500 transition-colors disabled:opacity-40">
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                {loading ? 'Extracting…' : 'Extract tasks'}
-              </button>
-            </div>
+            {loading ? (
+              <ProgressiveFluxLoader
+                className="py-4 gap-5"
+                textClassName="text-2xl sm:text-3xl"
+                phases={[
+                  { at: 0, label: 'reading' },
+                  { at: 35, label: 'understanding' },
+                  { at: 70, label: 'drafting tasks' },
+                  { at: 100, label: 'almost done' },
+                ]}
+              />
+            ) : (
+              <div className="flex justify-end">
+                <button onClick={() => void extract()} disabled={!canExtract || loading}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-violet-600 text-white text-sm font-semibold hover:bg-violet-500 transition-colors disabled:opacity-40">
+                  <Sparkles className="h-4 w-4" /> Extract tasks
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="space-y-4 pt-1">

@@ -43,6 +43,7 @@ interface AppState {
   setProjectAppearance: (projectId: string, body: { backgroundImage?: string; accentColor?: string; projectImage?: string }) => Promise<void>;
   uploadProjectMedia: (projectId: string, kind: 'background' | 'project', file: Blob, accentColor?: string) => Promise<void>;
   removeSection: (projectId: string, sectionId: string) => Promise<void>;
+  deleteProject: (projectId: string) => Promise<void>;
   addMemberToProject: (projectId: string, userId: string) => Promise<void>;
   removeMemberFromProject: (projectId: string, userId: string) => Promise<void>;
 
@@ -286,6 +287,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     const updated = await api.deleteProjectSection(projectId, sectionId);
     set({
       projects: get().projects.map(pr => (pr.id === projectId ? updated : pr)),
+    });
+  },
+
+  deleteProject: async (projectId) => {
+    await api.deleteProject(projectId);
+    set({
+      projects: get().projects.filter(pr => pr.id !== projectId),
+      tasks: get().tasks.filter(t => t.projectId !== projectId),
     });
   },
 

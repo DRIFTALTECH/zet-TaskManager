@@ -87,6 +87,20 @@ def list_entries_as_manager(db: Session, manager_id: str, target_user_id: str, s
     return list_entries(db, target_user_id, start, end)
 
 
+def list_entries_team(db: Session, user_id: str, start: str, end: str) -> list[TimesheetEntryOut]:
+    """Manager/admin team report: every member's rows in range. Admin sees all;
+    a manager sees only rows on projects they belong to (same visibility as /projects)."""
+    if start > end:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "start must be <= end")
+    project_logic.ensure_manager(db, user_id)
+    if project_logic.is_admin(db, user_id):
+        rows = te_crud.list_for_range_all(db, start, end)
+    else:
+        pids = [p.id for p in projects_crud.list_for_member(db, user_id)]
+        rows = te_crud.list_for_range_in_projects(db, pids, start, end)
+    return [to_out(r) for r in rows]
+
+
 def list_entries_for_project(db: Session, manager_id: str, project_id: str) -> list[TimesheetEntryOut]:
     """Manager-only: all timesheet rows logged against a project, across every member."""
     project_logic.ensure_manager(db, manager_id)

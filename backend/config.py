@@ -42,3 +42,23 @@ def cors_origins() -> list[str]:
 # is unchanged; production rejects them.
 JWT_SECRET = _secret("TASKMANAGER_JWT_SECRET", "dev-secret-change-me")
 ADMIN_PASSWORD = _secret("ADMIN_PASSWORD", "Default@123", min_len=8)
+
+
+# ── Microsoft Graph (Teams meeting transcripts → MOM) ───────────────────────────
+# App-only (client-credentials) access to read Teams online-meeting transcripts.
+# Requires an Entra app with application permission OnlineMeetingTranscript.Read.All
+# (admin-consented) plus a Teams application-access-policy granting the app rights
+# to the organizer's meetings. "common" is NOT a valid tenant for app-only auth.
+MICROSOFT_TENANT_ID = os.environ.get("MICROSOFT_TENANT_ID", "").strip()
+MICROSOFT_CLIENT_ID = os.environ.get("MICROSOFT_CLIENT_ID", "").strip()
+MICROSOFT_CLIENT_SECRET = os.environ.get("MICROSOFT_CLIENT_SECRET", "").strip()
+
+
+def graph_configured() -> bool:
+    """True when app-only Graph access is fully configured (real tenant + secret)."""
+    return bool(
+        MICROSOFT_CLIENT_ID
+        and MICROSOFT_CLIENT_SECRET
+        and MICROSOFT_TENANT_ID
+        and MICROSOFT_TENANT_ID.lower() != "common"
+    )
