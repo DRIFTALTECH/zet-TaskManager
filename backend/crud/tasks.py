@@ -30,6 +30,28 @@ def list_for_project(db: Session, project_id: str) -> list[Task]:
     return db.query(Task).filter(Task.project_id == project_id).all()
 
 
+def list_touched_on_for_user(db: Session, user_id: str, day: str) -> list[Task]:
+    """Tasks the user started or completed on `day`.
+
+    A task counts if the user is its primary assignee OR a co-assignee (task_assignees),
+    and it was started (started_at timestamp on `day`) or completed (completed_at == day).
+    Filtering is done in SQL — no fetch-all-then-loop.
+    """
+    from sqlalchemy import or_
+
+    from database.models import TaskAssignee
+
+    assignee_task_ids = db.query(TaskAssignee.task_id).filter(TaskAssignee.user_id == user_id)
+    return (
+        db.query(Task)
+        .filter(
+            or_(Task.assigned_to == user_id, Task.id.in_(assignee_task_ids)),
+            or_(Task.started_at.like(f"{day}%"), Task.completed_at == day),
+        )
+        .all()
+    )
+
+
 def count_for_section(db: Session, section_id: str) -> int:
     return db.query(Task).filter(Task.section_id == section_id).count()
 

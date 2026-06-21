@@ -13,7 +13,7 @@ import { toast } from 'sonner';
 import type { AIChatAction, AIChatMessage, AIExtractedTask, AIProposal, AICard,
   AICardTaskData, AICardStatData, AICardProjectData, AICardTimesheetData, Priority } from '@/types';
 import CreateTaskModal from '@/components/CreateTaskModal';
-import { ProgressiveFluxLoader } from '@/components/ui/progressive-flux-loader';
+import TaskerThinking from '@/components/agents/TaskerThinking';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { snappy, pageEnter } from '@/lib/motion';
 import { cn } from '@/lib/utils';
@@ -422,7 +422,7 @@ function ExtractedTaskCard({ task, onEdit }: { task: AIExtractedTask; onEdit: (p
         createdBy: currentUser.id,
       });
       setAccepted(true);
-      toast.success(`"${task.title}" created!`);
+      // Tasker mascot animates the "task created" confirmation.
     } catch (err) {
       toast.error('Could not create the task. Please try again.');
     } finally {
@@ -1144,16 +1144,7 @@ export function TaskCreatorModal({
             )}
 
             {loading ? (
-              <ProgressiveFluxLoader
-                className="py-4 gap-5"
-                textClassName="text-2xl sm:text-3xl"
-                phases={[
-                  { at: 0, label: 'reading' },
-                  { at: 35, label: 'understanding' },
-                  { at: 70, label: 'drafting tasks' },
-                  { at: 100, label: 'almost done' },
-                ]}
-              />
+              <TaskerThinking />
             ) : (
               <div className="flex justify-end">
                 <button onClick={() => void extract()} disabled={!canExtract || loading}

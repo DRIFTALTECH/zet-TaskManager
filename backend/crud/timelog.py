@@ -45,6 +45,15 @@ def list_for_task(db: Session, task_id: str) -> list[TaskTimeLog]:
     return db.query(TaskTimeLog).filter(TaskTimeLog.task_id == task_id).all()
 
 
+def list_for_user_date(db: Session, user_id: str, log_date: str) -> list[TaskTimeLog]:
+    """Every time-log row a user recorded on a single date (across all tasks)."""
+    return (
+        db.query(TaskTimeLog)
+        .filter(TaskTimeLog.user_id == user_id, TaskTimeLog.log_date == log_date)
+        .all()
+    )
+
+
 def time_log_map_for_user(db: Session, task_id: str, user_id: str) -> dict[str, int]:
     rows = (
         db.query(TaskTimeLog)

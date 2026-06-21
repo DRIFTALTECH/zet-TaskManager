@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   ChevronLeft, ChevronRight, Download, Plus, Bell, Send,
-  Trash2, MoreVertical, CalendarX2, Clock, CalendarDays,
+  Trash2, CalendarX2, Clock, CalendarDays,
   Tag, DollarSign, List, X, Mail, Sparkles, Check, Pencil,
   AlertCircle, CheckCircle2, ChevronDown, ChevronUp,
 } from 'lucide-react';
@@ -12,9 +12,6 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -35,30 +32,118 @@ const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Satur
 const dayShort = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 
-// ── Stable color palette for project / section pills ─────────────────────────
-const ID_PILL_PALETTES = [
-  'bg-blue-500/15 text-blue-400 border-blue-500/25',
-  'bg-violet-500/15 text-violet-400 border-violet-500/25',
-  'bg-emerald-500/15 text-emerald-400 border-emerald-500/25',
-  'bg-orange-500/15 text-orange-400 border-orange-500/25',
-  'bg-pink-500/15 text-pink-400 border-pink-500/25',
-  'bg-teal-500/15 text-teal-400 border-teal-500/25',
-  'bg-amber-500/15 text-amber-400 border-amber-500/25',
-  'bg-cyan-500/15 text-cyan-400 border-cyan-500/25',
-  'bg-indigo-500/15 text-indigo-400 border-indigo-500/25',
-  'bg-rose-500/15 text-rose-400 border-rose-500/25',
-];
-const ID_DOT_COLORS = [
-  'bg-blue-400', 'bg-violet-400', 'bg-emerald-400', 'bg-orange-400', 'bg-pink-400',
-  'bg-teal-400', 'bg-amber-400', 'bg-cyan-400', 'bg-indigo-400', 'bg-rose-400',
-];
-function idPillColor(id: string): string {
-  let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
-  return ID_PILL_PALETTES[h % ID_PILL_PALETTES.length];
-}
-function idDotColor(id: string): string {
-  let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
-  return ID_DOT_COLORS[h % ID_DOT_COLORS.length];
+
+/**
+ * A timesheet entry row with everything inline-editable — description, time,
+ * project and section — no Edit modal needed. Each field saves on blur / change
+ * via `onPatch`. Project/section render as plain coloured text (the picker is
+ * borderless), stable colour per id.
+ */
+function InlineEntryRow({
+  entry, userProjects, onPatch, onDelete, onToggleBillable, togglingBill, createSection,
+}: {
+  entry: TimesheetWorkEntry;
+  userProjects: Project[];
+  onPatch: (id: string, patch: Record<string, unknown>) => Promise<void>;
+  onDelete: (entry: TimesheetWorkEntry) => void;
+  onToggleBillable: (entry: TimesheetWorkEntry) => void;
+  togglingBill: boolean;
+  createSection: (projId: string, name: string) => Promise<string | null>;
+}) {
+  const [desc, setDesc] = useState(entry.description);
+  const [from, setFrom] = useState(apiTimeToCompactDisplay(entry.timeFrom));
+  const [to, setTo] = useState(apiTimeToCompactDisplay(entry.timeTo));
+
+  // Re-sync local fields when the underlying entry changes (after a reload).
+  useEffect(() => { setDesc(entry.description); }, [entry.description]);
+  useEffect(() => {
+    setFrom(apiTimeToCompactDisplay(entry.timeFrom));
+    setTo(apiTimeToCompactDisplay(entry.timeTo));
+  }, [entry.timeFrom, entry.timeTo]);
+
+  const saveDesc = () => { if (desc !== entry.description) void onPatch(entry.id, { description: desc }); };
+  const saveTime = () => {
+    let tf: string, tt: string;
+    try { tf = compactTimeToApi(from); tt = compactTimeToApi(to); }
+    catch {
+      toast.error('Enter valid times (four digits each, 24h).');
+      setFrom(apiTimeToCompactDisplay(entry.timeFrom));
+      setTo(apiTimeToCompactDisplay(entry.timeTo));
+      return;
+    }
+    if (tf !== entry.timeFrom || tt !== entry.timeTo) {
+      void onPatch(entry.id, { workDate: entry.workDate, timeFrom: tf, timeTo: tt });
+    }
+  };
+  const pickProjSec = (pid: string, sid: string) => {
+    if (pid !== entry.projectId || sid !== entry.sectionId) void onPatch(entry.id, { projectId: pid, sectionId: sid });
+  };
+  const timeInput = 'w-12 text-center rounded-md bg-muted/30 hover:bg-muted/50 focus:bg-background border border-transparent focus:border-primary/40 px-1 py-1 focus:outline-none transition-colors';
+
+  return (
+    <li className="flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-4 px-4 sm:px-5 py-3 sm:py-3.5 hover:bg-muted/20 transition-colors group">
+      {/* Description — inline editable */}
+      <input
+        value={desc}
+        onChange={e => setDesc(e.target.value)}
+        onBlur={saveDesc}
+        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+        placeholder="No description"
+        className="min-w-0 flex-1 -mx-2 px-2 py-1 rounded-md bg-transparent hover:bg-muted/30 focus:bg-muted/40 border-0 text-sm sm:text-[15px] font-medium text-foreground placeholder:text-muted-foreground/40 placeholder:italic focus:outline-none focus:ring-0 transition-colors"
+      />
+
+      {/* Right cluster — project/section · time · duration · actions */}
+      <div className="flex items-center gap-2.5 sm:gap-4 shrink-0 flex-wrap sm:flex-nowrap">
+        <ProjectSectionPicker
+          projects={userProjects}
+          projectId={entry.projectId}
+          sectionId={entry.sectionId}
+          onChange={pickProjSec}
+          onCreateSection={createSection}
+          align="end"
+          triggerClassName="border-0 bg-transparent shadow-none px-1.5 py-1 rounded-md hover:bg-muted/40 w-auto min-w-0 max-w-[240px] text-[13px] focus:ring-0"
+        />
+
+        <div className="flex items-center gap-1 font-mono text-[13px] tabular-nums text-foreground/70">
+          <input value={from} inputMode="numeric" maxLength={4}
+            onChange={e => setFrom(e.target.value.replace(/\D/g, '').slice(0, 4))}
+            onFocus={e => e.currentTarget.select()} onBlur={saveTime}
+            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} className={timeInput} />
+          <span className="text-muted-foreground/40">–</span>
+          <input value={to} inputMode="numeric" maxLength={4}
+            onChange={e => setTo(e.target.value.replace(/\D/g, '').slice(0, 4))}
+            onFocus={e => e.currentTarget.select()} onBlur={saveTime}
+            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} className={timeInput} />
+        </div>
+
+        <span className="text-base font-bold tabular-nums text-foreground shrink-0 w-[78px] text-right">
+          {formatDuration(entry.seconds)}
+        </span>
+
+        <button
+          type="button"
+          onClick={() => onToggleBillable(entry)}
+          disabled={togglingBill}
+          title={entry.billable ? 'Billable — click to mark non-billable' : 'Non-billable — click to mark billable'}
+          aria-pressed={entry.billable}
+          className={`flex items-center justify-center h-8 w-8 rounded-lg transition-colors disabled:opacity-50 shrink-0 ${
+            entry.billable ? 'text-emerald-500 hover:text-emerald-400' : 'text-muted-foreground/30 hover:text-muted-foreground/60'
+          }`}
+        >
+          <DollarSign className="h-4 w-4" />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onDelete(entry)}
+          title="Delete entry"
+          className="flex items-center justify-center h-8 w-8 rounded-lg text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </div>
+    </li>
+  );
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -780,15 +865,6 @@ const TimesheetPage = () => {
       if (t.sectionId) setFormSectionId(t.sectionId);
     }
   };
-  const openEditModal = (entry: TimesheetWorkEntry) => {
-    setFormProjectId(entry.projectId);
-    setFormSectionId(entry.sectionId);
-    setFormDescription(entry.description);
-    setFormTimeFrom(apiTimeToCompactDisplay(entry.timeFrom));
-    setFormTimeTo(apiTimeToCompactDisplay(entry.timeTo));
-    setFormBillable(entry.billable);
-    setEntryModal({ mode: 'edit', entry });
-  };
   const closeEntryModal = () => { setEntryModal(null); resetForm(); };
 
   // Optimistic billable toggle straight from the record's $ icon.
@@ -804,6 +880,17 @@ const TimesheetPage = () => {
       setTogglingBillId(null);
     }
   };
+
+  // Inline-edit patch: write the change, then reload so duration/sort stay correct.
+  const patchEntryInline = useCallback(async (id: string, patch: Record<string, unknown>) => {
+    try {
+      await api.patchTimesheetWorkEntry(id, patch);
+      await reloadEntries();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not update entry');
+      await reloadEntries();
+    }
+  }, [reloadEntries]);
 
   const toggleOnLeave = (date: string) => {
     setOnLeaveDays(prev => {
@@ -1150,7 +1237,7 @@ const TimesheetPage = () => {
             userProjects.length === 0 && 'opacity-60 pointer-events-none',
           )}
         >
-          <div className="flex-1 min-w-[200px] flex items-center px-3 py-2.5 md:border-0">
+          <div className="flex-1 min-w-[200px] flex items-center px-4 py-4 md:border-0">
             <TaskSuggest
               value={quickDesc}
               onChange={setQuickDesc}
@@ -1160,7 +1247,7 @@ const TimesheetPage = () => {
               disabled={saving || userProjects.length === 0}
               inputId="timesheet-quick-desc"
               placeholder="What have you worked on?"
-              inputClassName="w-full bg-transparent text-sm placeholder:text-muted-foreground/45 focus:outline-none focus:ring-0 border-0 px-1 py-1"
+              inputClassName="w-full bg-transparent text-base placeholder:text-muted-foreground/45 focus:outline-none focus:ring-0 border-0 px-1 py-1.5"
               containerClassName="w-full"
             />
           </div>
@@ -1440,89 +1527,18 @@ const TimesheetPage = () => {
                       </div>
                     ) : (
                       <ul className="divide-y divide-border/20">
-                        {[...day.entriesForDay].sort((a, b) => b.timeFrom.localeCompare(a.timeFrom)).map(entry => {
-                          const project = projects.find(p => p.id === entry.projectId);
-                          const section = project?.sections.find(s => s.id === entry.sectionId);
-                          return (
-                            <li
-                              key={entry.id}
-                              className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 px-5 sm:px-7 py-4 sm:py-5 hover:bg-muted/20 transition-colors group"
-                            >
-                              {/* Description — left, primary */}
-                              <div className="min-w-0 flex-1">
-                                <p className="text-base sm:text-[17px] font-medium text-foreground leading-snug break-words whitespace-pre-wrap [overflow-wrap:anywhere]">
-                                  {entry.description?.trim()
-                                    ? entry.description
-                                    : <span className="text-muted-foreground/40 italic font-normal">No description</span>
-                                  }
-                                </p>
-                              </div>
-
-                              {/* Right cluster — project/section · time · duration · actions */}
-                              <div className="flex items-center gap-3 sm:gap-5 shrink-0 flex-wrap sm:flex-nowrap">
-                                <div className="flex flex-wrap gap-1.5 sm:justify-end max-w-[280px]">
-                                  <span className={`text-xs px-3 py-1 rounded-full border font-semibold max-w-full truncate ${idPillColor(entry.projectId)}`}>
-                                    {project?.name ?? entry.projectId}
-                                  </span>
-                                  {section && (
-                                    <span className={`text-xs px-3 py-1 rounded-full border font-medium max-w-full truncate opacity-80 ${idPillColor(entry.sectionId)}`}>
-                                      {section.name}
-                                    </span>
-                                  )}
-                                </div>
-
-                                <span className="inline-flex items-center rounded-xl border border-border/40 bg-muted/30 px-3.5 py-2 font-mono text-sm tabular-nums font-semibold text-foreground/70 shrink-0">
-                                  {entry.timeFrom} – {entry.timeTo}
-                                </span>
-
-                                <span className="text-xl font-bold tabular-nums text-foreground shrink-0 w-[92px] text-right">
-                                  {formatDuration(entry.seconds)}
-                                </span>
-
-                                <button
-                                  type="button"
-                                  onClick={() => void toggleBillable(entry)}
-                                  disabled={togglingBillId === entry.id}
-                                  title={entry.billable ? 'Billable — click to mark non-billable' : 'Non-billable — click to mark billable'}
-                                  aria-pressed={entry.billable}
-                                  className={`flex items-center justify-center h-9 w-9 rounded-lg transition-colors disabled:opacity-50 shrink-0 ${
-                                    entry.billable ? 'text-emerald-500 hover:text-emerald-400' : 'text-muted-foreground/30 hover:text-muted-foreground/60'
-                                  }`}
-                                >
-                                  <DollarSign className="h-5 w-5" />
-                                </button>
-
-                                <div className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                                  <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                      <button
-                                        type="button"
-                                        className="p-2 rounded-xl hover:bg-muted/60 text-muted-foreground/50 hover:text-foreground transition-all"
-                                        aria-label="Entry actions"
-                                      >
-                                        <MoreVertical className="h-5 w-5" />
-                                      </button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end" className="w-40 rounded-xl">
-                                      <DropdownMenuItem
-                                        onClick={() => openEditModal(entry)}
-                                        className="rounded-lg cursor-pointer hover:text-primary transition-colors"
-                                      >
-                                        Edit
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem
-                                        className="text-destructive focus:text-destructive rounded-lg cursor-pointer"
-                                        onClick={() => setEntryToDelete(entry)}
-                                      >
-                                        Delete
-                                      </DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                  </DropdownMenu>
-                                </div>
-                              </div>
-                            </li>
-                          );
-                        })}
+                        {[...day.entriesForDay].sort((a, b) => b.timeFrom.localeCompare(a.timeFrom)).map(entry => (
+                          <InlineEntryRow
+                            key={entry.id}
+                            entry={entry}
+                            userProjects={userProjects}
+                            onPatch={patchEntryInline}
+                            onDelete={setEntryToDelete}
+                            onToggleBillable={toggleBillable}
+                            togglingBill={togglingBillId === entry.id}
+                            createSection={createSectionReturningId}
+                          />
+                        ))}
                       </ul>
                     )}
                   </motion.section>

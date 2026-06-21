@@ -5,10 +5,11 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from ai import chains, service
-from logic import task_extraction_logic
+from logic import daily_summary_logic, task_extraction_logic
 from ai.schemas import (
     ChatRequest,
     ChatResponse,
+    DaySummaryResponse,
     GenerateDescriptionRequest,
     GenerateDescriptionResponse,
     ParseTaskRequest,
@@ -124,6 +125,24 @@ def parse_timesheet(
     """Convert a natural language day summary into structured timesheet row proposals."""
     try:
         return chains.parse_timesheet(body.summary, body.work_date, body.projects)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e) or _AI_UNAVAILABLE)
+    except Exception as e:
+        log.exception("AI request failed")
+        raise HTTPException(status_code=500, detail=f"AI error: {e}")
+
+
+# ── End-of-day standup recap ──────────────────────────────────────────────────
+
+@router.get("/summarize-day", response_model=DaySummaryResponse)
+def summarize_day(
+    date: str | None = None,
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    """Generate a short AI recap of the current user's work for a day (default: today)."""
+    try:
+        return daily_summary_logic.summarize_day(db, user_id, date)
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e) or _AI_UNAVAILABLE)
     except Exception as e:

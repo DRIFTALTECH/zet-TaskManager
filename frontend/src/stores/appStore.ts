@@ -13,6 +13,14 @@ function timersToMap(rows: { taskId: string; startedAt: string }[]): Record<stri
   return m;
 }
 
+// Transient mascot-animation event kinds.
+export type AgentEventKind =
+  | 'task_created' | 'task_assigned' | 'task_approved' | 'task_moved'
+  | 'timer_started' | 'timer_stopped';
+
+// Monotonic counter so repeated agent events always change identity (re-trigger animation).
+let agentEventSeq = 0;
+
 const DEFAULT_COLUMNS: KanbanColumn[] = [
   { id: 'backlog', label: 'Backlog' },
   { id: 'in_progress', label: 'In Progress' },
@@ -34,6 +42,21 @@ interface AppState {
 
   theme: 'dark' | 'light';
   toggleTheme: () => void;
+
+  mascotsEnabled: boolean;
+  toggleMascots: () => void;
+
+  // Transient agent-animation trigger (consumed by the mascot overlay).
+  agentEvent: { kind: AgentEventKind; seq: number } | null;
+  emitAgentEvent: (kind: AgentEventKind) => void;
+
+  // Drag-onto-mascot bus: the kanban board (DashboardPage) owns the DndContext,
+  // the mascot (Companion) lives outside it — they coordinate through the store.
+  mascotDrag: { active: boolean; over: boolean };
+  setMascotDrag: (active: boolean, over: boolean) => void;
+  // A task just dropped on the mascot → Companion opens its quick-action menu.
+  mascotDropTaskId: string | null;
+  setMascotDropTask: (taskId: string | null) => void;
 
   projects: Project[];
   selectedProjectId: string | null;
@@ -252,6 +275,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ theme: next });
   },
 
+  mascotsEnabled: (typeof window !== 'undefined' && localStorage.getItem('mascots')) !== 'off',
+  toggleMascots: () => {
+    const next = !get().mascotsEnabled;
+    localStorage.setItem('mascots', next ? 'on' : 'off');
+    set({ mascotsEnabled: next });
+  },
+
+  agentEvent: null,
+  emitAgentEvent: kind => set({ agentEvent: { kind, seq: ++agentEventSeq } }),
+
+  mascotDrag: { active: false, over: false },
+  setMascotDrag: (active, over) => set({ mascotDrag: { active, over } }),
+  mascotDropTaskId: null,
+  setMascotDropTask: taskId => set({ mascotDropTaskId: taskId }),
+
   projects: [],
   selectedProjectId: null,
   selectProject: id => set({ selectedProjectId: id && id.length > 0 ? id : null }),
@@ -348,9 +386,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       tags: taskData.tags,
     });
     set({ tasks: [...get().tasks, t] });
+    get().emitAgentEvent('task_created');
   },
 
   updateTask: async (id, updates) => {
+    const prevTask = get().tasks.find(x => x.id === id);
+    const prevAssignees = prevTask?.assigneeIds ?? [];
     const patch: Parameters<typeof api.patchTask>[1] = {};
     if (updates.title !== undefined) patch.title = updates.title;
     if (updates.description !== undefined) patch.description = updates.description;
@@ -362,6 +403,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (updates.dueDate !== undefined) patch.dueDate = updates.dueDate;
     const t = await api.patchTask(id, patch);
     set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
+    // Moved to a new section → Tasker "moved" animation.
+    if (updates.sectionId !== undefined && prevTask && t.sectionId !== prevTask.sectionId) {
+      get().emitAgentEvent('task_moved');
+    } else if (updates.assigneeIds !== undefined && t.assigneeIds.some(a => !prevAssignees.includes(a))) {
+      // Newly-added assignee → Tasker "assigned" animation.
+      get().emitAgentEvent('task_assigned');
+    }
   },
 
   startTask: async id => {
@@ -372,11 +420,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   moveTask: async (id, status) => {
     const t = await api.moveTask(id, status);
     set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
+    get().emitAgentEvent('task_moved');
   },
 
   approveTask: async id => {
     const t = await api.approveTask(id);
     set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
+    get().emitAgentEvent('task_approved');
   },
 
   reopenTaskToBacklog: async id => {
@@ -402,6 +452,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const run = await api.startTimer(taskId);
     const ms = Date.parse(run.startedAt);
     set({ activeTimers: { ...get().activeTimers, [taskId]: Number.isNaN(ms) ? Date.now() : ms } });
+    get().emitAgentEvent('timer_started');
     // The task is now marked started server-side — refresh it so the UI reflects that.
     try {
       const tasks = await api.getTasks();
@@ -419,6 +470,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     // Server computes elapsed from the stored start time and logs it (+ timesheet row).
     const updatedTask = await api.stopTimer(taskId, new Date().getTimezoneOffset());
     set({ tasks: get().tasks.map(x => (x.id === taskId ? updatedTask : x)) });
+    get().emitAgentEvent('timer_stopped');
   },
 
   kanbanColumns: DEFAULT_COLUMNS,

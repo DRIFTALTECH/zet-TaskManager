@@ -273,6 +273,16 @@ export interface Scrum {
   updatedAt: string;
 }
 
+export interface DaySummary {
+  date: string;
+  summary: string;
+  taskCount: number;
+  trackedSeconds: number;
+  timesheetSeconds: number;
+  billableSeconds: number;
+  hasData: boolean;
+}
+
 export interface ScrumDaySummary {
   date: string;
   scrumCount: number;

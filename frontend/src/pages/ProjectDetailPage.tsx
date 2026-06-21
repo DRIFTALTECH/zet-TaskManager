@@ -475,7 +475,7 @@ const ProjectDetailPage = () => {
   };
   const doApprove = async (task: Task) => {
     setMovingId(task.id);
-    try { await approveTask(task.id); toast.success('Task approved'); }
+    try { await approveTask(task.id); /* Tasker mascot animates the approval */ }
     catch (e) { toast.error(e instanceof Error ? e.message : 'Could not approve'); }
     finally { setMovingId(null); }
   };

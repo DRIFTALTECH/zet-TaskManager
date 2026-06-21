@@ -191,7 +191,7 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
         priority,
         tags: tagsStr.split(',').map(t => t.trim()).filter(Boolean),
       });
-      toast.success('Task created');
+      // Tasker mascot animates the "task created" confirmation.
       onOpenChange(false);
       resetForm();
     } catch (e) {

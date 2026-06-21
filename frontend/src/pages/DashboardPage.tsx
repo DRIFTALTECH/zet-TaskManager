@@ -16,6 +16,7 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
+  useDroppable,
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -327,12 +328,30 @@ function KanbanColumnPanel({
   );
 }
 
+/**
+ * Invisible droppable that sits over the fixed Tasker mascot (bottom-right). It
+ * lives inside the board's DndContext so dnd-kit can detect a card dropped on the
+ * mascot; the mascot itself (Companion) is rendered in AppLayout, outside this
+ * context, and reacts via the store drag-bus.
+ */
+function MascotDropZone() {
+  const { setNodeRef } = useDroppable({ id: 'tasker-dropzone' });
+  return (
+    <div
+      ref={setNodeRef}
+      aria-hidden
+      className="pointer-events-none fixed bottom-2 right-2 z-30 h-[120px] w-[88px]"
+    />
+  );
+}
+
 const DashboardPage = () => {
   const {
     currentUser, projects, selectProject, tasks, selectedProjectId,
     moveTask, kanbanColumns, approveTask,
     activeTimers, startTimer, stopTimer,
     addColumn, renameColumn, removeColumn, reorderColumns,
+    mascotsEnabled, setMascotDrag, setMascotDropTask,
   } = useAppStore();
 
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -419,12 +438,17 @@ const DashboardPage = () => {
     const type = event.active.data.current?.type as 'task' | 'column' | undefined;
     setActiveId(event.active.id as string);
     setActiveType(type === 'column' ? 'column' : 'task');
+    // A task drag begins → light up the mascot drop affordance.
+    if (mascotsEnabled && type !== 'column') setMascotDrag(true, false);
   };
 
   const handleDragOver = (event: DragOverEvent) => {
     const { active, over } = event;
+    const isTaskDrag = active.data.current?.type !== 'column';
+    if (mascotsEnabled && isTaskDrag) setMascotDrag(true, over?.id === 'tasker-dropzone');
     if (!over || active.data.current?.type === 'column') { setOverColumnId(null); return; }
     const overId = over.id as string;
+    if (overId === 'tasker-dropzone') { setOverColumnId(null); return; }
     if (boardColumns.some(c => c.id === overId)) { setOverColumnId(overId); return; }
     const task = tasks.find(t => t.id === overId);
     setOverColumnId(task ? task.status : null);
@@ -433,10 +457,17 @@ const DashboardPage = () => {
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     setActiveId(null); setActiveType(null); setOverColumnId(null);
+    setMascotDrag(false, false);
     if (!over) return;
     const dragType = active.data.current?.type as 'task' | 'column' | undefined;
     const activeIdStr = active.id as string;
     const overIdStr = over.id as string;
+
+    // Dropped on the Tasker mascot → open its quick-action menu for this task.
+    if (overIdStr === 'tasker-dropzone') {
+      if (dragType !== 'column') setMascotDropTask(activeIdStr);
+      return;
+    }
 
     if (dragType === 'column') {
       const oldIdx = boardColumns.findIndex(c => c.id === activeIdStr);
@@ -451,11 +482,11 @@ const DashboardPage = () => {
     const targetColumn = boardColumns.find(c => c.id === overIdStr);
     if (targetColumn) {
       try {
-        if (targetColumn.id === 'done' && activeTimers[activeIdStr]) {
+        if (targetColumn.id === doneColumnId && activeTimers[activeIdStr]) {
           await stopTimer(activeIdStr);
         }
         await moveTask(activeIdStr, targetColumn.id);
-        toast.info(`Moved to ${targetColumn.label}`);
+        // Tasker mascot animates the move.
       }
       catch { toast.error('Could not move task'); }
       return;
@@ -463,7 +494,7 @@ const DashboardPage = () => {
     const targetTask = tasks.find(t => t.id === overIdStr);
     if (targetTask && targetTask.id !== activeIdStr) {
       try {
-        if (targetTask.status === 'done' && activeTimers[activeIdStr]) {
+        if (targetTask.status === doneColumnId && activeTimers[activeIdStr]) {
           await stopTimer(activeIdStr);
         }
         await moveTask(activeIdStr, targetTask.status);
@@ -472,11 +503,16 @@ const DashboardPage = () => {
     }
   };
 
+  const handleDragCancel = () => {
+    setActiveId(null); setActiveType(null); setOverColumnId(null);
+    setMascotDrag(false, false);
+  };
+
   const handleApprove = async (id: string) => {
     setApprovingId(id);
     try {
       await approveTask(id);
-      toast.success('Task approved and completed.');
+      // Tasker mascot animates the approval.
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not approve task');
     } finally { setApprovingId(null); }
@@ -621,7 +657,8 @@ const DashboardPage = () => {
       </div>
 
       <DndContext sensors={sensors} collisionDetection={collisionDetection}
-        onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
+        onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}>
         <SortableContext items={boardColumns.map(c => c.id)} strategy={horizontalListSortingStrategy}>
           <div className="flex gap-6 flex-1 overflow-x-auto pb-4">
             {boardColumns.map(col => (
@@ -679,6 +716,8 @@ const DashboardPage = () => {
             </div>
           )}
         </DragOverlay>
+
+        {mascotsEnabled && <MascotDropZone />}
       </DndContext>
 
       {/* Add Column Modal */}

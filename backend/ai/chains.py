@@ -267,6 +267,20 @@ def parse_timesheet(summary: str, work_date: str, projects=None) -> TimesheetPar
         )
 
 
+# ── End-of-day standup recap ──────────────────────────────────────────────────
+
+def summarize_day(work_date: str, work_log: str) -> str:
+    """Turn a structured day-of-work log into a short, friendly recap (markdown).
+
+    `work_log` is assembled by logic/daily_summary_logic from the user's tasks,
+    time logs and timesheet rows — this chain only does the natural-language pass.
+    """
+    return service.complete(
+        prompts.DAY_SUMMARY_PROMPT,
+        {"work_date": work_date, "work_log": work_log},
+    )
+
+
 # ── Future: meeting ingestion ─────────────────────────────────────────────────
 
 def extract_tasks_from_transcript(transcript: str, users=None, projects=None) -> MeetingIngestResponse:

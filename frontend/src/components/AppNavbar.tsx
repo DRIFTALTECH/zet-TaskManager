@@ -1,13 +1,12 @@
 import { useAppStore } from '@/stores/appStore';
 import { projectPickerLabel } from '@/lib/project-utils';
-import { Sun, Moon, Search, Sparkles } from 'lucide-react';
+import { Sun, Moon, Search } from 'lucide-react';
 import { useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import GlobalSearchModal from '@/components/GlobalSearchModal';
 import NotificationBell from '@/components/NotificationBell';
 import MobileNav from '@/components/MobileNav';
-import { TaskCreatorModal } from '@/pages/AIPage';
 
 const pageTitles: Record<string, string> = {
   '/': 'Dashboard',
@@ -24,13 +23,8 @@ const pageTitles: Record<string, string> = {
 const AppNavbar = () => {
   const { theme, toggleTheme, currentUser, projects, selectedProjectId, selectProject } = useAppStore();
   const [searchOpen, setSearchOpen] = useState(false);
-  const [taskCreatorOpen, setTaskCreatorOpen] = useState(false);
   const location = useLocation();
   const hideProjectPicker = location.pathname === '/tasks';
-  // "Create tasks" lives in the navbar only on Dashboard and Zani, for managers/admins.
-  const showCreateTasks =
-    (location.pathname === '/' || location.pathname === '/ai') &&
-    (currentUser?.role === 'manager' || currentUser?.role === 'admin');
 
   const userProjects = projects.filter(p => currentUser?.projectIds.includes(p.id));
   const pageTitle = pageTitles[location.pathname] ?? 'ZET';
@@ -39,7 +33,6 @@ const AppNavbar = () => {
   return (
     <>
       <GlobalSearchModal open={searchOpen} onOpenChange={setSearchOpen} />
-      <TaskCreatorModal open={taskCreatorOpen} onOpenChange={setTaskCreatorOpen} />
 
       <header className="h-16 border-b border-border/60 glass flex items-center px-2 sm:px-5 gap-1.5 sm:gap-4 sticky top-0 z-40">
         <MobileNav />
@@ -77,18 +70,6 @@ const AppNavbar = () => {
         )}
 
         <div className="flex-1" />
-
-        {/* Create tasks (Dashboard & Zani only, managers/admins) */}
-        {showCreateTasks && (
-          <button
-            onClick={() => setTaskCreatorOpen(true)}
-            className="shrink-0 flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-xl bg-violet-600 text-white text-sm font-semibold hover:bg-violet-500 transition-colors shadow-sm"
-            title="Create tasks with AI"
-          >
-            <Sparkles className="h-4 w-4" />
-            <span className="hidden sm:inline">Create tasks</span>
-          </button>
-        )}
 
         {/* Global search trigger */}
         <button

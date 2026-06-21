@@ -12,6 +12,8 @@ exposes the standard protected-resource metadata. The token may also be passed a
 single copy-paste URL works in any client.
 """
 
+import base64
+import mimetypes
 from urllib.parse import parse_qs
 
 from fastmcp import FastMCP
@@ -24,9 +26,13 @@ import crud.users as users_crud
 from database.database import SessionLocal
 from oauth_provider import oauth_provider
 from logic import (
+    attachment_logic,
+    checklist_logic,
     meeting_notes_logic,
     project_logic,
+    task_feedback_logic,
     task_logic,
+    timer_logic,
     timesheet_logic,
     token_logic,
     user_logic,
@@ -34,8 +40,12 @@ from logic import (
 from logic.schemas import (
     ScrumCreate,
     SectionCreate,
+    TaskChecklistCreate,
+    TaskChecklistPatch,
     TaskCreate,
+    TaskFeedbackCreate,
     TaskMoveBody,
+    TaskPatch,
     TimesheetEntryCreate,
     TimesheetEntryPatch,
 )
@@ -168,6 +178,35 @@ def _resolve_section(db, uid: str, project, name: str, create: bool = False):
             if s.name.lower() == name.strip().lower():
                 return s
     return None
+
+
+def _find_task(db, uid: str, name_or_id: str):
+    """Resolve a task by id or (unique) title — scoped to tasks the caller can see."""
+    tasks = task_logic.list_tasks(db, uid)
+    for t in tasks:
+        if t.id == name_or_id:
+            return t
+    q = name_or_id.lower()
+    matches = [t for t in tasks if q in t.title.lower()]
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        raise ValueError(f"No task matches '{name_or_id}'.")
+    raise ValueError(f"'{name_or_id}' is ambiguous — matches: {[t.title for t in matches]}.")
+
+
+def _resolve_checklist_item(db, task_id: str, item: str):
+    items = checklist_logic.list_for_task(db, task_id)
+    for c in items:
+        if c.id == item:
+            return c
+    q = item.lower()
+    matches = [c for c in items if q in c.title.lower()]
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        raise ValueError(f"No checklist item matches '{item}'.")
+    raise ValueError(f"'{item}' is ambiguous — matches: {[c.title for c in matches]}.")
 
 
 # ── Identity ──────────────────────────────────────────────────────────────────
@@ -425,6 +464,163 @@ def move_task(task_id: str, status: str) -> dict:
     db = SessionLocal()
     try:
         return task_logic.move_task_action(db, _uid(), task_id, TaskMoveBody(status=status)).model_dump()
+    finally:
+        db.close()
+
+
+# ── Work-on-a-task loop: detail, planning, progress, artifacts, time ────────────
+# These let an assistant read a task fully, post a plan, track steps as a checklist,
+# write a summary of what changed, attach artifacts, and log the time it took.
+
+@mcp.tool
+def get_task(task: str) -> dict:
+    """Full detail for one task (by id or title): description, status, priority,
+    assignees, due date — PLUS its checklist, comment thread, and attachments.
+    Call this first when you start working on a task; it's everything you need to plan."""
+    db = SessionLocal()
+    try:
+        uid = _uid()
+        t = _find_task(db, uid, task)
+        detail = task_logic.get_task(db, uid, t.id).model_dump()
+        detail["checklist"] = [c.model_dump() for c in checklist_logic.list_for_task(db, t.id)]
+        detail["comments"] = [f.model_dump() for f in task_feedback_logic.list_feedback(db, uid, t.id)]
+        detail["attachments"] = [a.model_dump() for a in attachment_logic.list_for_task(db, t.id)]
+        return detail
+    finally:
+        db.close()
+
+
+@mcp.tool
+def update_task(task: str, description: str = "", priority: str = "", title: str = "") -> dict:
+    """Update a task's description, priority (Urgent|High|Medium|Low) and/or title.
+    Only non-empty fields change. Use `move_task` for board status, not this."""
+    db = SessionLocal()
+    try:
+        uid = _uid()
+        t = _find_task(db, uid, task)
+        patch = TaskPatch(
+            description=description or None,
+            priority=priority or None,
+            title=title or None,
+        )
+        return task_logic.patch_task_action(db, uid, t.id, patch).model_dump()
+    finally:
+        db.close()
+
+
+@mcp.tool
+def add_task_comment(task: str, message: str) -> dict:
+    """Post a comment on a task's thread. Use this to share your PLAN before starting,
+    progress updates as you go, and a final summary of WHAT CHANGED. Visible to the
+    task's members in the app."""
+    db = SessionLocal()
+    try:
+        uid = _uid()
+        t = _find_task(db, uid, task)
+        return task_feedback_logic.create_feedback_action(
+            db, uid, t.id, TaskFeedbackCreate(message=message)
+        ).model_dump()
+    finally:
+        db.close()
+
+
+@mcp.tool
+def list_task_comments(task: str) -> list[dict]:
+    """Read a task's comment thread (chronological)."""
+    db = SessionLocal()
+    try:
+        uid = _uid()
+        t = _find_task(db, uid, task)
+        return [f.model_dump() for f in task_feedback_logic.list_feedback(db, uid, t.id)]
+    finally:
+        db.close()
+
+
+@mcp.tool
+def add_checklist_item(task: str, title: str, priority: str = "Medium") -> dict:
+    """Add a checklist item (one step) to a task. Lay out your plan as checklist items,
+    then mark each done with `set_checklist_item` as you complete it — the user watches
+    the steps tick off live on the card."""
+    db = SessionLocal()
+    try:
+        uid = _uid()
+        t = _find_task(db, uid, task)
+        return checklist_logic.create(
+            db, t.id, TaskChecklistCreate(title=title, priority=priority), uid
+        ).model_dump()
+    finally:
+        db.close()
+
+
+@mcp.tool
+def set_checklist_item(task: str, item: str, done: bool = True, title: str = "") -> dict:
+    """Update a checklist item (by id or title text): tick it done/undone, and/or rename it."""
+    db = SessionLocal()
+    try:
+        uid = _uid()
+        t = _find_task(db, uid, task)
+        target = _resolve_checklist_item(db, t.id, item)
+        patch = TaskChecklistPatch(isDone=done, title=title or None)
+        return checklist_logic.patch(db, t.id, target.id, patch, uid).model_dump()
+    finally:
+        db.close()
+
+
+@mcp.tool
+def list_checklist(task: str) -> list[dict]:
+    """List a task's checklist items with their done state."""
+    db = SessionLocal()
+    try:
+        uid = _uid()
+        t = _find_task(db, uid, task)
+        return [c.model_dump() for c in checklist_logic.list_for_task(db, t.id)]
+    finally:
+        db.close()
+
+
+@mcp.tool
+def upload_task_attachment(task: str, filename: str, content: str = "", content_base64: str = "") -> dict:
+    """Attach a file to a task — e.g. your `plan.md`, a git diff/patch, or test output.
+    Pass UTF-8 text in `content` (for markdown/diff/logs) OR base64 bytes in
+    `content_base64`. The filename extension determines the content type. Max 20 MB."""
+    db = SessionLocal()
+    try:
+        uid = _uid()
+        t = _find_task(db, uid, task)
+        if content_base64:
+            raw = base64.b64decode(content_base64)
+        elif content:
+            raw = content.encode("utf-8")
+        else:
+            raise ValueError("Provide either `content` (text) or `content_base64`.")
+        ctype = mimetypes.guess_type(filename)[0] or ("text/plain" if content else "application/octet-stream")
+        return attachment_logic.upload(db, t.id, uid, filename, ctype, raw).model_dump()
+    finally:
+        db.close()
+
+
+@mcp.tool
+def start_timer(task: str) -> dict:
+    """Start a server-side work timer on a task (marks it started). Call `stop_timer`
+    when done to auto-log the elapsed time to your timesheet."""
+    db = SessionLocal()
+    try:
+        uid = _uid()
+        t = _find_task(db, uid, task)
+        return timer_logic.start(db, uid, t.id).model_dump()
+    finally:
+        db.close()
+
+
+@mcp.tool
+def stop_timer(task: str) -> dict:
+    """Stop the running timer on a task; the elapsed time is logged to your timesheet
+    automatically. Returns the updated task."""
+    db = SessionLocal()
+    try:
+        uid = _uid()
+        t = _find_task(db, uid, task)
+        return timer_logic.stop(db, uid, t.id).model_dump()
     finally:
         db.close()
 

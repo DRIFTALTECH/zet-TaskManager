@@ -12,6 +12,7 @@ import { pageEnter } from '@/lib/motion';
 import { api } from '@/lib/api';
 import type { PersonalAccessToken, AuditLog } from '@/types';
 import UserAvatar from '@/components/UserAvatar';
+import AgentAvatar from '@/components/agents/AgentAvatar';
 
 const ACTION_LABELS: Record<string, { label: string; color: string }> = {
   'task.created':        { label: 'Created task',         color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25' },
@@ -282,7 +283,7 @@ function ConnectionGuide({
 }
 
 export default function SettingsPage() {
-  const { currentUser, updateProfile, changePassword, toggleTheme, theme, users } = useAppStore();
+  const { currentUser, updateProfile, changePassword, toggleTheme, theme, users, mascotsEnabled, toggleMascots } = useAppStore();
   const isManager = currentUser?.role === 'manager' || currentUser?.role === 'admin';
 
   // Profile state
@@ -569,6 +570,31 @@ export default function SettingsPage() {
                   <span className={`text-[11px] font-bold transition-all duration-200 ml-1 ${theme === 'dark' ? 'text-muted-foreground/50' : 'ml-10 text-muted-foreground/50'}`}>
                     {theme === 'dark' ? 'Dark' : 'Light'}
                   </span>
+                </button>
+              </div>
+
+              {/* Agent mascots toggle */}
+              <div className="mt-5 pt-5 border-t border-border/20 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex -space-x-2 shrink-0">
+                    <AgentAvatar agent="zani" size={26} still />
+                    <AgentAvatar agent="tasker" size={26} still />
+                    <AgentAvatar agent="pilot" size={26} still />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-foreground">Agent mascots</p>
+                    <p className="text-xs text-muted-foreground/60 mt-0.5">
+                      Animated helpers that react to your work. Respects “reduce motion”.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  role="switch"
+                  aria-checked={mascotsEnabled}
+                  onClick={toggleMascots}
+                  className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary/40 ${mascotsEnabled ? 'bg-primary' : 'bg-muted-foreground/25'}`}
+                >
+                  <span className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${mascotsEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
                 </button>
               </div>
             </div>

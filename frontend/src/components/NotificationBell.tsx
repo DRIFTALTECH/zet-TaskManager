@@ -74,6 +74,13 @@ export default function NotificationBell() {
     return () => document.removeEventListener('keydown', handleKey);
   }, [open]);
 
+  // Open the panel when another component asks (e.g. the Tasker mascot).
+  useEffect(() => {
+    function openPanel() { void load(); setOpen(true); }
+    window.addEventListener('zet:open-notifications', openPanel);
+    return () => window.removeEventListener('zet:open-notifications', openPanel);
+  }, [load]);
+
   async function handleMarkAll() {
     try {
       await api.markAllNotificationsRead();

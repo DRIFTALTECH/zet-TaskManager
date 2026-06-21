@@ -26,6 +26,7 @@ import MeetingNotesPage from "./pages/MeetingNotesPage";
 import AdminLoginPage from "./pages/AdminLoginPage";
 import AdminPage from "./pages/AdminPage";
 import { useLiveSync } from "./hooks/useTaskSync";
+import Companion from "./components/agents/Companion";
 
 const queryClient = new QueryClient();
 
@@ -38,6 +39,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
         <AppNavbar />
         <main className="flex-1 min-w-0 overflow-auto">{children}</main>
       </div>
+      <Companion />
     </div>
   );
 }

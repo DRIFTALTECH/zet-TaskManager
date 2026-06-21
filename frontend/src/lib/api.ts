@@ -546,6 +546,11 @@ export const api = {
     return request('/ai/health');
   },
 
+  async aiSummarizeDay(date?: string): Promise<import('@/types').DaySummary> {
+    const q = date ? `?date=${encodeURIComponent(date)}` : '';
+    return request(`/ai/summarize-day${q}`);
+  },
+
   async aiParseTimesheet(
     summary: string,
     workDate: string,
