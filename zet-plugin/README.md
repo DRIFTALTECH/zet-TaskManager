@@ -21,6 +21,7 @@ MCP endpoint: **`https://zetapi.driftal.tech/mcp/`** (the trailing `/` matters �
 | `/zet:tasks [project]` | List your tasks (or a project's tasks) | everyone |
 | `/zet:project [name]` | List projects, or one project's members + sections | everyone |
 | `/zet:create-task <description>` | Create a task from plain English | project members |
+| `/zet:work-on [task]` | Pick up a task and work it end-to-end — plan → confirm → build → test → log → close | task assignees |
 | `/zet:move <task> to <status>` | Move a task on the board | task assignees |
 | `/zet:log <what you did>` | Log a timesheet entry | everyone |
 | `/zet:timesheet [range] [employee]` | View a timesheet | self (others → managers) |

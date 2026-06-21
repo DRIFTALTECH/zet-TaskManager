@@ -18,19 +18,6 @@ export function idPillColor(id: string): string {
   return ID_PILL_PALETTES[h % ID_PILL_PALETTES.length];
 }
 
-// Text-only colors (no bg/border) — same hash + index as idPillColor, so a given
-// id always maps to the same hue across pills and plain colored text.
-const ID_TEXT_PALETTES = [
-  'text-blue-400', 'text-violet-400', 'text-emerald-400', 'text-orange-400', 'text-pink-400',
-  'text-teal-400', 'text-amber-400', 'text-cyan-400', 'text-indigo-400', 'text-rose-400',
-];
-
-export function idTextColor(id: string): string {
-  let h = 0;
-  for (const c of id) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
-  return ID_TEXT_PALETTES[h % ID_TEXT_PALETTES.length];
-}
-
 /** Stable hue (0–359) for an id — used for calendar block colors. */
 export function idHue(id: string): number {
   let h = 0;
