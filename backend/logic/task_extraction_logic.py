@@ -30,9 +30,21 @@ def _document_text(data: bytes, filename: str) -> str:
         return "\n".join((page.extract_text() or "") for page in reader.pages).strip()
     if ext == "docx":
         from docx import Document
+        from docx.table import Table
+        from docx.text.paragraph import Paragraph
 
         doc = Document(io.BytesIO(data))
-        return "\n".join(p.text for p in doc.paragraphs).strip()
+        # Walk the body in document order so tables (where week/task/assignee/project
+        # columns usually live) are captured inline, not silently dropped. Table rows
+        # are rendered pipe-delimited so the LLM sees which assignee/project each row names.
+        parts: list[str] = []
+        for child in doc.element.body.iterchildren():
+            if child.tag.endswith("}p"):
+                parts.append(Paragraph(child, doc).text)
+            elif child.tag.endswith("}tbl"):
+                for row in Table(child, doc).rows:
+                    parts.append(" | ".join(c.text.strip() for c in row.cells))
+        return "\n".join(parts).strip()
     if ext in PLAIN_TEXT_EXT:
         return data.decode("utf-8", "ignore").strip()
     # Unknown type — best-effort decode.
