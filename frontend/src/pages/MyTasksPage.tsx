@@ -2,7 +2,7 @@ import { useAppStore } from '@/stores/appStore';
 import { Task, Priority } from '@/types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState, useEffect } from 'react';
-import { Clock, Layers, Plus, CheckCircle2, Play, Square, RotateCcw, List, CalendarDays } from 'lucide-react';
+import { Clock, Layers, Plus, CheckCircle2, Play, Square, RotateCcw, List, CalendarDays, Search, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import TaskDetailModal from '@/components/TaskDetailModal';
 import CreateTaskModal from '@/components/CreateTaskModal';
@@ -64,7 +64,7 @@ const priorityBadge: Record<Priority, string> = {
 };
 
 const MyTasksPage = () => {
-  const { currentUser, tasks, projects, reopenTaskToBacklog, updateTask } = useAppStore();
+  const { currentUser, tasks, projects, reopenTaskToBacklog, updateTask, searchQuery, setSearchQuery } = useAppStore();
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [reopeningId, setReopeningId] = useState<string | null>(null);
@@ -97,8 +97,24 @@ const MyTasksPage = () => {
       isTaskAssignedTo(t, currentUser.id) ||
       currentUser.role === 'manager' || currentUser.role === 'admin');
 
-  const myTasks = tasks.filter(t => isMyActiveTask(t) || isMyCompletedTask(t));
+  // Search by task title, project name, or section name (case-insensitive).
+  const q = searchQuery.trim().toLowerCase();
+  const matchesSearch = (t: Task) => {
+    if (!q) return true;
+    const proj = projects.find(p => p.id === t.projectId);
+    const sec = proj?.sections.find(s => s.id === t.sectionId);
+    return (
+      t.title.toLowerCase().includes(q) ||
+      (proj?.name.toLowerCase().includes(q) ?? false) ||
+      (sec?.name.toLowerCase().includes(q) ?? false)
+    );
+  };
+
+  const myTasks = tasks.filter(t => (isMyActiveTask(t) || isMyCompletedTask(t)) && matchesSearch(t));
   const userProjects = projects.filter(p => myTasks.some(t => t.projectId === p.id));
+
+  // Most recently completed first (completedAt is an ISO string → lexical sort works).
+  const byRecentCompleted = (a: Task, b: Task) => (b.completedAt ?? '').localeCompare(a.completedAt ?? '');
 
   const formatTime = (s: number) => `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
   const formatDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -142,6 +158,27 @@ const MyTasksPage = () => {
         </div>
       </div>
 
+      {/* Search */}
+      <div className="relative mb-4 sm:mb-5 shrink-0">
+        <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50" />
+        <input
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          placeholder="Search by task, project, or section…"
+          className="w-full rounded-xl border border-border/50 bg-muted/30 pl-9 pr-9 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:bg-background transition-colors"
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            onClick={() => setSearchQuery('')}
+            aria-label="Clear search"
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-md text-muted-foreground/50 hover:text-foreground hover:bg-muted/60 transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
       {/* Calendar view */}
       {view === 'calendar' && (
         <div className="flex-1 min-h-0 overflow-auto">
@@ -164,7 +201,7 @@ const MyTasksPage = () => {
             {userProjects.map(project => {
               const projTasks = myTasks.filter(t => t.projectId === project.id);
               const activeTasks = projTasks.filter(t => isMyActiveTask(t));
-              const completedTasks = projTasks.filter(t => isMyCompletedTask(t));
+              const completedTasks = projTasks.filter(t => isMyCompletedTask(t)).sort(byRecentCompleted);
 
               return (
                 <motion.div

@@ -24,6 +24,7 @@ let agentEventSeq = 0;
 const DEFAULT_COLUMNS: KanbanColumn[] = [
   { id: 'backlog', label: 'Backlog' },
   { id: 'in_progress', label: 'In Progress' },
+  { id: 'testing', label: 'Testing' },
   { id: 'in_review', label: 'In Review' },
   { id: 'done', label: 'Done' },
 ];

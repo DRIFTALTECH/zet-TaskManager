@@ -1,6 +1,6 @@
 import { useAppStore } from '@/stores/appStore';
 import { Task, Priority, TaskStatus, TaskChecklist, TaskAttachment } from '@/types';
-import { Dialog, DialogContent, DialogDescription } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import {
@@ -12,11 +12,12 @@ import {
   Calendar, Tag, Clock, AlertTriangle, Plus, X, Trash2,
   FolderOpen, Layers, Mail, UserCircle, CircleDot,
   MessageSquare, Send, User2, CheckCircle2, RotateCcw, ChevronRight,
-  CheckSquare, Square, Paperclip, Download, Upload, Sparkles,
+  CheckSquare, Square, Paperclip, Download, Upload, Sparkles, Eye, FileText,
 } from 'lucide-react';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { taskAssigneeIds, isTaskAssignedTo } from '@/lib/task-utils';
 import UserAvatar from '@/components/UserAvatar';
+import { matchAgentBrand, AgentBrandBadge } from '@/lib/agent-brand';
 import { dueBucketDateTextClass, getDueBucket } from '@/lib/due-date-utils';
 import { api } from '@/lib/api';
 import type { TaskFeedback } from '@/types';
@@ -156,6 +157,32 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
   const [attachments, setAttachments] = useState<TaskAttachment[]>([]);
   const [attachmentsLoading, setAttachmentsLoading] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
+  // Inline viewer: preview a doc/diff/image in-app instead of downloading.
+  const [viewer, setViewer] = useState<{ att: TaskAttachment; kind: 'text' | 'image' | 'binary'; text?: string; url?: string; loading: boolean } | null>(null);
+
+  const openViewer = useCallback(async (att: TaskAttachment) => {
+    if (!task) return;
+    setViewer({ att, kind: 'binary', loading: true });
+    try {
+      const blob = await api.fetchAttachmentBlob(task.id, att.id);
+      const ct = att.contentType || '';
+      const textLike = ct.startsWith('text/') || /\.(md|markdown|txt|diff|patch|json|log|csv|ya?ml|py|ts|tsx|js|jsx|sh|sql|html|css|env|toml|ini)$/i.test(att.filename);
+      if (textLike) {
+        setViewer({ att, kind: 'text', text: await blob.text(), loading: false });
+      } else if (ct.startsWith('image/')) {
+        setViewer({ att, kind: 'image', url: URL.createObjectURL(blob), loading: false });
+      } else {
+        setViewer({ att, kind: 'binary', loading: false });
+      }
+    } catch {
+      toast.error('Could not open attachment');
+      setViewer(null);
+    }
+  }, [task]);
+
+  const closeViewer = useCallback(() => {
+    setViewer(prev => { if (prev?.url) { try { URL.revokeObjectURL(prev.url); } catch { /* noop */ } } return null; });
+  }, []);
 
   const isManager = currentUser?.role === 'manager' || currentUser?.role === 'admin';
   const isCompleted = task?.status === 'completed';
@@ -402,6 +429,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
     <>
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="sm:max-w-[1060px] flex max-h-[min(92dvh,92vh)] min-h-0 flex-col gap-0 overflow-hidden border-border/30 bg-card p-0 rounded-2xl shadow-2xl">
+          <DialogTitle className="sr-only">{task.title}</DialogTitle>
           <DialogDescription className="sr-only">Task details for {task.title}</DialogDescription>
 
           {/* ── Header ────────────────────────────────────────────── */}
@@ -808,10 +836,22 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                           {attachments.map(att => (
                             <div key={att.id} className="flex items-center gap-2.5 group rounded-xl border border-border/30 px-3 py-2.5 bg-muted/10 hover:bg-muted/25 transition-colors">
                               <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40" />
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs font-medium truncate text-foreground">{att.filename}</p>
+                              <button
+                                type="button"
+                                onClick={() => void openViewer(att)}
+                                className="flex-1 min-w-0 text-left"
+                                title="View"
+                              >
+                                <p className="text-xs font-medium truncate text-foreground hover:text-primary transition-colors">{att.filename}</p>
                                 <p className="text-[10px] text-muted-foreground/50">{fmtSize(att.sizeBytes)} · {att.uploaderName}</p>
-                              </div>
+                              </button>
+                              <button
+                                onClick={() => void openViewer(att)}
+                                className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-primary/10 text-muted-foreground/50 hover:text-primary transition-all shrink-0"
+                                title="View"
+                              >
+                                <Eye className="h-3.5 w-3.5" />
+                              </button>
                               <button
                                 onClick={() => void api.downloadAttachment(task.id, att.id, att.filename)}
                                 className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-primary/10 text-muted-foreground/50 hover:text-primary transition-all shrink-0"
@@ -898,6 +938,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                     <AnimatePresence initial={false}>
                       {feedbackList.map(fb => {
                         const isOwn = currentUser?.id === fb.userId;
+                        const brand = matchAgentBrand(fb.authorName);
                         return (
                           <motion.div
                             key={fb.id}
@@ -907,10 +948,17 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                             transition={{ duration: 0.15 }}
                             className={`flex gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}
                           >
-                            <Avatar name={fb.authorName || '?'} avatar={users.find(u => u.id === fb.userId)?.avatar} size="sm" />
+                            {brand
+                              ? <AgentBrandBadge brand={brand} size={32} />
+                              : <Avatar name={fb.authorName || '?'} avatar={users.find(u => u.id === fb.userId)?.avatar} size="sm" />}
                             <div className={`flex-1 min-w-0 flex flex-col gap-1 ${isOwn ? 'items-end' : 'items-start'}`}>
                               <div className={`flex items-center gap-2 ${isOwn ? 'flex-row-reverse' : ''}`}>
                                 <span className="text-xs font-semibold text-foreground">{fb.authorName}</span>
+                                {brand && (
+                                  <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full text-white" style={{ background: brand.bg }}>
+                                    AI
+                                  </span>
+                                )}
                                 <span className="text-[10px] text-muted-foreground/40 font-mono">{tsShort(fb.createdAt)}</span>
                               </div>
                               {editingFeedbackId === fb.id ? (
@@ -928,11 +976,14 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                                 </div>
                               ) : (
                                 <>
-                                  <div className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed max-w-[88%] whitespace-pre-wrap shadow-sm ${
-                                    isOwn
-                                      ? 'bg-primary/12 text-foreground rounded-tr-md border border-primary/15'
-                                      : 'bg-muted/50 text-foreground rounded-tl-md border border-border/30'
-                                  }`}>
+                                  <div
+                                    className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed max-w-[88%] whitespace-pre-wrap shadow-sm ${
+                                      isOwn
+                                        ? 'bg-primary/12 text-foreground rounded-tr-md border border-primary/15'
+                                        : 'bg-muted/50 text-foreground rounded-tl-md border border-border/30'
+                                    } ${brand ? 'border-l-[3px]' : ''}`}
+                                    style={brand ? { borderLeftColor: brand.bg } : undefined}
+                                  >
                                     {fb.message}
                                   </div>
                                   {isOwn && (
@@ -1223,6 +1274,50 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Inline attachment viewer */}
+      <Dialog open={!!viewer} onOpenChange={o => { if (!o) closeViewer(); }}>
+        <DialogContent className="max-w-[min(92vw,820px)] w-[min(92vw,820px)] max-h-[85vh] flex flex-col gap-0 p-0 overflow-hidden">
+          <div className="flex items-center gap-2 px-5 py-3 border-b border-border/40 bg-muted/20">
+            <FileText className="h-4 w-4 text-primary/70 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold truncate">{viewer?.att.filename}</p>
+              <p className="text-[10px] text-muted-foreground/50">{viewer && fmtSize(viewer.att.sizeBytes)} · {viewer?.att.uploaderName}</p>
+            </div>
+            {viewer && (
+              <button
+                onClick={() => void api.downloadAttachment(task!.id, viewer.att.id, viewer.att.filename)}
+                className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg border border-border/50 hover:bg-muted/60 transition-colors shrink-0"
+              >
+                <Download className="h-3.5 w-3.5" /> Download
+              </button>
+            )}
+          </div>
+          <DialogTitle className="sr-only">{viewer?.att.filename ?? 'Attachment'}</DialogTitle>
+          <DialogDescription className="sr-only">Attachment preview</DialogDescription>
+          <div className="flex-1 min-h-0 overflow-auto">
+            {viewer?.loading ? (
+              <div className="flex items-center justify-center py-16 text-sm text-muted-foreground/60">Loading…</div>
+            ) : viewer?.kind === 'text' ? (
+              <pre className="text-[12.5px] leading-relaxed font-mono whitespace-pre-wrap break-words text-foreground/90 p-5">{viewer.text}</pre>
+            ) : viewer?.kind === 'image' ? (
+              <div className="flex items-center justify-center p-5 bg-muted/20">
+                <img src={viewer.url} alt={viewer.att.filename} className="max-w-full max-h-[68vh] rounded-lg" />
+              </div>
+            ) : viewer ? (
+              <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+                <p className="text-sm text-muted-foreground/70">Can’t preview this file type here.</p>
+                <button
+                  onClick={() => void api.downloadAttachment(task!.id, viewer.att.id, viewer.att.filename)}
+                  className="flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-xl bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+                >
+                  <Download className="h-4 w-4" /> Download instead
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 };

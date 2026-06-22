@@ -1,5 +1,5 @@
 import { useAppStore } from '@/stores/appStore';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import {
   Search, ListTodo, FolderOpen, Users, X, ChevronRight, Clock,
   AlertTriangle, CheckCircle2,
@@ -127,6 +127,10 @@ export default function GlobalSearchModal({ open, onOpenChange }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="p-0 gap-0 overflow-hidden w-[94vw] max-w-[94vw] h-[70dvh] max-h-[70dvh] sm:w-[50vw] sm:max-w-[50vw] sm:h-[50dvh] sm:max-h-[50dvh] rounded-2xl border border-border/50 shadow-2xl">
+        {/* Accessible title/description for screen readers (visually hidden). */}
+        <DialogTitle className="sr-only">Search</DialogTitle>
+        <DialogDescription className="sr-only">Search across tasks, projects, and people</DialogDescription>
+
         {/* Search input */}
         <div className="flex items-center gap-3 px-4 py-3.5 border-b border-border/30">
           <Search className="h-4 w-4 text-muted-foreground/60 shrink-0" />

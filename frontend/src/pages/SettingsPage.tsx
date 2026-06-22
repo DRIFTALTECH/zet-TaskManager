@@ -10,6 +10,7 @@ import type { ReactNode } from 'react';
 import { toast } from 'sonner';
 import { pageEnter } from '@/lib/motion';
 import { api } from '@/lib/api';
+import { getApiUrl } from '@/lib/env';
 import type { PersonalAccessToken, AuditLog } from '@/types';
 import UserAvatar from '@/components/UserAvatar';
 import AgentAvatar from '@/components/agents/AgentAvatar';
@@ -50,9 +51,10 @@ function timeAgo(iso: string) {
 
 const inputCls = 'w-full rounded-xl border border-border/50 bg-muted/40 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 transition-all placeholder:text-muted-foreground/40';
 
-/** The MCP endpoint is embedded in the backend at /mcp; override with VITE_MCP_URL. */
+/** The MCP endpoint is embedded in the backend at /mcp; it always tracks the
+ *  backend the app is actually talking to (getApiUrl). Override with VITE_MCP_URL. */
 const MCP_BASE = (import.meta.env.VITE_MCP_URL as string | undefined)
-  || `${(import.meta.env.VITE_API_URL as string | undefined) || 'http://127.0.0.1:8000'}/mcp/`;
+  || `${getApiUrl()}/mcp/`;
 
 function fmtDate(iso: string): string {
   if (!iso) return '';
@@ -148,16 +150,23 @@ function ConnectionGuide({
   const tokenMasked = token && !reveal ? `${token.slice(0, 6)}${'•'.repeat(20)}` : tok;
   const isPlugin = tab === 'plugin';
 
+  // Claude Code one-liner CLI (URL auto-tracks the running backend). With a token it
+  // adds the bearer header; without one, first use opens a browser login.
+  const claudeCli = (t?: string) =>
+    `claude mcp add zet --transport http ${mcpBase}` + (t ? ` --header "Authorization: Bearer ${t}"` : '');
+  // The CLI is the primary path for Claude Code; the Plugin tab installs via marketplace.
+  const usesCli = tab === 'claude' || isPlugin;
+
   // Default payload — URL only (client does OAuth / browser login).
   const urlOnly = `{
   "mcpServers": {
     "zet": { "url": "${mcpBase}" }
   }
 }`;
-  // Token fallback payload — what to paste in step 3 instead (or the CLI command for the
-  // plugin). Displayed masked until the user reveals; copy always yields the real value.
-  const mkPayload = (t: string) => isPlugin
-    ? `claude mcp add zet --transport http ${mcpBase} --header "Authorization: Bearer ${t}"`
+  // Token fallback payload — what to run/paste instead. Displayed masked until the user
+  // reveals; copy always yields the real value.
+  const mkPayload = (t: string) => usesCli
+    ? claudeCli(t)
     : `{
   "mcpServers": {
     "zet": {
@@ -226,8 +235,16 @@ function ConnectionGuide({
               <p className="text-[12px] text-muted-foreground/60">{tab === 'claude' ? 'Settings → MCP, or create/edit this file:' : 'Create or edit this file:'}</p>
               <CodeBlock code={p.location} />
             </Step>
-            <Step n={3} title="Add this exactly" color={p.dot}>
-              <CodeBlock code={urlOnly} />
+            <Step n={3} title={tab === 'claude' ? 'Run this — one command' : 'Add this exactly'} color={p.dot}>
+              {tab === 'claude' ? (
+                <div className="space-y-2">
+                  <CodeBlock caption="recommended — one command" code={claudeCli()} />
+                  <p className="text-[11px] text-muted-foreground/50">Prefer a config file? Edit <span className="font-mono text-foreground/70">{p.location.trim()}</span> instead:</p>
+                  <CodeBlock code={urlOnly} />
+                </div>
+              ) : (
+                <CodeBlock code={urlOnly} />
+              )}
             </Step>
             <Step n={4} title={`Restart ${p.label}`} color={p.dot}>
               <p className="text-[12px] text-muted-foreground/60">On first use it opens a browser login — sign in to ZET. Done.</p>
@@ -243,7 +260,7 @@ function ConnectionGuide({
           </div>
           <p className="text-[12px] text-muted-foreground/65 leading-relaxed">
             If your organization blocks browser / OAuth login, generate a token and{' '}
-            {isPlugin ? 'run this command instead of step 2' : 'paste this in step 3 instead of the config above'}.
+            {usesCli ? 'run this command instead' : 'paste this in step 3 instead of the config above'}.
           </p>
 
           {!token ? (
@@ -273,7 +290,7 @@ function ConnectionGuide({
                 </div>
                 <p className="text-[11px] text-muted-foreground/50 mt-1">Shown once — copy it now. Acts on ZET as you; keep it secret.</p>
               </div>
-              <CodeBlock caption={isPlugin ? 'run this command' : `paste this in step 3 — ${p.location.trim()}`} code={tokenPayload} copyText={tokenPayloadReal} />
+              <CodeBlock caption={usesCli ? 'run this command' : `paste this in step 3 — ${p.location.trim()}`} code={tokenPayload} copyText={tokenPayloadReal} />
             </div>
           )}
         </div>

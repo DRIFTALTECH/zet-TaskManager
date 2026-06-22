@@ -71,11 +71,28 @@ def ensure_default_kanban(db: Session) -> None:
     default_kanban = [
         ("backlog", "Backlog", 0),
         ("in_progress", "In Progress", 1),
-        ("in_review", "In Review", 2),
-        ("done", "Done", 3),
+        ("testing", "Testing", 2),
+        ("in_review", "In Review", 3),
+        ("done", "Done", 4),
     ]
     for kid, label, pos in default_kanban:
         db.add(KanbanColumn(id=kid, label=label, position=pos))
+    db.commit()
+
+
+def migrate_testing_column_if_needed(db: Session) -> None:
+    """Insert the 'testing' base column (between In Progress and In Review) on
+    existing boards that predate it. Idempotent."""
+    if db.query(KanbanColumn).first() is None:
+        return  # fresh DB — ensure_default_kanban handles it
+    if db.query(KanbanColumn).filter(KanbanColumn.id == "testing").first() is not None:
+        return
+    # Shift In Review / Done (and anything after In Progress) right by one, then insert.
+    in_prog = db.query(KanbanColumn).filter(KanbanColumn.id == "in_progress").first()
+    insert_pos = (in_prog.position + 1) if in_prog else 2
+    for col in db.query(KanbanColumn).filter(KanbanColumn.position >= insert_pos).all():
+        col.position += 1
+    db.add(KanbanColumn(id="testing", label="Testing", position=insert_pos))
     db.commit()
 
 
@@ -224,6 +241,7 @@ def init_db() -> None:
     try:
         backfill_task_assignees(db)
         ensure_default_kanban(db)
+        migrate_testing_column_if_needed(db)
         # Purge audit logs older than 7 days on startup
         from logic.audit import purge_old_audit_logs
         purge_old_audit_logs(db)

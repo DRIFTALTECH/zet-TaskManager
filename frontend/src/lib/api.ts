@@ -461,6 +461,15 @@ export const api = {
     await request(`/tasks/${taskId}/attachments/${attachmentId}`, { method: 'DELETE' });
   },
 
+  // Raw bytes for inline viewing (text/markdown/diff/image previews).
+  async fetchAttachmentBlob(taskId: string, attachmentId: string): Promise<Blob> {
+    const res = await fetch(`${baseUrl()}/tasks/${taskId}/attachments/${attachmentId}/download`, {
+      headers: headers(false),
+    });
+    if (!res.ok) throw new Error('Could not load attachment');
+    return res.blob();
+  },
+
   async downloadAttachment(taskId: string, attachmentId: string, filename: string): Promise<void> {
     const res = await fetch(`${baseUrl()}/tasks/${taskId}/attachments/${attachmentId}/download`, {
       headers: headers(false),

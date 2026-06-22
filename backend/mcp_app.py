@@ -76,28 +76,44 @@ mcp = FastMCP(
         "return candidates to choose from. Call `whoami` first — manager/admin-only "
         "actions fail for employees.\n"
         "\n"
-        "DEFAULT WORKING STYLE (follow this without being asked to use a command):\n"
-        "• When the user asks what they're working on / their tasks → call `list_my_tasks` "
-        "and show them grouped by status.\n"
-        "• When the user asks you to work on / pick up / do a task → run this loop and keep "
-        "ZET in sync at every step so they can follow along in the app:\n"
-        "  1. `get_task` for the full spec (description, checklist, comments, attachments).\n"
-        "  2. Draft a concrete plan, post it with `add_task_comment` (prefix '**Plan (Claude):**'), "
-        "then STOP and ask the user to confirm before changing any code.\n"
-        "  3. After confirmation: `move_task` → in_progress, `start_timer`, and add each step "
-        "with `add_checklist_item`.\n"
-        "  4. Do the real work in their repo; mark each step done with `set_checklist_item` as "
-        "you finish it.\n"
-        "  5. Run the project's tests/lint for real — never claim success on a failing build.\n"
-        "  6. Attach evidence with `upload_task_attachment` (plan.md, changes.diff, "
-        "test-output.txt) and post a '**Done (Claude):**' summary of what changed via "
-        "`add_task_comment`.\n"
-        "  7. `stop_timer` (auto-logs time; if it captured too little, use `log_work`), then "
-        "`move_task` → in_review (or done if asked to fully close).\n"
-        "Rules: the confirmation gate in step 2 is mandatory; relay permission errors plainly "
-        "(board moves are assignee-only, comments need project membership); never fabricate "
-        "results. The user should be able to reconstruct everything you did from the task's "
-        "checklist, comments, and attachments alone."
+        "THE BOARD COLUMNS ARE A STATE MACHINE. A task's column tells you what to do, and "
+        "you move it to signal where it is. The columns: backlog, in_progress, testing, "
+        "in_review, done.\n"
+        "  • backlog  = not started.\n"
+        "  • in_progress = you are actively working on it right now.\n"
+        "  • testing  = you are writing tests/scripts derived from the task's title & "
+        "description, running them, and fixing what fails — looping until everything passes.\n"
+        "  • in_review = your work is done; you've posted a summary and are waiting for the "
+        "user. The user either approves (→ done) or moves it back to in_progress for rework.\n"
+        "  • done = the user confirmed it's good.\n"
+        "\n"
+        "DEFAULT WORKING STYLE (do this automatically — never ask whether to use a command or "
+        "whether to sync to ZET; keeping ZET in sync is your job, not a choice you offer):\n"
+        "• 'What am I working on / my tasks' → `list_my_tasks`, grouped by status.\n"
+        "• 'Work on / pick up / do <task>' → run the loop below. The ZET updates (move, timer, "
+        "checklist, comment, attach) happen silently and automatically — never present them as "
+        "options:\n"
+        "  1. `get_task` for the full spec.\n"
+        "  2. IMMEDIATELY `move_task` → in_progress and `start_timer`, before any doc/code. Post "
+        "the plan via `add_task_comment` ('**Plan (Claude):**') and add each step with "
+        "`add_checklist_item`.\n"
+        "  3. The ONLY pause for the user is before substantial CODE changes to their repo: post "
+        "the plan, get a quick confirm. A doc/analysis IS the work — just do it.\n"
+        "  4. Do the work; tick each step with `set_checklist_item` as you finish.\n"
+        "  5. If the task involves code, `move_task` → testing, then write MULTIPLE test scripts "
+        "from the title/description, run them for real, fix every failure, and re-run — LOOP "
+        "until all pass. Post progress comments as you iterate. Never claim success on a failing "
+        "build.\n"
+        "  6. The moment a deliverable exists (doc, diff, test output), `upload_task_attachment` "
+        "it (e.g. plan.md, changes.diff, test-output.txt) and post a '**Done (Claude):**' summary "
+        "via `add_task_comment`. Attaching is automatic — don't ask.\n"
+        "  7. `stop_timer` (auto-logs; if too little, `log_work`), then `move_task` → in_review "
+        "and ask the user ONLY to REVIEW. If they approve → `move_task` done. If they ask for "
+        "changes (or move it back to in_progress), pick it up again from step 2.\n"
+        "Rules: relay permission errors plainly (board moves are assignee-only; comments need "
+        "project membership); never fabricate results; never offer a 'sync to ZET / keep "
+        "building' menu — the sync is already done. The user must be able to reconstruct "
+        "everything you did from the task's checklist, comments, and attachments alone."
     ),
     # Full OAuth 2.1 flow (browser login) + manual PATs both validate via this provider.
     auth=oauth_provider,
@@ -497,14 +513,14 @@ def move_task(task_id: str, status: str) -> dict:
 # write a summary of what changed, attach artifacts, and log the time it took.
 
 @mcp.tool
-def get_task(task: str) -> dict:
+def get_task(task_id: str) -> dict:
     """Full detail for one task (by id or title): description, status, priority,
     assignees, due date — PLUS its checklist, comment thread, and attachments.
     Call this first when you start working on a task; it's everything you need to plan."""
     db = SessionLocal()
     try:
         uid = _uid()
-        t = _find_task(db, uid, task)
+        t = _find_task(db, uid, task_id)
         detail = task_logic.get_task(db, uid, t.id).model_dump()
         detail["checklist"] = [c.model_dump() for c in checklist_logic.list_for_task(db, t.id)]
         detail["comments"] = [f.model_dump() for f in task_feedback_logic.list_feedback(db, uid, t.id)]
@@ -515,13 +531,13 @@ def get_task(task: str) -> dict:
 
 
 @mcp.tool
-def update_task(task: str, description: str = "", priority: str = "", title: str = "") -> dict:
+def update_task(task_id: str, description: str = "", priority: str = "", title: str = "") -> dict:
     """Update a task's description, priority (Urgent|High|Medium|Low) and/or title.
     Only non-empty fields change. Use `move_task` for board status, not this."""
     db = SessionLocal()
     try:
         uid = _uid()
-        t = _find_task(db, uid, task)
+        t = _find_task(db, uid, task_id)
         patch = TaskPatch(
             description=description or None,
             priority=priority or None,
@@ -533,14 +549,14 @@ def update_task(task: str, description: str = "", priority: str = "", title: str
 
 
 @mcp.tool
-def add_task_comment(task: str, message: str) -> dict:
+def add_task_comment(task_id: str, message: str) -> dict:
     """Post a comment on a task's thread. Use this to share your PLAN before starting,
     progress updates as you go, and a final summary of WHAT CHANGED. Visible to the
     task's members in the app."""
     db = SessionLocal()
     try:
         uid = _uid()
-        t = _find_task(db, uid, task)
+        t = _find_task(db, uid, task_id)
         return task_feedback_logic.create_feedback_action(
             db, uid, t.id, TaskFeedbackCreate(message=message)
         ).model_dump()
@@ -549,26 +565,26 @@ def add_task_comment(task: str, message: str) -> dict:
 
 
 @mcp.tool
-def list_task_comments(task: str) -> list[dict]:
+def list_task_comments(task_id: str) -> list[dict]:
     """Read a task's comment thread (chronological)."""
     db = SessionLocal()
     try:
         uid = _uid()
-        t = _find_task(db, uid, task)
+        t = _find_task(db, uid, task_id)
         return [f.model_dump() for f in task_feedback_logic.list_feedback(db, uid, t.id)]
     finally:
         db.close()
 
 
 @mcp.tool
-def add_checklist_item(task: str, title: str, priority: str = "Medium") -> dict:
+def add_checklist_item(task_id: str, title: str, priority: str = "Medium") -> dict:
     """Add a checklist item (one step) to a task. Lay out your plan as checklist items,
     then mark each done with `set_checklist_item` as you complete it — the user watches
     the steps tick off live on the card."""
     db = SessionLocal()
     try:
         uid = _uid()
-        t = _find_task(db, uid, task)
+        t = _find_task(db, uid, task_id)
         return checklist_logic.create(
             db, t.id, TaskChecklistCreate(title=title, priority=priority), uid
         ).model_dump()
@@ -577,12 +593,12 @@ def add_checklist_item(task: str, title: str, priority: str = "Medium") -> dict:
 
 
 @mcp.tool
-def set_checklist_item(task: str, item: str, done: bool = True, title: str = "") -> dict:
+def set_checklist_item(task_id: str, item: str, done: bool = True, title: str = "") -> dict:
     """Update a checklist item (by id or title text): tick it done/undone, and/or rename it."""
     db = SessionLocal()
     try:
         uid = _uid()
-        t = _find_task(db, uid, task)
+        t = _find_task(db, uid, task_id)
         target = _resolve_checklist_item(db, t.id, item)
         patch = TaskChecklistPatch(isDone=done, title=title or None)
         return checklist_logic.patch(db, t.id, target.id, patch, uid).model_dump()
@@ -591,26 +607,26 @@ def set_checklist_item(task: str, item: str, done: bool = True, title: str = "")
 
 
 @mcp.tool
-def list_checklist(task: str) -> list[dict]:
+def list_checklist(task_id: str) -> list[dict]:
     """List a task's checklist items with their done state."""
     db = SessionLocal()
     try:
         uid = _uid()
-        t = _find_task(db, uid, task)
+        t = _find_task(db, uid, task_id)
         return [c.model_dump() for c in checklist_logic.list_for_task(db, t.id)]
     finally:
         db.close()
 
 
 @mcp.tool
-def upload_task_attachment(task: str, filename: str, content: str = "", content_base64: str = "") -> dict:
+def upload_task_attachment(task_id: str, filename: str, content: str = "", content_base64: str = "") -> dict:
     """Attach a file to a task — e.g. your `plan.md`, a git diff/patch, or test output.
     Pass UTF-8 text in `content` (for markdown/diff/logs) OR base64 bytes in
     `content_base64`. The filename extension determines the content type. Max 20 MB."""
     db = SessionLocal()
     try:
         uid = _uid()
-        t = _find_task(db, uid, task)
+        t = _find_task(db, uid, task_id)
         if content_base64:
             raw = base64.b64decode(content_base64)
         elif content:
@@ -624,26 +640,26 @@ def upload_task_attachment(task: str, filename: str, content: str = "", content_
 
 
 @mcp.tool
-def start_timer(task: str) -> dict:
+def start_timer(task_id: str) -> dict:
     """Start a server-side work timer on a task (marks it started). Call `stop_timer`
     when done to auto-log the elapsed time to your timesheet."""
     db = SessionLocal()
     try:
         uid = _uid()
-        t = _find_task(db, uid, task)
+        t = _find_task(db, uid, task_id)
         return timer_logic.start(db, uid, t.id).model_dump()
     finally:
         db.close()
 
 
 @mcp.tool
-def stop_timer(task: str) -> dict:
+def stop_timer(task_id: str) -> dict:
     """Stop the running timer on a task; the elapsed time is logged to your timesheet
     automatically. Returns the updated task."""
     db = SessionLocal()
     try:
         uid = _uid()
-        t = _find_task(db, uid, task)
+        t = _find_task(db, uid, task_id)
         return timer_logic.stop(db, uid, t.id).model_dump()
     finally:
         db.close()

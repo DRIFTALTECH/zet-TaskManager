@@ -261,33 +261,37 @@ export default function CalendarWeekView({ weekDates, entries, projects, todaySt
                           left: `calc(${leftPct}% + 2px)`,
                           width: `calc(${widthPct}% - 4px)`,
                           borderLeftColor: `hsl(${hue} 70% 45%)`,
-                          backgroundColor: `color-mix(in srgb, hsl(${hue} 70% 50%) 22%, hsl(var(--card)))`,
+                          backgroundColor: 'hsl(var(--card))',
                         }}
                         className={cn(
-                          'group/entry absolute z-10 rounded-sm border-l-[3px] overflow-hidden hover:brightness-105 transition-shadow',
+                          'group/entry absolute z-10 rounded-sm border border-border/50 border-l-[3px] overflow-hidden transition-shadow',
                           active && 'z-30 shadow-lg ring-2 ring-primary/60',
                         )}
                       >
-                        {/* top resize edge */}
+                        {/* top resize grip (=) — hover only */}
                         <div onMouseDown={ev => beginResize(ev, e, 'top')}
-                          className="absolute inset-x-0 top-0 h-2 cursor-ns-resize z-20 opacity-0 group-hover/entry:opacity-100 bg-foreground/10" />
+                          title="Drag to resize"
+                          className="absolute inset-x-0 top-0 z-20 flex flex-col items-center justify-center gap-[3px] pt-1 pb-1.5 cursor-ns-resize opacity-0 group-hover/entry:opacity-100 transition-opacity">
+                          <span className="block h-[2px] w-5 rounded-full bg-foreground/40" />
+                          <span className="block h-[2px] w-5 rounded-full bg-foreground/40" />
+                        </div>
 
                         {/* body — drag to move, click to edit */}
                         <div onMouseDown={ev => beginMove(ev, e)}
                           className="flex h-full flex-col cursor-grab active:cursor-grabbing">
-                          <div className="flex-1 px-2 pt-1 overflow-hidden">
-                            <p className="text-xs font-bold text-foreground leading-tight break-words [overflow-wrap:anywhere]">
+                          <div className="flex-1 px-2.5 pt-1.5 overflow-hidden">
+                            <p className="text-[13px] font-semibold text-foreground leading-snug break-words">
                               {e.description?.trim() || projName(e.projectId)}
                             </p>
-                            {sec && (
-                              <p className="text-[11px] font-medium leading-tight mt-0.5 truncate" style={{ color: `hsl(${hue} 45% 45%)` }}>
-                                {projName(e.projectId)} : {sec}
+                            {e.description?.trim() && (
+                              <p className="text-[11px] font-medium leading-tight mt-1 break-words" style={{ color: `hsl(${hue} 45% 45%)` }}>
+                                {projName(e.projectId)}{sec ? ` : ${sec}` : ''}
                               </p>
                             )}
                           </div>
 
                           {/* footer: $ · grip(=) · duration */}
-                          <div className="flex items-center justify-between gap-1 px-1.5 pb-1">
+                          <div className="flex items-center justify-between gap-1 px-2 pb-1.5">
                             <button type="button"
                               onMouseDown={ev => ev.stopPropagation()}
                               onClick={ev => { ev.stopPropagation(); onToggleBillable(e); }}
@@ -296,10 +300,10 @@ export default function CalendarWeekView({ weekDates, entries, projects, todaySt
                               <DollarSign className="h-4 w-4" />
                             </button>
 
-                            {/* grip = bottom resize handle */}
+                            {/* grip = bottom resize handle — hover only */}
                             <div onMouseDown={ev => beginResize(ev, e, 'bottom')}
                               title="Drag to resize"
-                              className="flex flex-col items-center justify-center gap-[3px] px-3 py-1 cursor-ns-resize">
+                              className="flex flex-col items-center justify-center gap-[3px] px-3 py-1 cursor-ns-resize opacity-0 group-hover/entry:opacity-100 transition-opacity">
                               <span className="block h-[2px] w-4 rounded-full bg-foreground/35" />
                               <span className="block h-[2px] w-4 rounded-full bg-foreground/35" />
                             </div>

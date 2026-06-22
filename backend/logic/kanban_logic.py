@@ -7,8 +7,8 @@ import crud.kanban as kanban_crud
 import crud.tasks as tasks_crud
 from logic.schemas import KanbanColumnCreate, KanbanColumnOut, KanbanColumnRename, KanbanReorderBody
 
-# These 4 IDs are permanent — they cannot be deleted (tasks use them as status values)
-PROTECTED_IDS: frozenset[str] = frozenset(["backlog", "in_progress", "in_review", "done"])
+# These base IDs are permanent — they cannot be deleted (tasks use them as status values)
+PROTECTED_IDS: frozenset[str] = frozenset(["backlog", "in_progress", "testing", "in_review", "done"])
 
 
 def list_columns(db: Session) -> list[KanbanColumnOut]:
