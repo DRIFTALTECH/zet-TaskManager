@@ -1,5 +1,5 @@
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date, timedelta
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -50,6 +50,20 @@ def span_seconds(time_from: str, time_to: str) -> int:
     if st == sf:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "End time must be after start time")
     return 86400 - sf + st
+
+
+def _reject_future_date(work_date: str) -> None:
+    """No timesheet/work entry may be dated in the future — you can't log work that
+    hasn't happened yet. Allow up to UTC-today + 1 day so a user whose local zone is
+    ahead of UTC (e.g. IST) can still log *their* today near midnight.
+    # ponytail: +1-day UTC tolerance, not true per-user tz. Pass the client's tz
+    # offset through and compare in local time if a stricter bound is ever needed."""
+    try:
+        wd = date.fromisoformat(work_date)
+    except ValueError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "workDate must be YYYY-MM-DD")
+    if wd > date.today() + timedelta(days=1):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot log time for a future date.")
 
 
 def _validate_section_project(db: Session, project_id: str, section_id: str) -> None:
@@ -111,6 +125,7 @@ def list_entries_for_project(db: Session, manager_id: str, project_id: str) -> l
 
 
 def create_entry(db: Session, user_id: str, body: TimesheetEntryCreate) -> TimesheetEntryOut:
+    _reject_future_date(body.workDate)
     project_logic.ensure_project_member(db, body.projectId, user_id)
     _validate_section_project(db, body.projectId, body.sectionId)
     tf = normalize_time_value(body.timeFrom)
@@ -139,6 +154,7 @@ def patch_entry(db: Session, user_id: str, entry_id: str, body: TimesheetEntryPa
     if not row or row.user_id != user_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Entry not found")
     if body.workDate is not None:
+        _reject_future_date(body.workDate)
         row.work_date = body.workDate
     if body.projectId is not None:
         row.project_id = body.projectId
