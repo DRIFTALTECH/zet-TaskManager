@@ -6,6 +6,7 @@ import io
 
 from fastapi import HTTPException, status
 
+import crud.projects as projects_crud
 import crud.users as users_crud
 from ai import chains, service
 from ai.schemas import ParseTaskResponse, ProjectRef, SectionRef, UserRef
@@ -52,17 +53,24 @@ def _document_text(data: bytes, filename: str) -> str:
 
 
 def _refs(db, user_id: str) -> tuple[list[UserRef], list[ProjectRef]]:
-    users = [
-        UserRef(
+    users_by_id = {
+        u.id: UserRef(
             id=u.id,
             name=u.name,
             job_title=getattr(u, "job_title", "") or "",
             current_experience_months=getattr(u, "experience_months", 0) or 0,
         )
         for u in users_crud.list_all(db)
-    ]
+    }
+    users = list(users_by_id.values())
     projects = [
-        ProjectRef(id=p.id, name=p.name, sections=[SectionRef(id=s.id, name=s.name) for s in p.sections])
+        ProjectRef(
+            id=p.id,
+            name=p.name,
+            sections=[SectionRef(id=s.id, name=s.name) for s in p.sections],
+            # Members of this project — the only people a task in it may be assigned to.
+            members=[users_by_id[mid] for mid in projects_crud.member_ids(db, p.id) if mid in users_by_id],
+        )
         for p in project_logic.list_projects(db, user_id)
     ]
     return users, projects

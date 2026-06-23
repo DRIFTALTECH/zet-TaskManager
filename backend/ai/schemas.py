@@ -42,6 +42,7 @@ class ProjectRef(BaseModel):
     id: str
     name: str
     sections: list[SectionRef] = Field(default_factory=list)
+    members: list[UserRef] = Field(default_factory=list)
 
 
 # ── Requests ──────────────────────────────────────────────────────────────────

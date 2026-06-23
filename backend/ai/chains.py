@@ -49,11 +49,10 @@ def _projects_str(projects) -> str:
     lines = []
     for p in projects:
         sections = getattr(p, "sections", []) or []
-        if sections:
-            sec_list = ", ".join(f"{s.name} (ID: {s.id})" for s in sections)
-            lines.append(f"- ID: {p.id} | Name: {p.name} | Sections: {sec_list}")
-        else:
-            lines.append(f"- ID: {p.id} | Name: {p.name} | Sections: none")
+        sec_list = ", ".join(f"{s.name} (ID: {s.id})" for s in sections) if sections else "none"
+        members = getattr(p, "members", []) or []
+        mem_list = ", ".join(f"{m.name} (ID: {m.id})" for m in members) if members else "none"
+        lines.append(f"- ID: {p.id} | Name: {p.name} | Sections: {sec_list} | Members: {mem_list}")
     return "\n".join(lines)
 
 
