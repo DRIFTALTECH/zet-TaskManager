@@ -463,6 +463,58 @@ function ScrumCard({ scrum, users, onChanged, onDeleted }: {
 
 // ── Import from Teams dialog ──────────────────────────────────────────────────
 
+/** Teams short link: https://teams.microsoft.com/meet/{id}?p=... */
+function extractTeamsMeetIdFromJoinUrl(url: string): string | null {
+  try {
+    const match = new URL(url.trim()).pathname.match(/\/meet\/([^/]+)/i);
+    return match?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Flatten WebVTT to "Speaker: text" lines (matches backend teams_logic.vtt_to_text). */
+function vttToText(vtt: string): string {
+  const vttTs = /^\d{2}:\d{2}:\d{2}\.\d{3}\s*-->/;
+  const tag = /<[^>]+>/g;
+  const lines: Array<[string, string]> = [];
+  for (const raw of (vtt || '').split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line === 'WEBVTT' || vttTs.test(line) || /^\d+$/.test(line)) continue;
+    if (line.startsWith('NOTE') || line.startsWith('STYLE') || line.startsWith('REGION')) continue;
+    const voiceMatch = line.match(/<v\s+([^>]+)>(.*?)<\/v>/i);
+    const speaker = voiceMatch?.[1]?.trim() ?? '';
+    const text = (voiceMatch?.[2] ?? line).replace(tag, '').trim();
+    if (!text) continue;
+    if (lines.length && lines[lines.length - 1][0] === speaker) {
+      lines[lines.length - 1][1] = `${lines[lines.length - 1][1]} ${text}`;
+    } else {
+      lines.push([speaker, text]);
+    }
+  }
+  return lines.map(([s, t]) => (s ? `${s}: ${t}` : t)).join('\n').trim();
+}
+
+function isoDateFromGraphDateTime(value: string | undefined | null): string | null {
+  if (!value) return null;
+  const d = value.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null;
+}
+
+function resolveTeamsWorkDate(
+  transcript: { createdDateTime?: string } | undefined,
+  meeting: { startDateTime?: string; creationDateTime?: string } | undefined,
+  fallbackDate: string | null,
+): string {
+  return (
+    isoDateFromGraphDateTime(transcript?.createdDateTime) ||
+    isoDateFromGraphDateTime(meeting?.startDateTime) ||
+    isoDateFromGraphDateTime(meeting?.creationDateTime) ||
+    fallbackDate ||
+    iso(new Date())
+  );
+}
+
 function TeamsImportDialog({ open, defaultDate, onClose, onImported }: {
   open: boolean;
   defaultDate: string | null;
@@ -506,7 +558,7 @@ function TeamsImportDialog({ open, defaultDate, onClose, onImported }: {
       const tokenRequest = {
         scopes: [
           'https://graph.microsoft.com/OnlineMeetings.Read',
-          'https://graph.microsoft.com/OnlineMeetingTranscript.Read.All'
+          'https://graph.microsoft.com/OnlineMeetingTranscript.Read.All',
         ],
         account: account,
       };
@@ -525,72 +577,106 @@ function TeamsImportDialog({ open, defaultDate, onClose, onImported }: {
       }
       const token = authResult.accessToken;
 
-      // 4. Resolve Meeting ID from join URL
-      const urlFilter = encodeURIComponent(joinUrl.trim());
-      const meetingReqUrl = `https://graph.microsoft.com/v1.0/me/onlineMeetings?$filter=joinWebUrl eq '${urlFilter}'`;
-      
-      console.log("DEBUG: Requesting URL:", meetingReqUrl);
-
-      // Try the raw /me/onlineMeetings to log the exact 400 Bad Request payload
-      try {
-        const rawRes = await fetch("https://graph.microsoft.com/v1.0/me/onlineMeetings", {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        const rawBody = await rawRes.text();
-        console.log("DEBUG: Raw /me/onlineMeetings response status:", rawRes.status);
-        console.log("DEBUG: Raw /me/onlineMeetings response body:", rawBody);
-      } catch (err) {
-        console.error("DEBUG: Failed to query raw /me/onlineMeetings:", err);
+      // DEBUG: direct lookup by Teams meet id from join URL (not Graph onlineMeeting id)
+      const teamsMeetId = extractTeamsMeetIdFromJoinUrl(joinUrl);
+      console.log('DEBUG [onlineMeeting-by-id] extracted Teams meet id:', teamsMeetId);
+      if (teamsMeetId) {
+        const debugByIdUrl = `https://graph.microsoft.com/v1.0/me/onlineMeetings/${encodeURIComponent(teamsMeetId)}`;
+        try {
+          const debugByIdRes = await fetch(debugByIdUrl, {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const debugByIdBody = await debugByIdRes.text();
+          console.log('DEBUG [onlineMeeting-by-id] status:', debugByIdRes.status);
+          console.log('DEBUG [onlineMeeting-by-id] response body:', debugByIdBody);
+        } catch (byIdErr) {
+          console.error('DEBUG [onlineMeeting-by-id] fetch failed:', byIdErr);
+        }
       }
+
+      // 4. Resolve Meeting ID from join URL
+      // Graph stores JoinWebUrl as a plain URL; the OData filter value must NOT be
+      // URL-encoded (that causes a 400 "Filter expression expected").
+      // The $filter query-parameter itself is encoded so the browser sends a valid request.
+      const rawJoinUrl = joinUrl.trim();
+      const filterExpr = `JoinWebUrl eq '${rawJoinUrl}'`;
+      const meetingReqUrl = `https://graph.microsoft.com/v1.0/me/onlineMeetings?$filter=${encodeURIComponent(filterExpr)}`;
 
       const meetingRes = await fetch(meetingReqUrl, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      
+
       if (!meetingRes.ok) {
-        const errBody = await meetingRes.text();
-        console.error(`DEBUG: meetingRes failed with status ${meetingRes.status}. Body:`, errBody);
         throw new Error(`Could not find meeting on Microsoft Graph (Status ${meetingRes.status}).`);
       }
       
       const meetingData = await meetingRes.json();
-      const meetingId = meetingData.value?.[0]?.id;
+      const meeting = meetingData.value?.[0];
+      const meetingId = meeting?.id;
       if (!meetingId) {
-        console.warn("DEBUG: Resolved meeting list is empty for join URL. Response payload:", meetingData);
         throw new Error('Teams meeting could not be resolved from this URL.');
       }
 
       // 5. Get transcript ID
+      const transcriptListUrl = `https://graph.microsoft.com/v1.0/me/onlineMeetings/${meetingId}/transcripts`;
+      console.log('DEBUG [transcript-list] resolved Graph meeting id:', meetingId);
+      console.log('DEBUG [transcript-list] request URL:', transcriptListUrl);
       const transcriptsRes = await fetch(
-        `https://graph.microsoft.com/me/onlineMeetings/${meetingId}/transcripts`,
+        transcriptListUrl,
         { headers: { Authorization: `Bearer ${token}` } }
       );
+      const transcriptsBody = await transcriptsRes.text();
+      console.log('DEBUG [transcript-list] status:', transcriptsRes.status);
+      console.log('DEBUG [transcript-list] response body:', transcriptsBody);
       if (!transcriptsRes.ok) throw new Error('Could not retrieve transcripts list.');
-      const transcriptsData = await transcriptsRes.json();
-      const transcriptId = transcriptsData.value?.[0]?.id;
+      const transcriptsData = JSON.parse(transcriptsBody);
+      const firstTranscript = transcriptsData.value?.[0];
+      const transcriptId = firstTranscript?.id;
       if (!transcriptId) throw new Error('No transcripts found. Ensure transcription was turned on.');
 
       // 6. Download WebVTT content
+      const transcriptContentUrl = firstTranscript?.transcriptContentUrl;
+      console.log('DEBUG [transcript-content] exact transcriptContentUrl being fetched:', transcriptContentUrl);
       const contentRes = await fetch(
-        `https://graph.microsoft.com/me/onlineMeetings/${meetingId}/transcripts/${transcriptId}/content`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        transcriptContentUrl,
+        { headers: { Authorization: `Bearer ${token}`, Accept: 'text/vtt' } }
       );
+      const body = await contentRes.text();
+      console.log('DEBUG [transcript-content] status:', contentRes.status);
+      console.log('DEBUG [transcript-content] content-type:', contentRes.headers.get('content-type'));
+      console.log('DEBUG [transcript-content] response body:', body);
       if (!contentRes.ok) throw new Error('Could not download transcript content.');
-      const vttContent = await contentRes.text();
+      const vttContent = body;
 
-      // 7. Post raw WebVTT content to existing backend parser
-      const backendRes = await fetch(`${getApiUrl()}/meeting-notes/process-transcript`, {
+      // 7. Create scrum via existing meeting-notes endpoint (reuses backend parse logic)
+      const workDate = resolveTeamsWorkDate(firstTranscript, meeting, defaultDate);
+      const meetingTitle = (meeting?.subject as string | undefined)?.trim() || 'Teams Meeting';
+      const rawText = vttToText(vttContent);
+      const scrumBody = { title: meetingTitle, rawText };
+      const scrumUrl = `${getApiUrl()}/meeting-notes/day/${workDate}`;
+      console.log('DEBUG [create-scrum] request URL:', scrumUrl);
+      console.log('DEBUG [create-scrum] request body:', scrumBody);
+      const backendRes = await fetch(scrumUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('tm_token')}`
         },
-        body: JSON.stringify({ transcript: vttContent })
+        body: JSON.stringify(scrumBody)
       });
-
+      const scrumResponseBody = await backendRes.text();
+      console.log('DEBUG [create-scrum] status:', backendRes.status);
+      console.log('DEBUG [create-scrum] response body:', scrumResponseBody);
       if (!backendRes.ok) {
-        const errJson = await backendRes.json().catch(() => ({}));
-        throw new Error(errJson.detail || 'Failed to process transcript on the backend.');
+        let detail = 'Failed to create scrum on the backend.';
+        try {
+          const errJson = JSON.parse(scrumResponseBody);
+          detail = errJson.detail || detail;
+        } catch {
+          /* body already logged */
+        }
+        throw new Error(detail);
       }
 
       toast.success('Transcript imported and parsed successfully!');
@@ -679,21 +765,29 @@ function TeamsImportDialog({ open, defaultDate, onClose, onImported }: {
 
         try {
           const contentRes = await fetch(
-            `https://graph.microsoft.com/me/onlineMeetings/${meetingId}/transcripts/${transcriptId}/content`,
+            `https://graph.microsoft.com/v1.0/me/onlineMeetings/${meetingId}/transcripts/${transcriptId}/content`,
             { headers: { Authorization: `Bearer ${token}` } }
           );
           if (!contentRes.ok) continue;
           const vtt = await contentRes.text();
           if (!vtt.trim()) continue;
 
-          const backendRes = await fetch(`${getApiUrl()}/meeting-notes/process-transcript`, {
+          const workDate = resolveTeamsWorkDate(t, undefined, defaultDate);
+          const scrumBody = { title: 'Teams Meeting', rawText: vttToText(vtt) };
+          const scrumUrl = `${getApiUrl()}/meeting-notes/day/${workDate}`;
+          console.log('DEBUG [create-scrum] request URL:', scrumUrl);
+          console.log('DEBUG [create-scrum] request body:', scrumBody);
+          const backendRes = await fetch(scrumUrl, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${localStorage.getItem('tm_token')}`
             },
-            body: JSON.stringify({ transcript: vtt })
+            body: JSON.stringify(scrumBody)
           });
+          const scrumResponseBody = await backendRes.text();
+          console.log('DEBUG [create-scrum] status:', backendRes.status);
+          console.log('DEBUG [create-scrum] response body:', scrumResponseBody);
           if (backendRes.ok) {
             importedCount++;
           }
