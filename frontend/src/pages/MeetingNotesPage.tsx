@@ -6,6 +6,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { PublicClientApplication } from '@azure/msal-browser';
+import { getMicrosoftClientId, getMicrosoftTenantId, getApiUrl } from '@/lib/env';
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval,
   addMonths, format, isSameMonth, isToday, parseISO,
@@ -461,55 +463,348 @@ function ScrumCard({ scrum, users, onChanged, onDeleted }: {
 
 // ── Import from Teams dialog ──────────────────────────────────────────────────
 
+/** Teams short link: https://teams.microsoft.com/meet/{id}?p=... */
+function extractTeamsMeetIdFromJoinUrl(url: string): string | null {
+  try {
+    const match = new URL(url.trim()).pathname.match(/\/meet\/([^/]+)/i);
+    return match?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Flatten WebVTT to "Speaker: text" lines (matches backend teams_logic.vtt_to_text). */
+function vttToText(vtt: string): string {
+  const vttTs = /^\d{2}:\d{2}:\d{2}\.\d{3}\s*-->/;
+  const tag = /<[^>]+>/g;
+  const lines: Array<[string, string]> = [];
+  for (const raw of (vtt || '').split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line === 'WEBVTT' || vttTs.test(line) || /^\d+$/.test(line)) continue;
+    if (line.startsWith('NOTE') || line.startsWith('STYLE') || line.startsWith('REGION')) continue;
+    const voiceMatch = line.match(/<v\s+([^>]+)>(.*?)<\/v>/i);
+    const speaker = voiceMatch?.[1]?.trim() ?? '';
+    const text = (voiceMatch?.[2] ?? line).replace(tag, '').trim();
+    if (!text) continue;
+    if (lines.length && lines[lines.length - 1][0] === speaker) {
+      lines[lines.length - 1][1] = `${lines[lines.length - 1][1]} ${text}`;
+    } else {
+      lines.push([speaker, text]);
+    }
+  }
+  return lines.map(([s, t]) => (s ? `${s}: ${t}` : t)).join('\n').trim();
+}
+
+function isoDateFromGraphDateTime(value: string | undefined | null): string | null {
+  if (!value) return null;
+  const d = value.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null;
+}
+
+function resolveTeamsWorkDate(
+  transcript: { createdDateTime?: string } | undefined,
+  meeting: { startDateTime?: string; creationDateTime?: string } | undefined,
+  fallbackDate: string | null,
+): string {
+  return (
+    isoDateFromGraphDateTime(transcript?.createdDateTime) ||
+    isoDateFromGraphDateTime(meeting?.startDateTime) ||
+    isoDateFromGraphDateTime(meeting?.creationDateTime) ||
+    fallbackDate ||
+    iso(new Date())
+  );
+}
+
 function TeamsImportDialog({ open, defaultDate, onClose, onImported }: {
   open: boolean;
   defaultDate: string | null;
   onClose: () => void;
   onImported: () => Promise<void>;
 }) {
-  const currentUser = useAppStore(s => s.currentUser);
-  const [organizer, setOrganizer] = useState('');
   const [joinUrl, setJoinUrl] = useState('');
-  const [date, setDate] = useState('');
-  const [title, setTitle] = useState('');
   const [busy, setBusy] = useState<'import' | 'sync' | null>(null);
-  const [configured, setConfigured] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (!open) return;
-    setOrganizer(currentUser?.email ?? '');
     setJoinUrl('');
-    setDate(defaultDate ?? '');
-    setTitle('');
-    void api.teamsStatus().then(s => setConfigured(s.configured)).catch(() => setConfigured(false));
-  }, [open, defaultDate, currentUser?.email]);
+  }, [open]);
 
   const doImport = async () => {
-    if (!organizer.trim() || !joinUrl.trim()) { toast.error('Organizer email and meeting link required'); return; }
+    if (!joinUrl.trim()) {
+      toast.error('Teams meeting link is required');
+      return;
+    }
     setBusy('import');
     try {
-      const r = await api.teamsImport({
-        organizerEmail: organizer.trim(), joinUrl: joinUrl.trim(),
-        date: date || undefined, title: title.trim() || undefined,
+      // 1. Initialize MSAL client
+      const pca = new PublicClientApplication({
+        auth: {
+          clientId: getMicrosoftClientId(),
+          authority: `https://login.microsoftonline.com/${getMicrosoftTenantId()}`,
+          redirectUri: window.location.origin + '/',
+        },
+        cache: {
+          cacheLocation: 'sessionStorage',
+          storeAuthStateInCookie: false,
+        }
       });
-      toast.success(r.message || `Imported ${r.imported}`);
+      await pca.initialize();
+
+      // 2. Fetch the cached Microsoft account
+      const accounts = pca.getAllAccounts();
+      const account = accounts[0] || null;
+
+      // 3. Request delegated Graph token with meeting scopes
+      const tokenRequest = {
+        scopes: [
+          'https://graph.microsoft.com/OnlineMeetings.Read',
+          'https://graph.microsoft.com/OnlineMeetingTranscript.Read.All',
+        ],
+        account: account,
+      };
+      
+      let authResult;
+      try {
+        if (!account) {
+          throw new Error('No active Microsoft session found. Falling back to interactive login.');
+        }
+        authResult = await pca.acquireTokenSilent(tokenRequest);
+      } catch (err) {
+        console.log("DEBUG: acquireTokenSilent failed or no active session. Triggering acquireTokenPopup...", err);
+        authResult = await pca.acquireTokenPopup({
+          scopes: tokenRequest.scopes
+        });
+      }
+      const token = authResult.accessToken;
+
+      // DEBUG: direct lookup by Teams meet id from join URL (not Graph onlineMeeting id)
+      const teamsMeetId = extractTeamsMeetIdFromJoinUrl(joinUrl);
+      console.log('DEBUG [onlineMeeting-by-id] extracted Teams meet id:', teamsMeetId);
+      if (teamsMeetId) {
+        const debugByIdUrl = `https://graph.microsoft.com/v1.0/me/onlineMeetings/${encodeURIComponent(teamsMeetId)}`;
+        try {
+          const debugByIdRes = await fetch(debugByIdUrl, {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const debugByIdBody = await debugByIdRes.text();
+          console.log('DEBUG [onlineMeeting-by-id] status:', debugByIdRes.status);
+          console.log('DEBUG [onlineMeeting-by-id] response body:', debugByIdBody);
+        } catch (byIdErr) {
+          console.error('DEBUG [onlineMeeting-by-id] fetch failed:', byIdErr);
+        }
+      }
+
+      // 4. Resolve Meeting ID from join URL
+      // Graph stores JoinWebUrl as a plain URL; the OData filter value must NOT be
+      // URL-encoded (that causes a 400 "Filter expression expected").
+      // The $filter query-parameter itself is encoded so the browser sends a valid request.
+      const rawJoinUrl = joinUrl.trim();
+      const filterExpr = `JoinWebUrl eq '${rawJoinUrl}'`;
+      const meetingReqUrl = `https://graph.microsoft.com/v1.0/me/onlineMeetings?$filter=${encodeURIComponent(filterExpr)}`;
+
+      const meetingRes = await fetch(meetingReqUrl, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (!meetingRes.ok) {
+        throw new Error(`Could not find meeting on Microsoft Graph (Status ${meetingRes.status}).`);
+      }
+      
+      const meetingData = await meetingRes.json();
+      const meeting = meetingData.value?.[0];
+      const meetingId = meeting?.id;
+      if (!meetingId) {
+        throw new Error('Teams meeting could not be resolved from this URL.');
+      }
+
+      // 5. Get transcript ID
+      const transcriptListUrl = `https://graph.microsoft.com/v1.0/me/onlineMeetings/${meetingId}/transcripts`;
+      console.log('DEBUG [transcript-list] resolved Graph meeting id:', meetingId);
+      console.log('DEBUG [transcript-list] request URL:', transcriptListUrl);
+      const transcriptsRes = await fetch(
+        transcriptListUrl,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const transcriptsBody = await transcriptsRes.text();
+      console.log('DEBUG [transcript-list] status:', transcriptsRes.status);
+      console.log('DEBUG [transcript-list] response body:', transcriptsBody);
+      if (!transcriptsRes.ok) throw new Error('Could not retrieve transcripts list.');
+      const transcriptsData = JSON.parse(transcriptsBody);
+      const firstTranscript = transcriptsData.value?.[0];
+      const transcriptId = firstTranscript?.id;
+      if (!transcriptId) throw new Error('No transcripts found. Ensure transcription was turned on.');
+
+      // 6. Download WebVTT content
+      const transcriptContentUrl = firstTranscript?.transcriptContentUrl;
+      console.log('DEBUG [transcript-content] exact transcriptContentUrl being fetched:', transcriptContentUrl);
+      const contentRes = await fetch(
+        transcriptContentUrl,
+        { headers: { Authorization: `Bearer ${token}`, Accept: 'text/vtt' } }
+      );
+      const body = await contentRes.text();
+      console.log('DEBUG [transcript-content] status:', contentRes.status);
+      console.log('DEBUG [transcript-content] content-type:', contentRes.headers.get('content-type'));
+      console.log('DEBUG [transcript-content] response body:', body);
+      if (!contentRes.ok) throw new Error('Could not download transcript content.');
+      const vttContent = body;
+
+      // 7. Create scrum via existing meeting-notes endpoint (reuses backend parse logic)
+      const workDate = resolveTeamsWorkDate(firstTranscript, meeting, defaultDate);
+      const meetingTitle = (meeting?.subject as string | undefined)?.trim() || 'Teams Meeting';
+      const rawText = vttToText(vttContent);
+      const scrumBody = { title: meetingTitle, rawText };
+      const scrumUrl = `${getApiUrl()}/meeting-notes/day/${workDate}`;
+      console.log('DEBUG [create-scrum] request URL:', scrumUrl);
+      console.log('DEBUG [create-scrum] request body:', scrumBody);
+      const backendRes = await fetch(scrumUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('tm_token')}`
+        },
+        body: JSON.stringify(scrumBody)
+      });
+      const scrumResponseBody = await backendRes.text();
+      console.log('DEBUG [create-scrum] status:', backendRes.status);
+      console.log('DEBUG [create-scrum] response body:', scrumResponseBody);
+      if (!backendRes.ok) {
+        let detail = 'Failed to create scrum on the backend.';
+        try {
+          const errJson = JSON.parse(scrumResponseBody);
+          detail = errJson.detail || detail;
+        } catch {
+          /* body already logged */
+        }
+        throw new Error(detail);
+      }
+
+      toast.success('Transcript imported and parsed successfully!');
       await onImported();
-      if (r.imported > 0) onClose();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Import failed');
-    } finally { setBusy(null); }
+      onClose();
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e.message || 'Import failed');
+    } finally {
+      setBusy(null);
+    }
   };
 
   const doSync = async () => {
-    if (!organizer.trim()) { toast.error('Organizer email required'); return; }
     setBusy('sync');
     try {
-      const r = await api.teamsSync({ organizerEmail: organizer.trim() });
-      toast.success(r.message || `Imported ${r.imported}`);
+      // 1. Initialize MSAL client
+      const pca = new PublicClientApplication({
+        auth: {
+          clientId: getMicrosoftClientId(),
+          authority: `https://login.microsoftonline.com/${getMicrosoftTenantId()}`,
+          redirectUri: window.location.origin + '/',
+        },
+        cache: {
+          cacheLocation: 'sessionStorage',
+          storeAuthStateInCookie: false,
+        }
+      });
+      await pca.initialize();
+
+      // 2. Fetch the cached Microsoft account
+      const accounts = pca.getAllAccounts();
+      const account = accounts[0] || null;
+
+      // 3. Request delegated Graph token with meeting scopes
+      const tokenRequest = {
+        scopes: [
+          'https://graph.microsoft.com/OnlineMeetings.Read',
+          'https://graph.microsoft.com/OnlineMeetingTranscript.Read.All'
+        ],
+        account: account,
+      };
+      
+      let authResult;
+      try {
+        if (!account) {
+          throw new Error('No active Microsoft session found. Falling back to interactive login.');
+        }
+        authResult = await pca.acquireTokenSilent(tokenRequest);
+      } catch (err) {
+        console.log("DEBUG: acquireTokenSilent failed or no active session for sync. Triggering acquireTokenPopup...", err);
+        authResult = await pca.acquireTokenPopup({
+          scopes: tokenRequest.scopes
+        });
+      }
+      const token = authResult.accessToken;
+
+      // 4. Get current user's object ID to call getAllTranscripts
+      const meRes = await fetch('https://graph.microsoft.com/v1.0/me', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!meRes.ok) throw new Error('Could not retrieve Microsoft user profile.');
+      const meData = await meRes.json();
+      const myId = meData.id;
+
+      // 5. Fetch all transcripts across user's meetings
+      const allTranscriptsRes = await fetch(
+        `https://graph.microsoft.com/beta/me/onlineMeetings/getAllTranscripts(meetingOrganizerUserId='${myId}')`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!allTranscriptsRes.ok) throw new Error('Could not retrieve all transcripts.');
+      const allTranscriptsData = await allTranscriptsRes.json();
+      const transcriptsList = allTranscriptsData.value || [];
+
+      if (transcriptsList.length === 0) {
+        toast.info('No transcripts found across your meetings.');
+        return;
+      }
+
+      // 6. Process each transcript and post to backend
+      let importedCount = 0;
+      for (const t of transcriptsList) {
+        const meetingId = t.meetingId;
+        const transcriptId = t.id;
+        if (!meetingId || !transcriptId) continue;
+
+        try {
+          const contentRes = await fetch(
+            `https://graph.microsoft.com/v1.0/me/onlineMeetings/${meetingId}/transcripts/${transcriptId}/content`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          if (!contentRes.ok) continue;
+          const vtt = await contentRes.text();
+          if (!vtt.trim()) continue;
+
+          const workDate = resolveTeamsWorkDate(t, undefined, defaultDate);
+          const scrumBody = { title: 'Teams Meeting', rawText: vttToText(vtt) };
+          const scrumUrl = `${getApiUrl()}/meeting-notes/day/${workDate}`;
+          console.log('DEBUG [create-scrum] request URL:', scrumUrl);
+          console.log('DEBUG [create-scrum] request body:', scrumBody);
+          const backendRes = await fetch(scrumUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('tm_token')}`
+            },
+            body: JSON.stringify(scrumBody)
+          });
+          const scrumResponseBody = await backendRes.text();
+          console.log('DEBUG [create-scrum] status:', backendRes.status);
+          console.log('DEBUG [create-scrum] response body:', scrumResponseBody);
+          if (backendRes.ok) {
+            importedCount++;
+          }
+        } catch (itemErr) {
+          console.warn(`Failed to sync individual transcript ${transcriptId}:`, itemErr);
+        }
+      }
+
+      toast.success(`Successfully synced all new transcripts! Imported ${importedCount} scrums.`);
       await onImported();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Sync failed');
-    } finally { setBusy(null); }
+      onClose();
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e.message || 'Sync failed');
+    } finally {
+      setBusy(null);
+    }
   };
 
   return (
@@ -521,38 +816,14 @@ function TeamsImportDialog({ open, defaultDate, onClose, onImported }: {
           </DialogTitle>
         </DialogHeader>
 
-        {configured === false && (
-          <div className="flex items-start gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
-            <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-            <span>Microsoft Graph isn't configured on the server yet. Set the Entra app credentials (see setup notes), then this will pull the transcript automatically.</span>
-          </div>
-        )}
-
         <div className="space-y-3 pt-1">
-          <div>
-            <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/60">Meeting organizer email</label>
-            <input value={organizer} onChange={e => setOrganizer(e.target.value)} placeholder="organizer@company.com"
-              className="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-border/60 bg-background/60 focus:outline-none focus:border-primary/50" />
-          </div>
           <div>
             <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/60">Teams meeting link</label>
             <input value={joinUrl} onChange={e => setJoinUrl(e.target.value)} placeholder="https://teams.microsoft.com/l/meetup-join/…"
               className="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-border/60 bg-background/60 focus:outline-none focus:border-primary/50 font-mono text-xs" />
           </div>
-          <div className="flex gap-2">
-            <div className="flex-1">
-              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/60">Date (optional)</label>
-              <input type="date" value={date} onChange={e => setDate(e.target.value)}
-                className="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-border/60 bg-background/60 focus:outline-none focus:border-primary/50" />
-            </div>
-            <div className="flex-1">
-              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/60">Title (optional)</label>
-              <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Meeting subject"
-                className="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-border/60 bg-background/60 focus:outline-none focus:border-primary/50" />
-            </div>
-          </div>
           <p className="text-[11px] text-muted-foreground/55 leading-relaxed">
-            Pulls the meeting's Teams transcript, then the AI structures it per person — same as a pasted scrum.
+            Pulls the meeting's Teams transcript via your logged-in Microsoft account, then structures it per person automatically.
             <strong className="text-foreground/70"> Transcription must have been on</strong> for the meeting.
           </p>
           <div className="flex items-center justify-between gap-2 pt-1">

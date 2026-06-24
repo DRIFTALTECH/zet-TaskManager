@@ -4,6 +4,7 @@ Each scrum stores raw text + a parsed {members, summary} breakdown. Saving raw
 text auto-parses via the AI agent; the parsed result can also be hand-edited."""
 
 import json
+import logging
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
@@ -14,6 +15,7 @@ import crud.users as users_crud
 from ai import chains, service
 from database.init_db import new_id
 from database.models import Scrum
+from logic import timesheet_logic
 from logic.audit import log_audit
 from logic.schemas import MomMemberOut, ScrumCreate, ScrumDaySummary, ScrumOut, ScrumUpdate
 
@@ -142,6 +144,15 @@ def create_scrum(db: Session, work_date: str, body: ScrumCreate, user_id: str) -
         created_at=now,
     )
     out = to_out(db, scrum)
+    logging.getLogger().info(
+        "create_scrum parseStatus=%s member_count=%d",
+        out.parseStatus,
+        len(out.members),
+    )
+    if out.parseStatus == "ok" and out.members:
+        logging.getLogger().info("TIMESHEET GENERATION START")
+        timesheet_logic.generate_timesheets_from_scrum_members(db, work_date, out.members)
+        logging.getLogger().info("TIMESHEET GENERATION END")
     log_audit(db, user_id, "mom.created", "scrum", out.id, f"{out.title} · {work_date}",
               {"parseStatus": out.parseStatus, "members": len(out.members)})
     db.commit()
