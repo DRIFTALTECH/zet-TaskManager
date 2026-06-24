@@ -1,3 +1,4 @@
+import logging
 import re
 from datetime import datetime, timezone, date, timedelta
 
@@ -7,10 +8,15 @@ from sqlalchemy.orm import Session
 import crud.timesheet_entries as te_crud
 import crud.sections as sections_crud
 import crud.projects as projects_crud
+import crud.users as users_crud
+from ai import chains
+from ai.schemas import ProjectRef, SectionRef, TimesheetParseResponse, UserRef
 from database.init_db import new_id
-from database.models import TimesheetEntry
+from database.models import TimesheetEntry, User
 from logic import project_logic, user_logic
-from logic.schemas import TimesheetEntryCreate, TimesheetEntryOut, TimesheetEntryPatch
+from logic.schemas import MomMemberOut, SectionCreate, TimesheetEntryCreate, TimesheetEntryOut, TimesheetEntryPatch
+
+log = logging.getLogger("zet.timesheet")
 
 TIME_RE = re.compile(r"^\s*(\d{1,2}):(\d{2})\s*$")
 
@@ -187,3 +193,134 @@ def delete_all_entries_for_day(db: Session, user_id: str, work_date: str) -> int
     if len(work_date) != 10 or work_date[4] != "-" or work_date[7] != "-":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "workDate must be YYYY-MM-DD")
     return te_crud.delete_all_for_user_date(db, user_id, work_date)
+
+
+def _match_user_by_name(name: str, users: list[User]) -> User | None:
+    """Match a parsed scrum member name to a user (exact, then first-name)."""
+    n = name.strip().lower()
+    if not n:
+        return None
+    for u in users:
+        if u.name.lower() == n:
+            return u
+    first = n.split()[0]
+    for u in users:
+        if u.name.lower().split()[0] == first:
+            return u
+    return None
+
+
+def _project_refs_for_user(db: Session, user_id: str) -> list[ProjectRef]:
+    users_by_id = {
+        u.id: UserRef(
+            id=u.id,
+            name=u.name,
+            job_title=getattr(u, "job_title", "") or "",
+            current_experience_months=getattr(u, "experience_months", 0) or 0,
+        )
+        for u in users_crud.list_all(db)
+    }
+    return [
+        ProjectRef(
+            id=p.id,
+            name=p.name,
+            sections=[SectionRef(id=s.id, name=s.name) for s in p.sections],
+            members=[users_by_id[mid] for mid in projects_crud.member_ids(db, p.id) if mid in users_by_id],
+        )
+        for p in project_logic.list_projects(db, user_id)
+    ]
+
+
+def create_draft_entries_from_parse(
+    db: Session, user_id: str, work_date: str, parsed: TimesheetParseResponse
+) -> list[TimesheetEntryOut]:
+    """Persist parse_timesheet rows as editable timesheet entries (no submit step)."""
+    created: list[TimesheetEntryOut] = []
+    for row in parsed.rows:
+        if not row.project_id:
+            continue
+        section_id = row.section_id
+        if (
+            not section_id
+            and row.suggest_create_section
+            and row.suggested_section_name
+        ):
+            updated = project_logic.add_section(
+                db,
+                user_id,
+                row.project_id,
+                SectionCreate(name=row.suggested_section_name.strip()),
+            )
+            name_lower = row.suggested_section_name.strip().lower()
+            section_id = next(
+                (s.id for s in updated.sections if s.name.lower() == name_lower),
+                None,
+            )
+        if not section_id:
+            continue
+        try:
+            created.append(
+                create_entry(
+                    db,
+                    user_id,
+                    TimesheetEntryCreate(
+                        workDate=work_date,
+                        projectId=row.project_id,
+                        sectionId=section_id,
+                        description=row.description or "",
+                        timeFrom=row.time_from,
+                        timeTo=row.time_to,
+                    ),
+                )
+            )
+        except HTTPException:
+            continue
+    return created
+
+
+def generate_timesheets_from_scrum_members(
+    db: Session, work_date: str, members: list[MomMemberOut]
+) -> None:
+    """For each matched scrum member, parse their items into draft timesheet entries."""
+    if not members:
+        return
+    all_users = users_crud.list_all(db)
+    for member in members:
+        log.info("scrum→timesheet member=%r", member.name)
+        user = _match_user_by_name(member.name, all_users)
+        if user is None:
+            log.info("scrum→timesheet member=%r matched_user_id=none (skipped)", member.name)
+            continue
+        log.info("scrum→timesheet member=%r matched_user_id=%s", member.name, user.id)
+        items = [i.strip() for i in member.items if i.strip()]
+        if not items:
+            log.info("scrum→timesheet member=%r user_id=%s no items (skipped)", member.name, user.id)
+            continue
+        summary = "\n".join(items)
+        projects = _project_refs_for_user(db, user.id)
+        try:
+            parsed = chains.parse_timesheet(summary, work_date, projects)
+            log.info(
+                "scrum→timesheet member=%r user_id=%s parse_timesheet rows=%d %s",
+                member.name,
+                user.id,
+                len(parsed.rows),
+                [r.model_dump() for r in parsed.rows],
+            )
+        except Exception as e:
+            log.info(
+                "scrum→timesheet member=%r user_id=%s parse_timesheet error: %s",
+                member.name,
+                user.id,
+                e,
+                exc_info=True,
+            )
+            continue
+        created = create_draft_entries_from_parse(db, user.id, work_date, parsed)
+        log.info(
+            "scrum→timesheet member=%r user_id=%s entries_created=%d entry_ids=%s",
+            member.name,
+            user.id,
+            len(created),
+            [e.id for e in created],
+        )
