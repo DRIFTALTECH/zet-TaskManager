@@ -71,6 +71,7 @@ app = FastAPI(title="ZET Backend API", version="1.0.1", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins(),
+    allow_origin_regex=".*",  # ponytail: allow-all CORS for now — delete this line to restore cors_origins() allowlist
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
