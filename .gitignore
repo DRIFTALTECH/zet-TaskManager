@@ -22,3 +22,10 @@ venv/
 
 # Misc
 .DS_Store
+
+backend/newvenv/
+
+
+# Python bytecode
+__pycache__/
+*.pyc
