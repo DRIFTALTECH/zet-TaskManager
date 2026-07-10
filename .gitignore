@@ -1,12 +1,17 @@
-# Environment secrets
+# Environment secrets (never commit real values)
+.env
+.env.local
+**/.env
+!**/.env.example
 backend/.env
 frontend/.env
 frontend/.env.local
 frontend/.env.*.local
+clockify-importer/.env
 test-db-connection/.env
-frontend/.env.development 
-frontend/.env.production
-frontend/dist.zip
+
+# Frontend mode API URLs are NOT secrets — keep .env.development / .env.production
+# trackable so `vite build` / CI have VITE_API_URL. Local overrides use *.local above.
 
 # Aurora IAM token cache (runtime — never commit)
 backend/.cache/
@@ -33,43 +38,38 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+backend/newvenv/
 
-# Misc
-.DS_Store
-
-# AWS
-backend/.cache/
-#backend/.cache/dbtoken.json
-
-# Clockify
-Clockify-importer/clockify-zet-table-mapping.png
-Clockify-importer/clockify-zet-field-mapping.png
-Clockify-importer/.env
-
-#node_modules
+# Node
 node_modules/
 
-#docs files
+# Clockify importer generated assets
+clockify-importer/clockify-zet-table-mapping.png
+clockify-importer/clockify-zet-field-mapping.png
+
+# Local / IDE
+.DS_Store
+.vscode/
+
+# DB connector package — secrets & local CA (script can download CA)
+test-db-connection.zip
+testidb-connection.zip
+tets-db-connection.zip
+test-db-connection/*.pem
+test-db-connection/__pycache__/
+test-db-connection/_pycache_/
+
+# Root tooling / accidental local artifacts
+package-lock.json
+package.json
+pyrightconfig.json
+frontend/dist.zip
+
+# Docs drafts / architecture exports (local)
 docs/zet-production-architecture-v2.drawio
-docs/zet-production-architecture-v4.drawio
 docs/zet-production-architecture-v3.drawio
+docs/zet-production-architecture-v4.drawio
 docs/zet-production-architecture-v5.drawio
 docs/Generated_image_one2one.png
 docs/Generated_image.png
 docs/README.md
-
-
-package-lock.json
-package.json
-pyrightconfig.json
-testidb-connection.zip
-
-test-db-connection/.env
-test-db-connection/_pycache_/
-test-db-connection/ap-south-2-bundle.pem
-
-.env
-.vscode/
-
-tash show --stat stash@{0}
-tets-db-connection.zip
