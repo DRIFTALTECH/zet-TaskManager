@@ -109,6 +109,21 @@ const AdminPage = () => {
     );
   }, [users, query]);
 
+  const managerOptions = useMemo(
+    () => users
+      .filter(u => u.role === 'manager' && u.isActive !== false)
+      .sort((a, b) => a.name.localeCompare(b.name)),
+    [users],
+  );
+
+  const managerName = useCallback(
+    (id: string | null | undefined) => {
+      if (!id) return null;
+      return users.find(u => u.id === id)?.name ?? id;
+    },
+    [users],
+  );
+
   if (!hasToken) return <Navigate to="/admin/login" replace />;
 
   const logout = () => {
@@ -124,6 +139,19 @@ const AdminPage = () => {
       toast.success(`${u.name} is now ${role}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to change role');
+    }
+  };
+
+  const onChangeManager = async (u: User, managerId: string | null) => {
+    const current = u.managerId ?? null;
+    if (managerId === current) return;
+    try {
+      const updated = await adminApi.setManager(u.id, managerId);
+      setUsers(prev => prev.map(x => (x.id === u.id ? updated : x)));
+      const label = managerId ? managerName(managerId) : null;
+      toast.success(label ? `${u.name} → manager ${label}` : `Manager removed for ${u.name}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to assign manager');
     }
   };
 
@@ -207,6 +235,24 @@ const AdminPage = () => {
     }
   };
 
+  const renderManagerSelect = (u: User, className?: string) => (
+    <Select
+      value={u.managerId ?? '__none__'}
+      onValueChange={v => void onChangeManager(u, v === '__none__' ? null : v)}
+      disabled={managerOptions.length === 0}
+    >
+      <SelectTrigger className={className ?? 'h-8 w-40'}>
+        <SelectValue placeholder="No manager" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="__none__">No manager</SelectItem>
+        {managerOptions.filter(m => m.id !== u.id).map(m => (
+          <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="border-b border-border">
@@ -260,6 +306,7 @@ const AdminPage = () => {
                   <TableRow>
                     <TableHead>User</TableHead>
                     <TableHead>Role</TableHead>
+                    <TableHead>Manager</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Projects</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -267,9 +314,9 @@ const AdminPage = () => {
                 </TableHeader>
                 <TableBody>
                   {loading ? (
-                    <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-10">Loading…</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-10">Loading…</TableCell></TableRow>
                   ) : filtered.length === 0 ? (
-                    <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-10">No users found</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-10">No users found</TableCell></TableRow>
                   ) : filtered.map(u => (
                     <TableRow key={u.id} className={u.isActive === false ? 'opacity-60' : ''}>
                       <TableCell>
@@ -292,6 +339,9 @@ const AdminPage = () => {
                             <SelectItem value="admin">Admin</SelectItem>
                           </SelectContent>
                         </Select>
+                      </TableCell>
+                      <TableCell>
+                        {renderManagerSelect(u)}
                       </TableCell>
                       <TableCell>
                         {u.isActive === false
@@ -346,7 +396,7 @@ const AdminPage = () => {
                       : <Badge variant="secondary" className="bg-emerald-500/15 text-emerald-500 hover:bg-emerald-500/15 shrink-0">Active</Badge>}
                   </div>
 
-                  <div className="mt-3 flex items-center gap-2">
+                  <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
                     <Select value={u.role} onValueChange={(v: Role) => void onChangeRole(u, v)}>
                       <SelectTrigger className="h-8 flex-1"><SelectValue /></SelectTrigger>
                       <SelectContent>
@@ -355,6 +405,10 @@ const AdminPage = () => {
                         <SelectItem value="admin">Admin</SelectItem>
                       </SelectContent>
                     </Select>
+                    {renderManagerSelect(u, 'h-8 flex-1')}
+                  </div>
+
+                  <div className="mt-2 flex items-center gap-2">
                     <span className="text-xs text-muted-foreground whitespace-nowrap">
                       {u.projectIds.length === 0 ? 'No projects' : `${u.projectIds.length} project${u.projectIds.length > 1 ? 's' : ''}`}
                     </span>

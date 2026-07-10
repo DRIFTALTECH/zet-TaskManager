@@ -7,7 +7,10 @@ import json as _json
 from datetime import date
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
-from sqlalchemy.orm import Session
+import crud.task_feedback as task_feedback_crud
+import crud.tasks as tasks_crud
+import crud.users as users_crud
+from database.database import Db
 
 from ai import prompts, service
 from ai.schemas import (
@@ -76,27 +79,25 @@ def generate_description(
     return GenerateDescriptionResponse(description=text)
 
 
-def summarize_task(db: Session, task_id: str) -> SummarizeTaskResponse:
-    from database.models import TaskFeedback, User
-
-    task = db.get(Task, task_id)
+def summarize_task(db: Db, task_id: str) -> SummarizeTaskResponse:
+    task = tasks_crud.get_by_id(db, task_id)
     if not task:
         raise ValueError(f"Task {task_id} not found")
 
-    comments = (
-        db.query(TaskFeedback)
-        .filter(TaskFeedback.task_id == task_id)
-        .order_by(TaskFeedback.id.asc())
-        .all()
-    )
+    comments = task_feedback_crud.list_for_task(db, task_id)
 
     if not comments:
         return SummarizeTaskResponse(summary="No comments yet.")
 
-    thread = "\n".join(
-        f"[{db.get(User, c.user_id).name if db.get(User, c.user_id) else 'Unknown'}]: {c.message}"
-        for c in comments
-    )
+    user_cache = {}
+    comment_lines = []
+    for c in comments:
+        if c.user_id not in user_cache:
+            u = users_crud.get_by_id(db, c.user_id)
+            user_cache[c.user_id] = u.name if u else "Unknown"
+        comment_lines.append(f"[{user_cache[c.user_id]}]: {c.message}")
+
+    thread = "\n".join(comment_lines)
     text = service.complete(
         prompts.SUMMARIZE_TASK_PROMPT,
         {"title": task.title, "comments": thread},
@@ -118,7 +119,7 @@ def parse_task(text: str, users=None, projects=None) -> ParseTaskResponse:
     return result
 
 
-def chat(req: ChatRequest, db: Session, current_user: User) -> ChatResponse:
+def chat(req: ChatRequest, db: Db, current_user: User) -> ChatResponse:
     """
     Agentic chat via manual LCEL tool-calling loop.
     Supports: create_project, create_section, create_task,
@@ -224,7 +225,7 @@ def chat(req: ChatRequest, db: Session, current_user: User) -> ChatResponse:
                 actions.append(AgentAction(tool=tool_name, status=status, summary=summary))
             messages.append(ToolMessage(content=raw, tool_call_id=tc["id"]))
 
-    final_text = getattr(response, "content", "") if response is not None else ""
+    final_text = service.parse_message_content(response) if response is not None else ""
 
     return ChatResponse(
         message=final_text,
@@ -269,11 +270,7 @@ def parse_timesheet(summary: str, work_date: str, projects=None) -> TimesheetPar
 # ── End-of-day standup recap ──────────────────────────────────────────────────
 
 def summarize_day(work_date: str, work_log: str) -> str:
-    """Turn a structured day-of-work log into a short, friendly recap (markdown).
-
-    `work_log` is assembled by logic/daily_summary_logic from the user's tasks,
-    time logs and timesheet rows — this chain only does the natural-language pass.
-    """
+    """Plain-text end-of-day recap. Caller runs insight-style sanitization."""
     return service.complete(
         prompts.DAY_SUMMARY_PROMPT,
         {"work_date": work_date, "work_log": work_log},

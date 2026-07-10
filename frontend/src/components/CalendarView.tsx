@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 import type { Task, Priority } from '@/types';
+import { normalizePriority } from '@/lib/task-utils';
 
 const PRIORITY_PILL: Record<Priority, string> = {
   Urgent: 'bg-red-500/20 text-red-400 border-red-500/30',
@@ -153,19 +154,21 @@ export default function CalendarView({ tasks, onTaskClick, onTaskDrop }: Props) 
               </span>
 
               {/* Task pills */}
-              {dayTasks.slice(0, maxVisible).map(task => (
+              {dayTasks.slice(0, maxVisible).map(task => {
+                const priority = normalizePriority(task.priority);
+                return (
                 <button
                   key={task.id}
                   draggable={!!onTaskDrop}
                   onDragStart={onTaskDrop ? (e => { e.dataTransfer.setData('text/task-id', task.id); e.dataTransfer.effectAllowed = 'move'; }) : undefined}
                   onClick={() => onTaskClick(task)}
                   title={onTaskDrop ? `${task.title} — drag to reschedule` : task.title}
-                  className={`w-full flex items-center gap-1 px-1.5 py-0.5 rounded-md text-left border text-[10px] font-medium truncate leading-tight hover:opacity-80 transition-opacity ${onTaskDrop ? 'cursor-grab active:cursor-grabbing' : ''} ${PRIORITY_PILL[task.priority]}`}
+                  className={`w-full flex items-center gap-1 px-1.5 py-0.5 rounded-md text-left border text-[10px] font-medium truncate leading-tight hover:opacity-80 transition-opacity ${onTaskDrop ? 'cursor-grab active:cursor-grabbing' : ''} ${PRIORITY_PILL[priority]}`}
                 >
-                  <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${PRIORITY_DOT[task.priority]}`} />
+                  <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${PRIORITY_DOT[priority]}`} />
                   <span className="truncate">{task.title}</span>
                 </button>
-              ))}
+              );})}
 
               {overflow > 0 && (
                 <span className="text-[9px] text-muted-foreground/50 pl-1">+{overflow} more</span>

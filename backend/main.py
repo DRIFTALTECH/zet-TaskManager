@@ -1,6 +1,7 @@
 import logging
 import logging.config
 import os
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -64,9 +65,27 @@ async def lifespan(app):
         yield
     if sub_task:
         sub_task.cancel()
+        try:
+            await sub_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(title="ZET Backend API", version="1.0.1", lifespan=lifespan)
+
+_SLOW_REQUEST_MS = float(os.environ.get("DB_SLOW_QUERY_MS", "200"))
+
+
+@app.middleware("http")
+async def request_timing(request, call_next):
+    t0 = time.perf_counter()
+    response = await call_next(request)
+    elapsed_ms = (time.perf_counter() - t0) * 1000
+    if elapsed_ms > _SLOW_REQUEST_MS:
+        log.warning("SLOW REQUEST %s %s %.1f ms", request.method, request.url.path, elapsed_ms)
+    else:
+        log.debug("REQUEST %s %s %.1f ms", request.method, request.url.path, elapsed_ms)
+    return response
 
 app.add_middleware(
     CORSMiddleware,

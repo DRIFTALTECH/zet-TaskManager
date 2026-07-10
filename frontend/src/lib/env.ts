@@ -1,7 +1,5 @@
 import {
-  DEFAULT_API_URL,
-  DEFAULT_MICROSOFT_CLIENT_ID,
-  DEFAULT_MICROSOFT_TENANT_ID,
+  requireApiUrl,
 } from '../../env.defaults';
 
 function trimOrUndefined(value: string | undefined): string | undefined {
@@ -10,7 +8,7 @@ function trimOrUndefined(value: string | undefined): string | undefined {
 }
 
 export function getApiUrl(): string {
-  return (trimOrUndefined(import.meta.env.VITE_API_URL) ?? DEFAULT_API_URL).replace(/\/+$/, '');
+  return requireApiUrl(import.meta.env.VITE_API_URL);
 }
 
 /** Resolve a stored media reference for use in <img>: server-relative paths get
@@ -22,11 +20,11 @@ export function resolveMediaUrl(path?: string): string {
 }
 
 export function getMicrosoftClientId(): string {
-  return trimOrUndefined(import.meta.env.VITE_MICROSOFT_CLIENT_ID) ?? DEFAULT_MICROSOFT_CLIENT_ID;
+  return trimOrUndefined(import.meta.env.VITE_MICROSOFT_CLIENT_ID) ?? '';
 }
 
 export function getMicrosoftTenantId(): string {
-  return trimOrUndefined(import.meta.env.VITE_MICROSOFT_TENANT_ID) ?? DEFAULT_MICROSOFT_TENANT_ID;
+  return trimOrUndefined(import.meta.env.VITE_MICROSOFT_TENANT_ID) ?? 'common';
 }
 
 export function isMicrosoftAuthConfigured(): boolean {

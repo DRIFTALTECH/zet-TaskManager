@@ -1,11 +1,12 @@
+import { useSearchParams } from 'react-router-dom';
 import { useAppStore } from '@/stores/appStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
-  ChevronLeft, ChevronRight, Download, Plus, Bell, Send,
+  ChevronLeft, ChevronRight, Download, Plus, Send,
   Trash2, CalendarX2, Clock, CalendarDays,
   Tag, DollarSign, List, X, Mail, Sparkles, Check, Pencil,
-  AlertCircle, CheckCircle2, ChevronDown, ChevronUp,
+  AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Lock, Users, BarChart2, RefreshCw,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import {
@@ -20,13 +21,25 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { snappy, pageEnter } from '@/lib/motion';
 import * as XLSX from 'xlsx';
-import type { TimesheetWorkEntry, AITimesheetRow, Task, Project } from '@/types';
+import type { TimesheetSubmission, TimesheetWorkEntry, AITimesheetRow, Task, Project } from '@/types';
 import { isTaskAssignedTo } from '@/lib/task-utils';
 import { api } from '@/lib/api';
 import { acquireGraphToken, hasMicrosoftSession, isMicrosoftAuthConfigured } from '@/lib/microsoftAuth';
+import {
+  statusBadgeClass,
+  statusDisplayLabel,
+  timesheetDateLocked,
+  buildWeekSubmissionData,
+  formatWeekRangeShort,
+  getWeekSubmitDates,
+  type SelectedSubmissionDay,
+} from '@/lib/timesheetSubmission';
 import UserAvatar from '@/components/UserAvatar';
 import ProjectSectionPicker from '@/components/ProjectSectionPicker';
 import TaskSuggest from '@/components/TaskSuggest';
+import TimesheetManagePanel from '@/components/timesheet/TimesheetManagePanel';
+import TimesheetSubmissionAuditInfo from '@/components/timesheet/TimesheetSubmissionAuditInfo';
+import { TimesheetAnalyticsPanel } from '@/components/analytics/TimesheetAnalyticsPanel';
 
 const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const dayShort = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -40,7 +53,7 @@ const dayShort = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
  * borderless), stable colour per id.
  */
 function InlineEntryRow({
-  entry, userProjects, onPatch, onDelete, onToggleBillable, togglingBill, createSection,
+  entry, userProjects, onPatch, onDelete, onToggleBillable, togglingBill, createSection, readOnly = false,
 }: {
   entry: TimesheetWorkEntry;
   userProjects: Project[];
@@ -49,6 +62,7 @@ function InlineEntryRow({
   onToggleBillable: (entry: TimesheetWorkEntry) => void;
   togglingBill: boolean;
   createSection: (projId: string, name: string) => Promise<string | null>;
+  readOnly?: boolean;
 }) {
   const [desc, setDesc] = useState(entry.description);
   const [from, setFrom] = useState(apiTimeToCompactDisplay(entry.timeFrom));
@@ -89,7 +103,9 @@ function InlineEntryRow({
         onBlur={saveDesc}
         onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
         placeholder="No description"
-        className="min-w-0 flex-1 -mx-2 px-2 py-1 rounded-md bg-transparent hover:bg-muted/30 focus:bg-muted/40 border-0 text-sm sm:text-[15px] font-medium text-foreground placeholder:text-muted-foreground/40 placeholder:italic focus:outline-none focus:ring-0 transition-colors"
+        readOnly={readOnly}
+        disabled={readOnly}
+        className="min-w-0 flex-1 -mx-2 px-2 py-1 rounded-md bg-transparent hover:bg-muted/30 focus:bg-muted/40 border-0 text-sm sm:text-[15px] font-medium text-foreground placeholder:text-muted-foreground/40 placeholder:italic focus:outline-none focus:ring-0 transition-colors disabled:opacity-70"
       />
 
       {/* Right cluster — project/section · time · duration · actions */}
@@ -100,17 +116,22 @@ function InlineEntryRow({
           sectionId={entry.sectionId}
           onChange={pickProjSec}
           onCreateSection={createSection}
+          disabled={readOnly}
           align="end"
           triggerClassName="border-0 bg-transparent shadow-none px-1.5 py-1 rounded-md hover:bg-muted/40 w-auto min-w-0 max-w-[240px] text-[13px] focus:ring-0"
         />
 
         <div className="flex items-center gap-1 font-mono text-[13px] tabular-nums text-foreground/70">
           <input value={from} inputMode="numeric" maxLength={4}
+            readOnly={readOnly}
+            disabled={readOnly}
             onChange={e => setFrom(e.target.value.replace(/\D/g, '').slice(0, 4))}
             onFocus={e => e.currentTarget.select()} onBlur={saveTime}
             onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} className={timeInput} />
           <span className="text-muted-foreground/40">–</span>
           <input value={to} inputMode="numeric" maxLength={4}
+            readOnly={readOnly}
+            disabled={readOnly}
             onChange={e => setTo(e.target.value.replace(/\D/g, '').slice(0, 4))}
             onFocus={e => e.currentTarget.select()} onBlur={saveTime}
             onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} className={timeInput} />
@@ -123,7 +144,7 @@ function InlineEntryRow({
         <button
           type="button"
           onClick={() => onToggleBillable(entry)}
-          disabled={togglingBill}
+          disabled={togglingBill || readOnly}
           title={entry.billable ? 'Billable — click to mark non-billable' : 'Non-billable — click to mark billable'}
           aria-pressed={entry.billable}
           className={`flex items-center justify-center h-8 w-8 rounded-lg transition-colors disabled:opacity-50 shrink-0 ${
@@ -133,6 +154,7 @@ function InlineEntryRow({
           <DollarSign className="h-4 w-4" />
         </button>
 
+        {!readOnly && (
         <button
           type="button"
           onClick={() => onDelete(entry)}
@@ -141,6 +163,7 @@ function InlineEntryRow({
         >
           <Trash2 className="h-4 w-4" />
         </button>
+        )}
       </div>
     </li>
   );
@@ -480,10 +503,12 @@ function TimesheetAIPanel({
   date,
   onClose,
   onEntriesAdded,
+  disabled = false,
 }: {
   date: string;
   onClose: () => void;
   onEntriesAdded: () => Promise<void>;
+  disabled?: boolean;
 }) {
   const { projects, addSection } = useAppStore();
   const [summary, setSummary] = useState('');
@@ -701,9 +726,29 @@ function TimesheetAIPanel({
 
 // ═══════════════════════════════════════════════════════════════════════════════
 const TimesheetPage = () => {
-  const { currentUser, projects, users, tasks, addSection } = useAppStore();
+  const { currentUser, projects, tasks, users, addSection } = useAppStore();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  const manageOpen = isManager && searchParams.get('manage') === '1';
+  const analyticsOpen = searchParams.get('analytics') === '1';
+  const setManageOpen = (open: boolean) => {
+    if (open) setSearchParams({ manage: '1' }, { replace: true });
+    else setSearchParams({}, { replace: true });
+  };
+  const setAnalyticsOpen = (open: boolean) => {
+    if (open) setSearchParams({ analytics: '1' }, { replace: true });
+    else setSearchParams({}, { replace: true });
+  };
+
+  useEffect(() => {
+    if (!isManager && searchParams.get('manage') === '1') {
+      setSearchParams({}, { replace: true });
+    }
+  }, [isManager, searchParams, setSearchParams]);
   const [weekOffset, setWeekOffset] = useState(0);
   const [entries, setEntries] = useState<TimesheetWorkEntry[]>([]);
+  const [submission, setSubmission] = useState<TimesheetSubmission | null>(null);
+  const [loadingSubmission, setLoadingSubmission] = useState(false);
   const [togglingBillId, setTogglingBillId] = useState<string | null>(null);
   const [loadingEntries, setLoadingEntries] = useState(false);
 
@@ -726,7 +771,6 @@ const TimesheetPage = () => {
   const [sendingEmail, setSendingEmail] = useState(false);
   const [showToSuggestions, setShowToSuggestions] = useState(false);
   const [showCcSuggestions, setShowCcSuggestions] = useState(false);
-  const [selectedDays, setSelectedDays] = useState<string[]>([]);
   const [entryToDelete, setEntryToDelete] = useState<TimesheetWorkEntry | null>(null);
   const [deletingEntry, setDeletingEntry] = useState(false);
   const [aiOpenDay, setAiOpenDay] = useState<string | null>(null);
@@ -752,26 +796,54 @@ const TimesheetPage = () => {
   const [datePickerOpen, setDatePickerOpen] = useState(false);
 
   const todayStr = localISODate(new Date());
-  const weekDates = getWeekDates(weekOffset);
+  const weekDates = useMemo(() => getWeekDates(weekOffset), [weekOffset]);
   const weekStart = weekDates[0];
   const weekEnd = weekDates[6];
-  const visibleWeekDates = weekDates.filter(d => d <= todayStr);
+  const visibleWeekDates = useMemo(
+    () => weekDates.filter(d => d <= todayStr),
+    [weekDates, todayStr],
+  );
 
   const userProjects = useMemo(
     () => (currentUser ? projects.filter(p => currentUser.projectIds.includes(p.id)) : []),
     [projects, currentUser],
   );
 
-  const reloadEntries = useCallback(async () => {
+  const reloadWeek = useCallback(async () => {
     setLoadingEntries(true);
+    setLoadingSubmission(true);
     try {
-      const list = await api.getTimesheetWorkEntries(weekStart, weekEnd);
+      const [list, sub] = await Promise.all([
+        api.getTimesheetWorkEntries(weekStart, weekEnd),
+        api.getTimesheetSubmissionStatus(weekStart),
+      ]);
       setEntries(list);
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not load timesheet'); }
-    finally { setLoadingEntries(false); }
+      setSubmission(sub);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not load timesheet');
+      setSubmission(null);
+    } finally {
+      setLoadingEntries(false);
+      setLoadingSubmission(false);
+    }
   }, [weekStart, weekEnd]);
 
-  useEffect(() => { void reloadEntries(); }, [reloadEntries]);
+  const timesheetEpoch = useAppStore(s => s.timesheetEpoch);
+  useEffect(() => { void reloadWeek(); }, [reloadWeek, timesheetEpoch]);
+
+  const isDateLocked = useCallback(
+    (workDate: string) => timesheetDateLocked(submission, workDate),
+    [submission],
+  );
+  const weekSubmitDates = useMemo(
+    () => getWeekSubmitDates(weekDates, submission, todayStr),
+    [weekDates, submission, todayStr],
+  );
+  const weekRangeLabel = formatWeekRangeShort(weekStart, weekEnd);
+  const canOpenSubmit = weekSubmitDates.length > 0;
+  const someDaysLocked = visibleWeekDates.some(d => isDateLocked(d));
+  const allVisibleDaysLocked = visibleWeekDates.length > 0 && visibleWeekDates.every(d => isDateLocked(d));
+  const refreshing = loadingEntries || loadingSubmission;
 
   const weekTotalSeconds = useMemo(
     () => entries.filter(e => e.workDate <= todayStr).reduce((a, e) => a + e.seconds, 0),
@@ -790,6 +862,10 @@ const TimesheetPage = () => {
     [visibleWeekDates, entries, weekDates],
   );
 
+  const weekSubmissionData = useMemo(
+    () => buildWeekSubmissionData(weekDates, entries, submission, todayStr),
+    [weekDates, entries, submission, todayStr],
+  );
 
   const resetForm = () => {
     setFormProjectId(''); setFormSectionId(''); setFormDescription(''); setFormTimeFrom(''); setFormTimeTo('');
@@ -847,7 +923,7 @@ const TimesheetPage = () => {
     return mine.slice().sort((a, b) => Number(a.status === 'completed') - Number(b.status === 'completed'));
   }, [tasks, currentUser]);
 
-  const openNewModal = (workDate: string) => { resetForm(); setEntryModal({ mode: 'new', date: workDate }); };
+  const openNewModal = (workDate: string) => { if (isDateLocked(workDate)) return; resetForm(); setEntryModal({ mode: 'new', date: workDate }); };
 
   // Selecting a suggested task fills description, and (when the user is on that
   // project) the project + section too.
@@ -885,12 +961,12 @@ const TimesheetPage = () => {
   const patchEntryInline = useCallback(async (id: string, patch: Record<string, unknown>) => {
     try {
       await api.patchTimesheetWorkEntry(id, patch);
-      await reloadEntries();
+      await reloadWeek();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not update entry');
-      await reloadEntries();
+      await reloadWeek();
     }
-  }, [reloadEntries]);
+  }, [reloadWeek]);
 
   const toggleOnLeave = (date: string) => {
     setOnLeaveDays(prev => {
@@ -901,7 +977,7 @@ const TimesheetPage = () => {
   };
 
   const saveEntry = async () => {
-    if (!entryModal) return;
+    if (!entryModal || isDateLocked(entryModal.mode === 'new' ? entryModal.date : entryModal.entry.workDate)) return;
     if (!formProjectId || !formSectionId) { toast.error('Select a project and section'); return; }
     let timeFromApi: string; let timeToApi: string;
     try { timeFromApi = compactTimeToApi(formTimeFrom); timeToApi = compactTimeToApi(formTimeTo); }
@@ -915,26 +991,27 @@ const TimesheetPage = () => {
         await api.patchTimesheetWorkEntry(entryModal.entry.id, { workDate: entryModal.entry.workDate, projectId: formProjectId, sectionId: formSectionId, description: formDescription, timeFrom: timeFromApi, timeTo: timeToApi, billable: formBillable });
         toast.success('Entry updated');
       }
-      await reloadEntries();
+      await reloadWeek();
       closeEntryModal();
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not save'); }
     finally { setSaving(false); }
   };
 
   const confirmDeleteEntry = async () => {
-    if (!entryToDelete) return;
+    if (!entryToDelete || isDateLocked(entryToDelete.workDate)) return;
     setDeletingEntry(true);
     try {
       await api.deleteTimesheetWorkEntry(entryToDelete.id);
       toast.success('Entry removed');
       if (entryModal?.mode === 'edit' && entryModal.entry.id === entryToDelete.id) closeEntryModal();
       setEntryToDelete(null);
-      await reloadEntries();
+      await reloadWeek();
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not delete'); }
     finally { setDeletingEntry(false); }
   };
 
   const defaultNewDate = visibleWeekDates.includes(todayStr) ? todayStr : (visibleWeekDates[visibleWeekDates.length - 1] ?? weekDates[0]);
+  const quickWorkDateLocked = isDateLocked(quickWorkDate ?? defaultNewDate);
 
   useEffect(() => {
     setQuickWorkDate(prev => {
@@ -954,6 +1031,7 @@ const TimesheetPage = () => {
   const quickDurationPreview = spanSecondsFromCompact(effQuickFrom, effQuickTo);
 
   const saveQuickEntry = async () => {
+    if (quickWorkDateLocked) return;
     const workDate = quickWorkDate ?? defaultNewDate;
     if (!quickProjectId || !quickSectionId) {
       toast.error('Select a project and section');
@@ -988,7 +1066,7 @@ const TimesheetPage = () => {
       setQuickDesc('');
       setQuickFrom('');
       setQuickTo('');
-      await reloadEntries();
+      await reloadWeek();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not save');
     } finally {
@@ -1020,8 +1098,6 @@ const TimesheetPage = () => {
     toast.success('Timesheet exported to Excel');
   };
 
-  const toggleDay = (date: string) => setSelectedDays(prev => prev.includes(date) ? prev.filter(d => d !== date) : [...prev, date]);
-
   // ── Email helpers ──────────────────────────────────────────────────────────
   const EMAIL_PROJ_COLORS = ['#3b82f6','#8b5cf6','#10b981','#f97316','#ec4899','#14b8a6','#f59e0b','#06b6d4','#6366f1','#f43f5e'];
   const projEmailColor = (id: string) => { let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) & 0xffff; return EMAIL_PROJ_COLORS[h % EMAIL_PROJ_COLORS.length]; };
@@ -1036,19 +1112,14 @@ const TimesheetPage = () => {
     if (e && !notifyCcTags.includes(e)) setNotifyCcTags(prev => [...prev, e]);
     setNotifyCcInput('');
   };
-  const toggleUserToTag = (userEmail: string) => {
-    if (notifyToTags.includes(userEmail)) setNotifyToTags(prev => prev.filter(t => t !== userEmail));
-    else setNotifyToTags(prev => [...prev, userEmail]);
-  };
 
-  const buildEmailHtml = (summary: typeof scheduleSummary): string => {
+  const buildEmailHtml = (days: SelectedSubmissionDay[]): string => {
     const senderName = currentUser?.name ?? 'Team member';
-    const sorted = [...summary].filter(Boolean);
-    const dateRange = sorted.length === 0 ? ''
-      : sorted.length === 1
-        ? `${sorted[0]!.dayName}, ${formatDisplayDate(sorted[0]!.date)}`
-        : `${sorted[0]!.dayName} ${formatDisplayDate(sorted[0]!.date)} – ${sorted[sorted.length - 1]!.dayName} ${formatDisplayDate(sorted[sorted.length - 1]!.date)}`;
-    const totalAllSecs = sorted.reduce((acc, d) => acc + (d?.totalSeconds ?? 0), 0);
+    const dateRange = days.length === 0 ? ''
+      : days.length === 1
+        ? `${days[0]!.dayName}, ${formatDisplayDate(days[0]!.date)}`
+        : `${days[0]!.dayName} ${formatDisplayDate(days[0]!.date)} – ${days[days.length - 1]!.dayName} ${formatDisplayDate(days[days.length - 1]!.date)}`;
+    const totalAllSecs = days.reduce((acc, d) => acc + d.totalSeconds, 0);
 
     const colHeaders = `
       <tr bgcolor="#f8fafc">
@@ -1058,18 +1129,16 @@ const TimesheetPage = () => {
         <td width="16%" style="padding:8px 10px;font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.08em;border-bottom:1px solid #e2e8f0;text-align:right;">DURATION</td>
       </tr>`;
 
-    const dayRows = sorted.map(d => {
-      if (!d) return '';
-      const dayTotal = d.totalSeconds > 0 ? formatDuration(d.totalSeconds) : '&mdash;';
-
+    const dayRows = days.map(d => {
       const isOnLeave = onLeaveDays.has(d.date);
+      const dayTotal = d.totalSeconds > 0 ? formatDuration(d.totalSeconds) : '&mdash;';
 
       const entryRows = isOnLeave
         ? `<tr><td colspan="4" style="padding:14px 10px;background:#fffbeb;border-left:3px solid #f59e0b;">
             <span style="font-size:13px;font-weight:600;color:#b45309;">On Leave</span>
             <span style="font-size:12px;color:#92400e;margin-left:6px;">— no work logged this day</span>
            </td></tr>`
-        : d.entriesForDay.length > 0 ? d.entriesForDay.map(en => {
+        : d.entries.map(en => {
           const proj = projects.find(p => p.id === en.projectId);
           const sec = proj?.sections.find(s => s.id === en.sectionId);
           const pc = proj ? projEmailColor(proj.id) : '#6b7280';
@@ -1083,8 +1152,7 @@ const TimesheetPage = () => {
             <td style="padding:11px 10px;border-bottom:1px solid #f1f5f9;vertical-align:top;font-size:12px;color:#64748b;white-space:nowrap;">${en.timeFrom}&nbsp;&ndash;&nbsp;${en.timeTo}</td>
             <td style="padding:11px 10px;border-bottom:1px solid #f1f5f9;vertical-align:top;font-size:13px;font-weight:800;color:#1e293b;text-align:right;white-space:nowrap;">${formatDuration(en.seconds)}</td>
           </tr>`;
-        }).join('')
-        : `<tr><td colspan="4" style="padding:14px 10px;color:#94a3b8;font-size:13px;font-style:italic;">No entries logged</td></tr>`;
+        }).join('');
 
       return `
         <tr>
@@ -1138,49 +1206,70 @@ const TimesheetPage = () => {
 </body></html>`;
   };
 
-  const handleNotify = async () => {
+  const openSubmitDialog = useCallback(() => {
+    setNotifySubject(`${currentUser?.name ?? 'Team member'}'s timesheet – ${weekRangeLabel}`);
+    const managerEmail = users.find(u => u.id === currentUser?.managerId)?.email;
+    setNotifyToTags(managerEmail ? [managerEmail] : []);
+    setNotifyToInput('');
+    setNotifyCcTags([]);
+    setNotifyCcInput('');
+    setNotifyOpen(true);
+  }, [weekRangeLabel, currentUser?.name, currentUser?.managerId, users]);
+
+  const handleSubmitAndSend = async () => {
     const toList = [...notifyToTags, ...(notifyToInput.trim() ? [notifyToInput.trim()] : [])].filter(Boolean);
+    const data = weekSubmissionData;
     if (toList.length === 0) return toast.error('Add at least one recipient email address');
-    if (selectedDays.length === 0) return toast.error('Select at least one day');
-    if (!isMicrosoftAuthConfigured()) return toast.error('Microsoft sign-in is not configured. Set VITE_MICROSOFT_CLIENT_ID in .env.');
-    if (!hasMicrosoftSession()) return toast.error('Sign in with Microsoft to send emails from your account.');
+    if (weekSubmitDates.length === 0) return toast.error('No editable days remain in this week');
     setSendingEmail(true);
     try {
-      const token = await acquireGraphToken();
-      const html = buildEmailHtml(scheduleSummary);
-      const ccList = [...notifyCcTags, ...(notifyCcInput.trim() ? [notifyCcInput.trim()] : [])].filter(Boolean);
-      const message: Record<string, unknown> = {
-        subject: notifySubject.trim() || `Timesheet report – ${currentUser?.name}`,
-        body: { contentType: 'HTML', content: html },
-        toRecipients: toList.map(e => ({ emailAddress: { address: e } })),
-      };
-      if (ccList.length > 0) message.ccRecipients = ccList.map(e => ({ emailAddress: { address: e } }));
-      const res = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, saveToSentItems: true }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({})) as { error?: { message?: string } };
-        throw new Error(err?.error?.message ?? `Graph API error ${res.status}`);
+      const updated = await api.submitTimesheetWeek(weekStart, weekSubmitDates);
+      setSubmission(updated);
+      toast.success('Timesheet submitted for approval');
+      await reloadWeek();
+
+      if (!isMicrosoftAuthConfigured() || !hasMicrosoftSession()) {
+        toast.warning('Submitted, but email could not be sent — sign in with Microsoft to send mail.');
+        setNotifyOpen(false);
+        setNotifyToTags([]); setNotifyToInput('');
+        setNotifyCcTags([]); setNotifyCcInput('');
+        return;
       }
-      toast.success(`Email sent to ${toList.length} recipient${toList.length > 1 ? 's' : ''}!`);
-      setNotifyOpen(false);
-      setSelectedDays([]);
-      setNotifyToTags([]); setNotifyToInput('');
-      setNotifyCcTags([]); setNotifyCcInput('');
+      try {
+        const token = await acquireGraphToken();
+        const html = buildEmailHtml(data.days);
+        const ccList = [...notifyCcTags, ...(notifyCcInput.trim() ? [notifyCcInput.trim()] : [])].filter(Boolean);
+        const message: Record<string, unknown> = {
+          subject: notifySubject.trim() || `Timesheet report – ${currentUser?.name}`,
+          body: { contentType: 'HTML', content: html },
+          toRecipients: toList.map(e => ({ emailAddress: { address: e } })),
+        };
+        if (ccList.length > 0) message.ccRecipients = ccList.map(e => ({ emailAddress: { address: e } }));
+        const res = await fetch('https://graph.microsoft.com/v1.0/me/sendMail', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message, saveToSentItems: true }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({})) as { error?: { message?: string } };
+          throw new Error(err?.error?.message ?? `Graph API error ${res.status}`);
+        }
+        toast.success(`Submitted and emailed ${toList.length} recipient${toList.length > 1 ? 's' : ''}!`);
+        setNotifyOpen(false);
+        setNotifyToTags([]); setNotifyToInput('');
+        setNotifyCcTags([]); setNotifyCcInput('');
+      } catch (e) {
+        toast.warning(e instanceof Error ? `Submitted, but email failed: ${e.message}` : 'Submitted, but email failed.');
+        setNotifyOpen(false);
+      }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to send email');
+      toast.error(e instanceof Error ? e.message : 'Could not submit timesheet');
     } finally {
       setSendingEmail(false);
     }
   };
 
-  const scheduleSummary = selectedDays.sort().map(date => dayView.find(d => d.date === date)).filter(Boolean);
-
-  const weekLabel = visibleWeekDates.length > 0
-    ? `${formatDisplayDate(visibleWeekDates[0])} — ${formatDisplayDate(visibleWeekDates[visibleWeekDates.length - 1])}`
-    : `${formatDisplayDate(weekStart)} — ${formatDisplayDate(weekEnd)}`;
+  const weekLabel = weekRangeLabel;
 
   const selectedProject = userProjects.find(p => p.id === formProjectId);
   const sectionOptions = selectedProject?.sections ?? [];
@@ -1190,32 +1279,79 @@ const TimesheetPage = () => {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={pageEnter}
-      className="flex flex-col h-[calc(100dvh-3.5rem)] min-h-0"
+      className={cn('flex flex-col min-h-0', (manageOpen || analyticsOpen) ? 'min-h-full' : 'h-[calc(100dvh-3.5rem)]')}
     >
+      {manageOpen ? (
+        <TimesheetManagePanel onClose={() => setManageOpen(false)} />
+      ) : analyticsOpen ? (
+        <div className="flex flex-col h-full">
+          <div className="shrink-0 px-4 sm:px-8 pt-6 pb-4 border-b border-border/30 bg-gradient-to-b from-muted/20 to-transparent flex items-center justify-between gap-4">
+            <div>
+              <h1 className="text-lg font-bold text-foreground">Timesheet Analytics</h1>
+              <p className="text-xs text-muted-foreground mt-0.5">Your work patterns, billable hours, and overtime insights.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAnalyticsOpen(false)}
+              className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl border border-border/50 hover:bg-muted/50 transition-all text-muted-foreground hover:text-foreground font-medium"
+            >
+              ← Back to Timesheet
+            </button>
+          </div>
+          <div className="flex-1 overflow-auto">
+            <TimesheetAnalyticsPanel />
+          </div>
+        </div>
+      ) : (
+      <>
       {/* ── Page header ──────────────────────────────────────────────────── */}
       <div className="shrink-0 px-4 sm:px-8 pt-6 sm:pt-7 pb-5 border-b border-border/30 bg-gradient-to-b from-muted/20 to-transparent">
         <div className="flex items-center justify-end gap-4 flex-wrap">
           {/* Action buttons */}
           <div className="flex items-center gap-2.5 mt-1 flex-wrap">
+            <p className="text-xs text-muted-foreground/70 w-full sm:w-auto sm:mr-1">
+              Submit week: <span className="font-semibold text-foreground tabular-nums">{weekRangeLabel}</span>
+            </p>
             <motion.button
               transition={snappy}
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.97 }}
-              onClick={() => {
-                const activeDays = visibleWeekDates.filter(d => (dayView.find(dv => dv.date === d)?.totalSeconds ?? 0) > 0);
-                setSelectedDays(activeDays);
-                const sorted = [...activeDays].sort();
-                const range = sorted.length === 0 ? weekLabel
-                  : sorted.length === 1 ? formatDisplayDate(sorted[0])
-                  : `${formatDisplayDate(sorted[0])} – ${formatDisplayDate(sorted[sorted.length - 1])}`;
-                setNotifySubject(sorted.length <= 1
-                  ? `${currentUser.name}'s timesheet – ${range}`
-                  : `${currentUser.name}'s timesheet from ${formatDisplayDate(sorted[0])} to ${formatDisplayDate(sorted[sorted.length - 1])}`);
-                setNotifyOpen(true);
-              }}
-              className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl border border-border/50 hover:bg-muted/50 hover:border-border/80 transition-all text-muted-foreground hover:text-foreground font-medium"
+              onClick={() => void reloadWeek()}
+              disabled={refreshing}
+              className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl border border-border/50 hover:bg-muted/50 hover:border-border/80 transition-all text-muted-foreground hover:text-foreground font-medium disabled:opacity-40"
             >
-              <Bell className="h-4 w-4" /> Notify
+              <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin')} />
+              Refresh
+            </motion.button>
+            <motion.button
+              transition={snappy}
+              whileHover={{ scale: canOpenSubmit && !sendingEmail ? 1.03 : 1 }}
+              whileTap={{ scale: canOpenSubmit && !sendingEmail ? 0.97 : 1 }}
+              onClick={() => openSubmitDialog()}
+              disabled={!canOpenSubmit || sendingEmail}
+              className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-all font-semibold"
+            >
+              <Send className="h-4 w-4" /> {submission?.status === 'rejected' ? 'Resubmit' : 'Submit timesheet'}
+            </motion.button>
+            {isManager && (
+              <motion.button
+                transition={snappy}
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={() => setManageOpen(true)}
+                className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl border border-border/50 hover:bg-muted/50 hover:border-border/80 transition-all text-muted-foreground hover:text-foreground font-medium"
+              >
+                <Users className="h-4 w-4" /> Manage timesheets
+              </motion.button>
+            )}
+            <motion.button
+              transition={snappy}
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={() => setAnalyticsOpen(true)}
+              className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl border border-violet-500/30 bg-violet-500/10 hover:bg-violet-500/20 transition-all text-violet-300 hover:text-violet-200 font-medium"
+            >
+              <BarChart2 className="h-4 w-4" /> Analytics
             </motion.button>
             <motion.button
               transition={snappy}
@@ -1234,7 +1370,7 @@ const TimesheetPage = () => {
           className={cn(
             'mt-5 rounded-2xl border border-border/40 bg-card shadow-sm',
             'flex flex-wrap items-stretch gap-0 divide-y md:divide-y-0 md:divide-x divide-border/30',
-            userProjects.length === 0 && 'opacity-60 pointer-events-none',
+            (userProjects.length === 0 || quickWorkDateLocked) && 'opacity-60 pointer-events-none',
           )}
         >
           <div className="flex-1 min-w-[200px] flex items-center px-4 py-4 md:border-0">
@@ -1359,6 +1495,39 @@ const TimesheetPage = () => {
       {/* ── Scrollable body ───────────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto min-h-0 p-4 sm:p-8 space-y-6">
 
+        {submission && (
+          <div className={cn(
+            'rounded-2xl border px-4 sm:px-5 py-4',
+            statusBadgeClass(submission.status),
+          )}>
+            <div className="flex items-start gap-3 min-w-0">
+              {someDaysLocked ? <Lock className="h-4 w-4 shrink-0 mt-0.5 opacity-70" /> : <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5 opacity-70" />}
+              <div className="min-w-0 space-y-2 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-widest opacity-70">Status</span>
+                  <span className="text-sm font-bold">{statusDisplayLabel(submission.status)}</span>
+                  {loadingSubmission && (
+                    <div className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin opacity-60" />
+                  )}
+                </div>
+                <TimesheetSubmissionAuditInfo submission={submission} className="space-y-1" />
+                {submission.status === 'rejected' && submission.rejectionNote && (
+                  <p className="text-sm rounded-lg bg-background/40 border border-current/15 px-3 py-2">
+                    <span className="font-semibold">Rejection: </span>{submission.rejectionNote}
+                  </p>
+                )}
+                {someDaysLocked && (
+                  <p className="text-xs opacity-70">
+                    {allVisibleDaysLocked
+                      ? 'Submitted days this week are locked for editing until your manager rejects them.'
+                      : 'Submitted days are locked for editing.'}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── Week navigation bar ─────────────────────────────────────────── */}
         <div className="flex flex-wrap items-center gap-3 p-4 rounded-2xl border border-border/35 bg-card shadow-sm">
           <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -1398,7 +1567,15 @@ const TimesheetPage = () => {
             )}
           </div>
 
-          <div className="flex items-center gap-2.5 shrink-0">
+            <div className="flex items-center gap-2.5 shrink-0">
+            {submission && (
+              <span className={cn(
+                'text-xs font-bold px-3 py-1.5 rounded-xl border',
+                statusBadgeClass(submission.status),
+              )}>
+                {statusDisplayLabel(submission.status)}
+              </span>
+            )}
 
             {/* Week total */}
             <div className="flex items-center gap-2.5 bg-primary/8 border border-primary/20 rounded-xl px-4 py-2">
@@ -1469,7 +1646,7 @@ const TimesheetPage = () => {
                           {onLeaveDays.has(day.date) ? 'On Leave ✓' : 'On Leave'}
                         </button>
 
-                        {!onLeaveDays.has(day.date) && (
+                        {!onLeaveDays.has(day.date) && !isDateLocked(day.date) && (
                           <>
                             <button
                               type="button"
@@ -1498,11 +1675,12 @@ const TimesheetPage = () => {
 
                     {/* AI Panel */}
                     <AnimatePresence>
-                      {aiOpenDay === day.date && !onLeaveDays.has(day.date) && (
+                      {aiOpenDay === day.date && !onLeaveDays.has(day.date) && !isDateLocked(day.date) && (
                         <TimesheetAIPanel
                           date={day.date}
                           onClose={() => setAiOpenDay(null)}
-                          onEntriesAdded={reloadEntries}
+                          onEntriesAdded={reloadWeek}
+                          disabled={isDateLocked(day.date)}
                         />
                       )}
                     </AnimatePresence>
@@ -1518,8 +1696,8 @@ const TimesheetPage = () => {
                         Nothing logged yet —{' '}
                         <button
                           type="button"
-                          onClick={() => openNewModal(day.date)}
-                          disabled={userProjects.length === 0}
+                          onClick={() => !isDateLocked(day.date) && openNewModal(day.date)}
+                          disabled={userProjects.length === 0 || isDateLocked(day.date)}
                           className="font-semibold text-primary/60 hover:text-primary transition-colors disabled:opacity-40 hover:underline"
                         >
                           add an entry
@@ -1537,6 +1715,7 @@ const TimesheetPage = () => {
                             onToggleBillable={toggleBillable}
                             togglingBill={togglingBillId === entry.id}
                             createSection={createSectionReturningId}
+                            readOnly={isDateLocked(day.date)}
                           />
                         ))}
                       </ul>
@@ -1676,7 +1855,12 @@ const TimesheetPage = () => {
       }}>
         <DialogContent className="flex min-h-0 flex-col gap-0 overflow-hidden p-0">
           <DialogHeader className="shrink-0 px-6 pb-4 pt-2 text-left border-b border-border/60">
-            <DialogTitle className="text-xl font-bold">Send timesheet email</DialogTitle>
+            <DialogTitle className="text-xl font-bold">
+              Submit timesheet for {weekRangeLabel}?
+            </DialogTitle>
+            <p className="text-sm text-muted-foreground mt-1.5">
+              All editable days in this week (Mon–Sun) will be submitted together for manager approval.
+            </p>
           </DialogHeader>
 
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5 space-y-5">
@@ -1702,21 +1886,15 @@ const TimesheetPage = () => {
               </div>
             )}
 
-            {/* Day picker */}
-            <div>
-              <p className="text-[10px] font-bold text-muted-foreground/50 uppercase tracking-widest mb-2.5">Days to include</p>
-              <div className="flex flex-wrap gap-2">
-                {[...visibleWeekDates].sort((a, b) => b.localeCompare(a)).map(date => {
-                  const i = weekDates.indexOf(date);
-                  const isSelected = selectedDays.includes(date);
-                  return (
-                    <motion.button key={date} type="button" transition={snappy} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-                      onClick={() => toggleDay(date)}
-                      className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold border transition-all ${isSelected ? 'bg-primary/15 text-primary border-primary/30 shadow-sm' : 'bg-muted/40 border-border/40 text-muted-foreground hover:bg-muted/70 hover:border-border/60'}`}>
-                      {dayShort[i] ?? ''} {formatDisplayDate(date)}
-                    </motion.button>
-                  );
-                })}
+            {/* Week range */}
+            <div className="rounded-xl border border-primary/25 bg-primary/5 px-4 py-3 flex items-center gap-3">
+              <CalendarDays className="h-4 w-4 text-primary shrink-0" />
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-widest">Work week</p>
+                <p className="text-sm font-semibold tabular-nums text-foreground">{weekRangeLabel}</p>
+                <p className="text-xs text-muted-foreground/70 mt-0.5">
+                  {weekSubmitDates.length} editable day{weekSubmitDates.length !== 1 ? 's' : ''} will be included
+                </p>
               </div>
             </div>
 
@@ -1846,16 +2024,18 @@ const TimesheetPage = () => {
             </div>
 
             {/* Preview */}
-            {scheduleSummary.length > 0 && (
+            {weekSubmissionData.days.length > 0 && (
               <div className="rounded-xl border border-border/35 bg-muted/10 p-4 max-h-[200px] overflow-y-auto space-y-3">
                 <h4 className="text-[10px] font-bold text-muted-foreground/50 uppercase tracking-widest">Content preview</h4>
-                {scheduleSummary.map(d => d && (
+                {weekSubmissionData.days.map(d => (
                   <div key={d.date} className="space-y-1.5">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-sm font-bold">{d.dayName} <span className="text-xs font-normal text-muted-foreground/60">{formatDisplayDate(d.date)}</span></span>
                       <span className="text-xs font-bold text-primary shrink-0">{formatDuration(d.totalSeconds)}</span>
                     </div>
-                    {d.entriesForDay.length > 0 ? d.entriesForDay.map(en => {
+                    {onLeaveDays.has(d.date) ? (
+                      <p className="pl-3 text-xs text-amber-600/80 italic">On leave</p>
+                    ) : d.entries.map(en => {
                       const proj = projects.find(p => p.id === en.projectId);
                       const sec = proj?.sections.find(s => s.id === en.sectionId);
                       return (
@@ -1868,7 +2048,7 @@ const TimesheetPage = () => {
                           </div>
                         </div>
                       );
-                    }) : <p className="pl-3 text-xs text-muted-foreground/40 italic">No entries</p>}
+                    })}
                   </div>
                 ))}
               </div>
@@ -1878,13 +2058,13 @@ const TimesheetPage = () => {
           <div className="shrink-0 px-6 py-4 border-t border-border/60 flex gap-2 justify-end bg-muted/10">
             <Button variant="ghost" onClick={() => setNotifyOpen(false)} className="rounded-xl">Cancel</Button>
             <button
-              onClick={() => void handleNotify()}
-              disabled={(notifyToTags.length === 0 && !notifyToInput.trim()) || selectedDays.length === 0 || sendingEmail || !isMicrosoftAuthConfigured() || !hasMicrosoftSession()}
+              onClick={() => void handleSubmitAndSend()}
+              disabled={(notifyToTags.length === 0 && !notifyToInput.trim()) || weekSubmitDates.length === 0 || sendingEmail}
               className="flex items-center gap-2 text-sm px-5 py-2.5 rounded-xl bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-all font-semibold"
             >
               {sendingEmail
-                ? <><span className="h-3.5 w-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" /> Sending…</>
-                : <><Send className="h-3.5 w-3.5" /> Send to {notifyToTags.length + (notifyToInput.trim() ? 1 : 0) || ''}{notifyToTags.length + (notifyToInput.trim() ? 1 : 0) > 0 ? ` recipient${notifyToTags.length + (notifyToInput.trim() ? 1 : 0) > 1 ? 's' : ''}` : 'email'}</>
+                ? <><span className="h-3.5 w-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" /> Submitting…</>
+                : <><Send className="h-3.5 w-3.5" /> Submit &amp; Send</>
               }
             </button>
           </div>
@@ -1921,6 +2101,8 @@ const TimesheetPage = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      </>
+      )}
     </motion.div>
   );
 };

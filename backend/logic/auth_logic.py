@@ -9,11 +9,11 @@ import certifi
 import jwt
 from fastapi import HTTPException, status
 from jwt import PyJWKClient
-from sqlalchemy.orm import Session
+from database.database import Db
 
 import crud.settings as settings_crud
 import crud.users as users_crud
-from config import ADMIN_PASSWORD, JWT_SECRET
+from config import ADMIN_PASSWORD, JWT_SECRET, MICROSOFT_CLIENT_ID, MICROSOFT_TENANT_ID
 from logic import user_logic
 from logic.schemas import LoginBody, LoginResponse, MicrosoftAuthBody, RegisterBody
 
@@ -31,11 +31,6 @@ ADMIN_USERNAME = (os.environ.get("ADMIN_USERNAME", "").strip() or "admin")
 ADMIN_SUBJECT = "__admin__"
 _ADMIN_PW_KEY = "admin_password_hash"
 
-_DEFAULT_MICROSOFT_CLIENT_ID = "eb4d79fc-169b-4d89-b381-e239ec7dfe5e"
-_DEFAULT_MICROSOFT_TENANT_ID = "567ad03c-3f9a-42e7-bc13-9f75f6bc87b6"
-
-MICROSOFT_CLIENT_ID = os.environ.get("MICROSOFT_CLIENT_ID", "").strip() or _DEFAULT_MICROSOFT_CLIENT_ID
-MICROSOFT_TENANT_ID = os.environ.get("MICROSOFT_TENANT_ID", "").strip() or _DEFAULT_MICROSOFT_TENANT_ID
 # Tenant-specific JWKS avoids edge-case validation issues for single-tenant apps; falls back to common.
 MICROSOFT_JWKS_URL = (
     f"https://login.microsoftonline.com/{MICROSOFT_TENANT_ID}/discovery/v2.0/keys"
@@ -113,7 +108,7 @@ def decode_token(token: str) -> str:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token")
 
 
-def resolve_user_id(db: Session, token: str) -> str:
+def resolve_user_id(db: Db, token: str) -> str:
     """Resolve a bearer token to a user id — accepts a personal access token
     (programmatic / MCP access) or a normal session JWT."""
     from logic import token_logic
@@ -126,7 +121,7 @@ def resolve_user_id(db: Session, token: str) -> str:
     return decode_token(token)
 
 
-def login(db: Session, body: LoginBody) -> LoginResponse:
+def login(db: Db, body: LoginBody) -> LoginResponse:
     user = users_crud.get_by_email(db, body.email)
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
@@ -152,7 +147,7 @@ def create_admin_token(subject: str = ADMIN_SUBJECT) -> str:
     )
 
 
-def require_admin(token: str, db: Session | None = None) -> None:
+def require_admin(token: str, db: Db | None = None) -> None:
     """Raise unless the token is a valid admin-scoped token.
 
     Accepts both the standalone master admin (sub=__admin__) and any app user
@@ -178,22 +173,22 @@ def require_admin(token: str, db: Session | None = None) -> None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin privileges required")
 
 
-def _get_setting(db: Session, key: str) -> str | None:
+def _get_setting(db: Db, key: str) -> str | None:
     return settings_crud.get(db, key)
 
 
-def _set_setting(db: Session, key: str, value: str) -> None:
+def _set_setting(db: Db, key: str, value: str) -> None:
     settings_crud.set(db, key, value)
 
 
-def _verify_admin_password(db: Session, password: str) -> bool:
+def _verify_admin_password(db: Db, password: str) -> bool:
     override = _get_setting(db, _ADMIN_PW_KEY)
     if override:
         return verify_password(password, override)
     return secrets.compare_digest(password, ADMIN_PASSWORD)
 
 
-def admin_login(db: Session, username: str, password: str) -> str:
+def admin_login(db: Db, username: str, password: str) -> str:
     uname = (username or "").strip()
     # 1) Standalone master admin.
     if uname == ADMIN_USERNAME and _verify_admin_password(db, password):
@@ -207,7 +202,7 @@ def admin_login(db: Session, username: str, password: str) -> str:
     raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid admin credentials")
 
 
-def admin_microsoft_login(db: Session, id_token: str) -> str:
+def admin_microsoft_login(db: Db, id_token: str) -> str:
     """Admin-console login via Microsoft — only for existing app users with the
     'admin' role."""
     claims = _decode_microsoft_id_token((id_token or "").strip())
@@ -220,7 +215,7 @@ def admin_microsoft_login(db: Session, id_token: str) -> str:
     return create_admin_token(subject=user.id)
 
 
-def change_admin_password(db: Session, current_password: str, new_password: str) -> None:
+def change_admin_password(db: Db, current_password: str, new_password: str) -> None:
     if not _verify_admin_password(db, current_password):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Current password is incorrect")
     if len(new_password or "") < 8:
@@ -228,7 +223,7 @@ def change_admin_password(db: Session, current_password: str, new_password: str)
     _set_setting(db, _ADMIN_PW_KEY, hash_password(new_password))
 
 
-def register(db: Session, body: RegisterBody) -> LoginResponse:
+def register(db: Db, body: RegisterBody) -> LoginResponse:
     email = body.email.strip().lower()
     name = body.name.strip()
     if not name:
@@ -249,7 +244,7 @@ def register(db: Session, body: RegisterBody) -> LoginResponse:
     return LoginResponse(access_token=token, user=user_logic.to_user_out(db, user))
 
 
-def microsoft_auth(db: Session, body: MicrosoftAuthBody) -> LoginResponse:
+def microsoft_auth(db: Db, body: MicrosoftAuthBody) -> LoginResponse:
     claims = _decode_microsoft_id_token(body.id_token.strip())
     email = (claims.get("email") or claims.get("preferred_username") or "").strip().lower()
     if not email or "@" not in email:

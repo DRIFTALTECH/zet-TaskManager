@@ -1,11 +1,25 @@
 # Environment secrets
 backend/.env
 frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+test-db-connection/.env
+frontend/.env.development 
+frontend/.env.production
+frontend/dist.zip
+
+# Aurora IAM token cache (runtime — never commit)
+backend/.cache/
 
 # Database (runtime data — never commit)
 backend/data/taskmanager.db
 backend/data/taskmanager.db-wal
 backend/data/taskmanager.db-shm
+
+# Pytest SQLite (never commit)
+backend/tests/data/test_taskmanager.db
+backend/tests/data/test_taskmanager.db-wal
+backend/tests/data/test_taskmanager.db-shm
 
 # User-uploaded files (runtime data)
 backend/data/attachments/
@@ -22,3 +36,40 @@ venv/
 
 # Misc
 .DS_Store
+
+# AWS
+backend/.cache/
+#backend/.cache/dbtoken.json
+
+# Clockify
+Clockify-importer/clockify-zet-table-mapping.png
+Clockify-importer/clockify-zet-field-mapping.png
+Clockify-importer/.env
+
+#node_modules
+node_modules/
+
+#docs files
+docs/zet-production-architecture-v2.drawio
+docs/zet-production-architecture-v4.drawio
+docs/zet-production-architecture-v3.drawio
+docs/zet-production-architecture-v5.drawio
+docs/Generated_image_one2one.png
+docs/Generated_image.png
+docs/README.md
+
+
+package-lock.json
+package.json
+pyrightconfig.json
+testidb-connection.zip
+
+test-db-connection/.env
+test-db-connection/_pycache_/
+test-db-connection/ap-south-2-bundle.pem
+
+.env
+.vscode/
+
+tash show --stat stash@{0}
+tets-db-connection.zip

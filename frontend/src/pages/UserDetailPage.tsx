@@ -19,7 +19,7 @@ import {
   Cell, PieChart, Pie, AreaChart, Area, CartesianGrid,
 } from 'recharts';
 import { pageEnter, snappy } from '@/lib/motion';
-import { isTaskAssignedTo } from '@/lib/task-utils';
+import { isTaskAssignedTo, normalizePriority } from '@/lib/task-utils';
 import type { TimesheetWorkEntry, Priority, Task, Project } from '@/types';
 import { api } from '@/lib/api';
 import { toast } from 'sonner';
@@ -30,7 +30,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { cn } from '@/lib/utils';
+import { cn, getLocalDateString } from '@/lib/utils';
+import { SkillsPicker } from '@/components/SkillsPicker';
 
 // ─── colour helpers ───────────────────────────────────────────────────────────
 
@@ -455,7 +456,8 @@ type View = 'analytics' | 'timesheet';
 
 export default function UserDetailPage() {
   const { userId } = useParams<{ userId: string }>();
-  const { users, tasks, projects, kanbanColumns, addMemberToProject, removeMemberFromProject } = useAppStore();
+  const { users, tasks, projects, kanbanColumns, addMemberToProject, removeMemberFromProject, skills, loadSkills, updateUserSkills, currentUser } = useAppStore();
+  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'admin';
 
   const [view, setView]             = useState<View>('analytics');
   const [addProjOpen, setAddProjOpen] = useState(false);
@@ -464,6 +466,11 @@ export default function UserDetailPage() {
   const [weekEntries, setWeekEntries] = useState<TimesheetWorkEntry[]>([]);
   const [loadingWeek, setLoadingWeek] = useState(false);
   const [dayDetailDate, setDayDetailDate] = useState<string | null>(null);
+  const [savingSkills, setSavingSkills] = useState(false);
+
+  useEffect(() => {
+    if (isManager) void loadSkills();
+  }, [isManager, loadSkills]);
 
   // ── Per-project daily-hours trend (filterable range + project toggles) ──────
   const [trendDays, setTrendDays] = useState<number>(30);
@@ -479,6 +486,25 @@ export default function UserDetailPage() {
   }, [wkOff, WD, TODAY]);
 
   const user = users.find(u => u.id === userId);
+
+  const userSkillIds = useMemo(() => {
+    const names = user?.skills ?? [];
+    return names
+      .map(n => skills.find(s => s.name.toLowerCase() === n.toLowerCase())?.id)
+      .filter((id): id is string => !!id);
+  }, [user?.skills, skills]);
+
+  const handleSkillsChange = async (skillIds: string[]) => {
+    if (!user) return;
+    setSavingSkills(true);
+    try {
+      await updateUserSkills(user.id, skillIds);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not save skills');
+    } finally {
+      setSavingSkills(false);
+    }
+  };
 
   // ── derived ──────────────────────────────────────────────────────────────
 
@@ -754,7 +780,7 @@ export default function UserDetailPage() {
               onClick={() => setAddProjOpen(true)}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-primary/40 bg-primary/5 text-primary text-sm font-semibold hover:bg-primary/10 transition-colors"
             >
-              <FolderPlus className="h-4 w-4" /> Add to projects
+              <FolderPlus className="h-4 w-4" /> Add User to Project
             </button>
             {/* tab switcher */}
             <div className="flex items-center gap-1 bg-muted/40 border border-border/40 rounded-xl p-1">
@@ -776,6 +802,25 @@ export default function UserDetailPage() {
             </div>
           </div>
         </motion.div>
+
+        {isManager && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ ...pageEnter, delay: 0.05 }}
+            className="rounded-2xl border border-border/50 bg-card p-5 sm:p-6 mb-6"
+          >
+            <h2 className="text-sm font-semibold text-foreground mb-1">Skills</h2>
+            <p className="text-xs text-muted-foreground/60 mb-4">
+              Add skills that describe what {user.name.split(' ')[0]} is good at.
+            </p>
+            <SkillsPicker
+              selectedSkillIds={userSkillIds}
+              onChange={ids => void handleSkillsChange(ids)}
+              disabled={savingSkills}
+            />
+          </motion.div>
+        )}
 
         <AnimatePresence mode="wait">
 
@@ -1098,7 +1143,8 @@ export default function UserDetailPage() {
                       {inFlight.map(t => {
                         const proj = projects.find(p => p.id === t.projectId);
                         const col = proj ? projColor(proj.id) : PROJECT_PALETTE[0];
-                        const pm = PRIORITY_META[t.priority];
+                        const priority = normalizePriority(t.priority);
+                        const pm = PRIORITY_META[priority];
                         return (
                           <li key={t.id} className="flex items-center gap-3 rounded-xl border border-border/35 bg-muted/5 px-3 py-2.5">
                             <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: STATUS_META[t.status]?.hex ?? '#6366f1' }} />
@@ -1194,7 +1240,7 @@ export default function UserDetailPage() {
                                   <span className={cn('text-[10px] px-2 py-0.5 rounded-md font-semibold border', col.bg, col.text, col.border)}>{proj.name}</span>
                                 )}
                                 <span className="text-[10px] font-mono text-muted-foreground/40">
-                                  {t.completedAt ? fmtISO(t.completedAt.slice(0, 10)) : ''}
+                                  {t.completedAt ? fmtISO(getLocalDateString(t.completedAt)) : ''}
                                 </span>
                               </div>
                             </div>
@@ -1269,7 +1315,8 @@ export default function UserDetailPage() {
                               })
                               .map(t => {
                                 const sm = STATUS_META[t.status];
-                                const pm = PRIORITY_META[t.priority];
+                                const priority = normalizePriority(t.priority);
+                                const pm = PRIORITY_META[priority];
                                 const isDone = t.status === 'completed';
                                 return (
                                   <div
@@ -1284,7 +1331,7 @@ export default function UserDetailPage() {
                                     </p>
                                     <div className="flex flex-wrap items-center gap-1.5 shrink-0">
                                       <span className={cn('text-[10px] px-2 py-0.5 rounded-full font-bold border', pm.bg, pm.text, pm.border)}>
-                                        {t.priority}
+                                        {priority}
                                       </span>
                                       <span className={cn(
                                         'text-[10px] px-2.5 py-0.5 rounded-full font-bold border whitespace-nowrap',
@@ -1443,7 +1490,8 @@ export default function UserDetailPage() {
                     {[...active, ...doneTasks].map((t, i) => {
                       const proj   = projects.find(p => p.id === t.projectId);
                       const sm     = STATUS_META[t.status];
-                      const pm     = PRIORITY_META[t.priority];
+                      const priority = normalizePriority(t.priority);
+                      const pm     = PRIORITY_META[priority];
                       const isDone = t.status === 'completed';
                       const isOvrd = !isDone && t.dueDate < TODAY;
                       return (
@@ -1490,7 +1538,7 @@ export default function UserDetailPage() {
 
                           {/* priority */}
                           <span className={`text-[10px] px-2.5 py-1 rounded-full font-bold border whitespace-nowrap ${pm.bg} ${pm.text} ${pm.border}`}>
-                            {t.priority}
+                            {priority}
                           </span>
                         </motion.div>
                       );
@@ -1642,9 +1690,9 @@ export default function UserDetailPage() {
           <DialogContent className="w-[94vw] max-w-md border-border/60 bg-card sm:rounded-2xl">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2 text-lg">
-                <FolderPlus className="h-5 w-5 text-primary" /> {user.name}'s projects
+                <FolderPlus className="h-5 w-5 text-primary" /> Add User to Project
               </DialogTitle>
-              <DialogDescription>Toggle the projects this person belongs to.</DialogDescription>
+              <DialogDescription>Choose which projects {user.name} belongs to.</DialogDescription>
             </DialogHeader>
             <div className="space-y-1.5 max-h-[55vh] overflow-y-auto pr-1">
               {projects.length === 0 && (

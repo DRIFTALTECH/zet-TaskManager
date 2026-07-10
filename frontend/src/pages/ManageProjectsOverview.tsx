@@ -7,28 +7,27 @@ import { useAppStore } from '@/stores/appStore';
 import { projectPickerLabel } from '@/lib/project-utils';
 import { motion } from 'framer-motion';
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Plus, FolderOpen, Users, LayoutGrid, ListTodo, Sparkles, Clock,
-  ArrowUpRight, Search, X,
+  ArrowUpRight, Search, X, BarChart3,
 } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { toast } from 'sonner';
 import { snappy, pageEnter } from '@/lib/motion';
 import { computeProjectStats, formatHM, projectAccent } from '@/lib/manage-utils';
 import { resolveMediaUrl } from '@/lib/env';
+import { ANALYTICS_LABELS } from '@/lib/analyticsLabels';
+import DeliveryPage from '@/pages/DeliveryPage';
+import { cn } from '@/lib/utils';
+import CreateProjectDialog from '@/components/CreateProjectDialog';
 
 const ManageProjectsOverview = () => {
-  const { projects, tasks, createProject } = useAppStore();
+  const { projects, tasks } = useAppStore();
   const navigate = useNavigate();
+  const location = useLocation();
+  const statusView = location.pathname === '/manage/status';
 
   const [search, setSearch] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
-  const [projName, setProjName] = useState('');
-  const [projDesc, setProjDesc] = useState('');
-  const [creating, setCreating] = useState(false);
-
-  const inputCls = 'w-full rounded-xl border border-border/50 bg-muted/40 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 transition-all placeholder:text-muted-foreground/40';
 
   const totalMembers = useMemo(() => new Set(projects.flatMap(p => p.members)).size, [projects]);
   const totalTime = useMemo(() => tasks.reduce((s, t) => s + (t.timeTracked || 0), 0), [tasks]);
@@ -39,18 +38,6 @@ const ManageProjectsOverview = () => {
     return projects.filter(p =>
       p.name.toLowerCase().includes(q) || (p.description || '').toLowerCase().includes(q));
   }, [projects, search]);
-
-  const handleCreate = async () => {
-    if (!projName.trim()) return toast.error('Enter project name');
-    setCreating(true);
-    try {
-      await createProject(projName.trim(), projDesc.trim());
-      toast.success('Project created!');
-      setCreateOpen(false); setProjName(''); setProjDesc('');
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not create project');
-    } finally { setCreating(false); }
-  };
 
   return (
     <motion.div
@@ -70,16 +57,22 @@ const ManageProjectsOverview = () => {
             <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
               Projects
             </h1>
-            <p className="text-sm text-muted-foreground/60 mt-1.5">A health snapshot of every project — open one to dive in.</p>
+            <p className="text-sm text-muted-foreground/60 mt-1.5">
+              {statusView
+                ? 'Late tasks, blockers, and how each project is progressing'
+                : 'A quick snapshot of every project — open one to dive in.'}
+            </p>
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="hidden md:flex items-center gap-2">
-              <StatPill icon={<FolderOpen className="h-3.5 w-3.5" />} value={projects.length} label="projects" />
-              <StatPill icon={<Users className="h-3.5 w-3.5" />} value={totalMembers} label="members" />
-              <StatPill icon={<ListTodo className="h-3.5 w-3.5" />} value={tasks.length} label="tasks" />
-              <StatPill icon={<Clock className="h-3.5 w-3.5" />} value={formatHM(totalTime)} label="logged" />
-            </div>
+            {!statusView && (
+              <div className="hidden md:flex items-center gap-2">
+                <StatPill icon={<FolderOpen className="h-3.5 w-3.5" />} value={projects.length} label="projects" />
+                <StatPill icon={<Users className="h-3.5 w-3.5" />} value={totalMembers} label="members" />
+                <StatPill icon={<ListTodo className="h-3.5 w-3.5" />} value={tasks.length} label="tasks" />
+                <StatPill icon={<Clock className="h-3.5 w-3.5" />} value={formatHM(totalTime)} label="logged" />
+              </div>
+            )}
             <motion.button
               transition={snappy}
               whileHover={{ scale: 1.03 }}
@@ -92,26 +85,61 @@ const ManageProjectsOverview = () => {
           </div>
         </div>
 
-        {/* Search */}
-        {projects.length > 0 && (
-          <div className="mt-5 flex items-center gap-2 bg-muted/40 border border-border/40 rounded-xl px-3.5 py-2 max-w-sm">
-            <Search className="h-4 w-4 text-muted-foreground/50 shrink-0" />
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search projects…"
-              className="bg-transparent text-sm focus:outline-none flex-1 placeholder:text-muted-foreground/40"
-            />
-            {search && (
-              <button onClick={() => setSearch('')} className="text-muted-foreground/50 hover:text-foreground transition-colors">
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
+        <div className="mt-5 flex flex-wrap items-center gap-3">
+          <div className="inline-flex items-center rounded-xl border border-border/40 bg-muted/30 p-1">
+            <button
+              type="button"
+              onClick={() => navigate('/manage')}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
+                !statusView
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+              All Projects
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/manage/status')}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
+                statusView
+                  ? 'bg-background text-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <BarChart3 className="h-3.5 w-3.5" />
+              {ANALYTICS_LABELS.projectStatus}
+            </button>
           </div>
-        )}
+
+          {!statusView && projects.length > 0 && (
+            <div className="flex items-center gap-2 bg-muted/40 border border-border/40 rounded-xl px-3.5 py-2 max-w-sm flex-1 min-w-[200px]">
+              <Search className="h-4 w-4 text-muted-foreground/50 shrink-0" />
+              <input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Search projects…"
+                className="bg-transparent text-sm focus:outline-none flex-1 placeholder:text-muted-foreground/40"
+              />
+              {search && (
+                <button onClick={() => setSearch('')} className="text-muted-foreground/50 hover:text-foreground transition-colors">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* ── Card grid ───────────────────────────────────────────────────── */}
+      {/* ── Content ─────────────────────────────────────────────────────── */}
+      {statusView ? (
+        <div className="p-4 sm:p-8">
+          <DeliveryPage embedded />
+        </div>
+      ) : (
       <div className="p-4 sm:p-8">
         {projects.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 text-center">
@@ -172,9 +200,16 @@ const ManageProjectsOverview = () => {
                   </div>
 
                   {/* Title */}
-                  <h3 className="relative text-base font-bold leading-snug text-foreground line-clamp-2 shrink-0">
-                    {projectPickerLabel(project)}
-                  </h3>
+                  <div className="relative shrink-0">
+                    <h3 className="text-base font-bold leading-snug text-foreground line-clamp-2">
+                      {projectPickerLabel(project)}
+                    </h3>
+                    {!project.clientId && (
+                      <span className="inline-flex mt-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                        No Client
+                      </span>
+                    )}
+                  </div>
 
                   <div className="flex-1 min-h-0" aria-hidden />
 
@@ -200,38 +235,9 @@ const ManageProjectsOverview = () => {
           </div>
         )}
       </div>
+      )}
 
-      {/* ── Create Project Modal ────────────────────────────────────────── */}
-      <Dialog open={createOpen} onOpenChange={o => { setCreateOpen(o); if (!o) { setProjName(''); setProjDesc(''); } }}>
-        <DialogContent className="rounded-2xl">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-bold">Create Project</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 pt-2">
-            <input
-              autoFocus
-              value={projName}
-              onChange={e => setProjName(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && void handleCreate()}
-              className={inputCls}
-              placeholder="Project name"
-            />
-            <textarea
-              value={projDesc}
-              onChange={e => setProjDesc(e.target.value)}
-              className={`${inputCls} min-h-[72px] resize-none`}
-              placeholder="Description (optional)"
-            />
-            <button
-              onClick={() => void handleCreate()}
-              disabled={!projName.trim() || creating}
-              className="w-full rounded-xl bg-primary py-2.5 text-sm font-bold text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-all shadow-sm hover:shadow-md"
-            >
-              {creating ? 'Creating…' : 'Create Project'}
-            </button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <CreateProjectDialog open={createOpen} onOpenChange={setCreateOpen} />
     </motion.div>
   );
 };

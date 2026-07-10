@@ -1,4 +1,5 @@
 import type { Priority, Task } from '@/types';
+import { normalizePriority } from '@/lib/task-utils';
 
 export type DueBucket = 'overdue' | 'today' | 'tomorrow' | 'later';
 
@@ -38,6 +39,21 @@ export function localTomorrowISO(): string {
   return `${y}-${m}-${day}`;
 }
 
+/** YYYY-MM-DD from a local calendar date (no timezone shift). */
+export function localISODateFromDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+export function parseLocalISODate(iso: string): Date | undefined {
+  const parts = iso.trim().split('-').map(Number);
+  if (parts.length < 3 || parts.some(n => Number.isNaN(n))) return undefined;
+  const [y, mo, day] = parts;
+  return new Date(y!, mo! - 1, day!);
+}
+
 /** Due date text on cards / lists: today = red, tomorrow = orange; overdue stays red; later muted. */
 export function dueBucketDateTextClass(bucket: DueBucket, isDone: boolean): string {
   if (isDone) return 'text-muted-foreground/50';
@@ -59,6 +75,7 @@ export type DashboardDueFilter = 'all' | 'overdue' | 'today' | 'tomorrow' | 'thi
 
 export function taskMatchesDashboardDueFilter(task: Task, f: DashboardDueFilter): boolean {
   if (f === 'all') return true;
+  if (!task.dueDate?.trim()) return false;
   const days = daysFromTodayInLocal(task.dueDate);
   switch (f) {
     case 'overdue':
@@ -79,5 +96,15 @@ export function taskMatchesDashboardDueFilter(task: Task, f: DashboardDueFilter)
 /** Priority filter: empty set = no restriction (show all). */
 export function taskMatchesPriorityFilter(task: Task, selected: Set<Priority>): boolean {
   if (selected.size === 0) return true;
-  return selected.has(task.priority);
+  return selected.has(normalizePriority(task.priority));
+}
+
+/** Optional due-date window (YYYY-MM-DD). Empty from/to = no restriction. */
+export function taskMatchesDueDateRange(task: Task, from: string, to: string): boolean {
+  if (!from && !to) return true;
+  const due = task.dueDate?.trim().slice(0, 10);
+  if (!due) return false;
+  if (from && due < from) return false;
+  if (to && due > to) return false;
+  return true;
 }

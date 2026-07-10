@@ -1,8 +1,9 @@
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
+from database.database import Db
 
+import crud.skills as skills_crud
 import crud.users as users_crud
 from database.models import User
 from logic import auth_logic
@@ -27,10 +28,11 @@ def _calc_current_experience(experience_months: int, joined_at: str) -> int:
         return experience_months
 
 
-def to_user_out(db: Session, user: User, *, viewer_id: str | None = None) -> UserOut:
+def to_user_out(db: Db, user: User, *, viewer_id: str | None = None, skills: list[str] | None = None) -> UserOut:
     pids = users_crud.project_ids_for_user(db, user.id)
     exp_months = getattr(user, "experience_months", 0) or 0
     joined = getattr(user, "joined_at", "") or ""
+    skill_names = skills if skills is not None else skills_crud.list_skill_names_for_user(db, user.id)
     return UserOut(
         id=user.id,
         name=user.name,
@@ -43,32 +45,35 @@ def to_user_out(db: Session, user: User, *, viewer_id: str | None = None) -> Use
         joinedAt=joined,
         currentExperienceMonths=_calc_current_experience(exp_months, joined),
         isActive=bool(getattr(user, "is_active", True)),
+        managerId=getattr(user, "manager_id", None) or None,
+        skills=skill_names,
     )
 
 
-def get_user_or_404(db: Session, user_id: str) -> User:
+def get_user_or_404(db: Db, user_id: str) -> User:
     u = users_crud.get_by_id(db, user_id)
     if not u:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
     return u
 
 
-def list_users(db: Session, viewer_id: str) -> list[UserOut]:
-    return [to_user_out(db, u, viewer_id=viewer_id) for u in users_crud.list_all(db)]
+def list_users(db: Db, viewer_id: str) -> list[UserOut]:
+    users = users_crud.list_all(db)
+    skills_map = skills_crud.skill_names_by_user_ids(db, [u.id for u in users])
+    return [to_user_out(db, u, viewer_id=viewer_id, skills=skills_map.get(u.id, [])) for u in users]
 
 
-def update_profile(db: Session, user_id: str, body: ProfileUpdate) -> UserOut:
+def update_profile(db: Db, user_id: str, body: ProfileUpdate) -> UserOut:
     user = get_user_or_404(db, user_id)
     name = body.name.strip() if body.name is not None else user.name
     avatar = body.avatar if body.avatar is not None else user.avatar
     if body.name is not None and not name:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Name cannot be empty")
-    users_crud.update_user(db, user, name=name, avatar=avatar)
-    db.refresh(user)
+    user = users_crud.update_user(db, user, name=name, avatar=avatar)
     return to_user_out(db, user)
 
 
-def change_password(db: Session, user_id: str, body: PasswordUpdate) -> None:
+def change_password(db: Db, user_id: str, body: PasswordUpdate) -> None:
     user = get_user_or_404(db, user_id)
     if not auth_logic.verify_password(body.current_password, user.password_hash):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Current password is incorrect")

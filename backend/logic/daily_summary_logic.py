@@ -5,16 +5,27 @@ Strict layering: this logic gathers data via crud/, formats a plain-text work lo
 and delegates the natural-language pass to ai.chains.summarize_day. No SQL here.
 """
 
+import logging
 from datetime import date
 
-from sqlalchemy.orm import Session
+from database.database import Db
 
 import crud.tasks as tasks_crud
 import crud.timelog as timelog_crud
 import crud.timesheet_entries as ts_crud
 from ai import chains
+from ai.response_parser import extract_final_answer
 from ai.schemas import DaySummaryResponse
 from database.models import Task
+from logic import insight_logic
+
+log = logging.getLogger("zet.daily_summary")
+
+_RECAP_LEAK_MARKERS = ("let's see", "let us see")
+_FALLBACK_RECAP = (
+    "We couldn't generate your recap just now. "
+    "Your tasks and time entries are still saved — check Tasks or Timesheet for today."
+)
 
 
 def _fmt_hm(seconds: int) -> str:
@@ -60,7 +71,44 @@ def _build_work_log(
     return "\n".join(lines)
 
 
-def summarize_day(db: Session, user_id: str, work_date: str | None = None) -> DaySummaryResponse:
+def _line_looks_like_leak(line: str) -> bool:
+    lower = extract_final_answer(line).lower().strip()
+    if not lower:
+        return True
+    if insight_logic._looks_like_leak(line):
+        return True
+    return any(marker in lower for marker in _RECAP_LEAK_MARKERS)
+
+
+def _sanitize_recap(text: str) -> str:
+    """Same pipeline as analytics insights (_sanitize_text), preserving markdown newlines."""
+    cleaned = extract_final_answer(text)
+    parts = [ln.strip() for ln in cleaned.splitlines() if ln.strip() and not _line_looks_like_leak(ln)]
+    if parts:
+        return "\n".join(parts).strip()
+    single = cleaned.strip()
+    return "" if _line_looks_like_leak(single) else single
+
+
+def _is_valid_recap(text: str) -> bool:
+    return bool(text.strip()) and not _line_looks_like_leak(text)
+
+
+def _generate_recap(work_date: str, work_log: str) -> str:
+    """Prompt → complete() → _sanitize_recap. Retry once; fallback if still no recap."""
+    for attempt in range(2):
+        try:
+            recap = _sanitize_recap(chains.summarize_day(work_date, work_log))
+            if _is_valid_recap(recap):
+                return recap
+            log.warning("Day recap invalid/leaked attempt=%s", attempt + 1)
+        except Exception as exc:
+            log.warning("Day recap failed attempt=%s: %s", attempt + 1, exc)
+    log.error("Day recap generation failed after retries; using fallback")
+    return _FALLBACK_RECAP
+
+
+def summarize_day(db: Db, user_id: str, work_date: str | None = None) -> DaySummaryResponse:
     """Gather the user's activity for `work_date` (default: today) and return an
     AI-generated recap plus the underlying tallies."""
     day = work_date or date.today().isoformat()
@@ -83,7 +131,7 @@ def summarize_day(db: Session, user_id: str, work_date: str | None = None) -> Da
             task_titles[tid] = t.title
 
     work_log = _build_work_log(tasks, timelog_rows, timesheet_rows, task_titles)
-    summary = chains.summarize_day(day, work_log)
+    summary = _generate_recap(day, work_log)
 
     return DaySummaryResponse(
         date=day,

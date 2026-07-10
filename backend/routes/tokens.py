@@ -1,9 +1,8 @@
 """Personal access tokens for programmatic / MCP access: /auth/tokens"""
 
 from fastapi import APIRouter, Depends, Response
-from sqlalchemy.orm import Session
 
-from database.database import get_db
+from database.database import Db, get_db
 from logic import token_logic
 from logic.schemas import (
     PersonalAccessTokenCreate,
@@ -16,7 +15,7 @@ router = APIRouter()
 
 
 @router.get("", response_model=list[PersonalAccessTokenOut])
-def list_tokens(user_id: str = Depends(get_current_user_id), db: Session = Depends(get_db)):
+def list_tokens(user_id: str = Depends(get_current_user_id), db: Db = Depends(get_db)):
     return token_logic.list_tokens(db, user_id)
 
 
@@ -24,7 +23,7 @@ def list_tokens(user_id: str = Depends(get_current_user_id), db: Session = Depen
 def create_token(
     body: PersonalAccessTokenCreate,
     user_id: str = Depends(get_current_user_id),
-    db: Session = Depends(get_db),
+    db: Db = Depends(get_db),
 ):
     return token_logic.create_token(db, user_id, body.name)
 
@@ -33,7 +32,7 @@ def create_token(
 def revoke_token(
     token_id: str,
     user_id: str = Depends(get_current_user_id),
-    db: Session = Depends(get_db),
+    db: Db = Depends(get_db),
 ):
     token_logic.revoke_token(db, user_id, token_id)
     return Response(status_code=204)

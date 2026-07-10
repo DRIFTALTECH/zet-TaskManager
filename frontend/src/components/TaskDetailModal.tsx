@@ -1,5 +1,5 @@
 import { useAppStore } from '@/stores/appStore';
-import { Task, Priority, TaskStatus, TaskChecklist, TaskAttachment } from '@/types';
+import { Task, Priority, TaskStatus, TaskAttachment, TaskFeedback } from '@/types';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
@@ -11,16 +11,18 @@ import { toast } from 'sonner';
 import {
   Calendar, Tag, Clock, AlertTriangle, Plus, X, Trash2,
   FolderOpen, Layers, Mail, UserCircle, CircleDot,
-  MessageSquare, Send, User2, CheckCircle2, RotateCcw, ChevronRight,
-  CheckSquare, Square, Paperclip, Download, Upload, Sparkles, Eye, FileText,
+  MessageSquare, Send, User2,   CheckCircle2, RotateCcw, ChevronRight,
+  Paperclip, Download, Upload, Sparkles, Eye, FileText,
 } from 'lucide-react';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { taskAssigneeIds, isTaskAssignedTo } from '@/lib/task-utils';
+import { taskAssigneeIds, isTaskAssignedTo, normalizePriority } from '@/lib/task-utils';
 import UserAvatar from '@/components/UserAvatar';
+import { AdjustMinDurationSection } from '@/components/AdjustMinDurationSection';
+import { SubtaskManager } from '@/components/SubtaskSection';
 import { matchAgentBrand, AgentBrandBadge } from '@/lib/agent-brand';
 import { dueBucketDateTextClass, getDueBucket } from '@/lib/due-date-utils';
 import { api } from '@/lib/api';
-import type { TaskFeedback } from '@/types';
+import { formatLocalDateTime } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface Props { task: Task | null; open: boolean; onOpenChange: (open: boolean) => void; }
@@ -65,7 +67,26 @@ function fmtTaskCreatedTimeline(createdAt: string): string {
   return p.timeStr ? `${p.dateStr} · ${p.timeStr}` : p.dateStr;
 }
 function fmtTime(s: number) { const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); return `${h}h ${m}m`; }
-function tsShort(iso: string) { return iso.slice(0, 16).replace('T', ' '); }
+function tsShort(iso: string) {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${y}-${m}-${day} ${hh}:${mm}`;
+  } catch {
+    return iso;
+  }
+}
+function fmtSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 function newRow(): CustomFieldRow { return { localId: crypto.randomUUID(), key: '', value: '' }; }
 function rowsFromTask(cf?: Record<string, string>): CustomFieldRow[] {
   return Object.entries(cf || {}).map(([key, value]) => ({ localId: crypto.randomUUID(), key, value }));
@@ -144,14 +165,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
   const [reopening, setReopening] = useState(false);
   const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [aiSummarizing, setAiSummarizing] = useState(false);
-
-  // ── Checklists ──────────────────────────────────────────────────────────────
-  const [checklists, setChecklists] = useState<TaskChecklist[]>([]);
-  const [checklistsLoading, setChecklistsLoading] = useState(false);
-  const [newCheckTitle, setNewCheckTitle] = useState('');
-  const [newCheckPriority, setNewCheckPriority] = useState<string>('Medium');
-  const [addingCheck, setAddingCheck] = useState(false);
-  const [showCheckForm, setShowCheckForm] = useState(false);
+  const [showAiSummary, setShowAiSummary] = useState(false);
 
   // ── Attachments ─────────────────────────────────────────────────────────────
   const [attachments, setAttachments] = useState<TaskAttachment[]>([]);
@@ -203,7 +217,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
   const resetDraft = useCallback((t: Task) => {
     setDraftTitle(t.title);
     setDraftDescription(t.description ?? '');
-    setDraftPriority(t.priority);
+    setDraftPriority(normalizePriority(t.priority));
     setDraftAssigneeIds([...taskAssigneeIds(t)]);
     setDraftCustomRows(rowsFromTask(t.customFields));
   }, []);
@@ -214,14 +228,6 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
     try { setFeedbackList(await api.listTaskFeedback(task.id)); }
     catch (e) { toast.error(e instanceof Error ? e.message : 'Could not load feedback'); }
     finally { setFeedbackLoading(false); }
-  }, [task?.id]);
-
-  const loadChecklists = useCallback(async () => {
-    if (!task?.id) return;
-    setChecklistsLoading(true);
-    try { setChecklists(await api.getChecklists(task.id)); }
-    catch { /* silently ignore */ }
-    finally { setChecklistsLoading(false); }
   }, [task?.id]);
 
   const loadAttachments = useCallback(async () => {
@@ -236,11 +242,10 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
   useEffect(() => {
     if (!open || !task?.id) return;
     void loadFeedback();
-    void loadChecklists();
     void loadAttachments();
     setNewFeedbackText(''); setEditingFeedbackId(null); setEditingFeedbackText('');
-    setShowCheckForm(false); setNewCheckTitle(''); setNewCheckPriority('Medium');
-  }, [open, task?.id, loadFeedback, loadChecklists, loadAttachments]);
+    setAiSummary(null); setShowAiSummary(false);
+  }, [open, task?.id, loadFeedback, loadAttachments]);
 
   const isDirty = useMemo(() => {
     if (!task) return false;
@@ -282,7 +287,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
   const dueBucket = getDueBucket(task.dueDate);
   const isOverdue = dueBucket === 'overdue' && !isDoneDue;
   const taskRef = `TF-${task.id.replace(/\D/g, '').padStart(3, '0')}`;
-  const displayPriority = canEditTaskFields ? draftPriority : task.priority;
+  const displayPriority = canEditTaskFields ? draftPriority : normalizePriority(task.priority);
   const statusCfg = statusConfig[task.status] ?? statusConfig.backlog;
   // Resolve the display label from kanban columns so custom columns show their real name
   const statusLabel = kanbanColumns.find(c => c.id === task.status)?.label ?? statusCfg.label;
@@ -575,6 +580,10 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                 )}
               </section>
 
+              {isManager && !isCompleted && (
+                <AdjustMinDurationSection task={task} />
+              )}
+
               {/* Manage Assignees (manager only) */}
               {canManageAssignees && (
                 <section>
@@ -649,138 +658,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                 </section>
               )}
 
-              {/* ── Checklists ── */}
-              <section>
-                {(() => {
-                  const done = checklists.filter(c => c.isDone).length;
-                  const total = checklists.length;
-                  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-
-                  const addChecklist = async () => {
-                    if (!newCheckTitle.trim()) return;
-                    setAddingCheck(true);
-                    try {
-                      const item = await api.createChecklist(task.id, newCheckTitle.trim(), newCheckPriority);
-                      setChecklists(prev => [...prev, item]);
-                      setNewCheckTitle(''); setNewCheckPriority('Medium'); setShowCheckForm(false);
-                    } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not add item'); }
-                    finally { setAddingCheck(false); }
-                  };
-
-                  const toggleCheck = async (item: TaskChecklist) => {
-                    try {
-                      const updated = await api.patchChecklist(task.id, item.id, { isDone: !item.isDone });
-                      setChecklists(prev => prev.map(c => c.id === updated.id ? updated : c));
-                    } catch { toast.error('Could not update item'); }
-                  };
-
-                  const deleteCheck = async (itemId: string) => {
-                    try {
-                      await api.deleteChecklist(task.id, itemId);
-                      setChecklists(prev => prev.filter(c => c.id !== itemId));
-                    } catch { toast.error('Could not delete item'); }
-                  };
-
-                  return (
-                    <>
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground/60">
-                          <CheckSquare className="h-3.5 w-3.5 shrink-0" />
-                          <span>Checklist {total > 0 ? `(${done}/${total})` : ''}</span>
-                        </div>
-                        <button
-                          onClick={() => setShowCheckForm(v => !v)}
-                          className="text-[11px] text-primary/60 hover:text-primary flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-primary/8 transition-colors font-medium"
-                        >
-                          <Plus className="h-3 w-3" /> Add
-                        </button>
-                      </div>
-
-                      {total > 0 && (
-                        <div className="mb-3">
-                          <div className="flex items-center justify-between text-[10px] text-muted-foreground/50 mb-1">
-                            <span>Progress</span>
-                            <span className={pct === 100 ? 'text-emerald-400 font-bold' : ''}>{pct}%</span>
-                          </div>
-                          <div className="h-1.5 rounded-full bg-muted/40 overflow-hidden">
-                            <div
-                              className={`h-full rounded-full transition-all duration-500 ${pct === 100 ? 'bg-emerald-500' : 'bg-primary'}`}
-                              style={{ width: `${pct}%` }}
-                            />
-                          </div>
-                        </div>
-                      )}
-
-                      {checklistsLoading ? (
-                        <div className="py-4 flex justify-center">
-                          <div className="w-4 h-4 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
-                        </div>
-                      ) : (
-                        <div className="space-y-1.5">
-                          {checklists.map(item => {
-                            const pc = { Urgent: 'text-red-400', High: 'text-orange-400', Medium: 'text-yellow-400', Low: 'text-green-400' }[item.priority] ?? 'text-muted-foreground/50';
-                            return (
-                              <div key={item.id} className="flex items-center gap-2.5 group rounded-xl px-2 py-1.5 hover:bg-muted/30 transition-colors">
-                                <button onClick={() => void toggleCheck(item)} className="shrink-0 text-muted-foreground/50 hover:text-primary transition-colors">
-                                  {item.isDone
-                                    ? <CheckSquare className="h-4 w-4 text-emerald-400" />
-                                    : <Square className="h-4 w-4" />}
-                                </button>
-                                <span className={`flex-1 text-sm min-w-0 truncate ${item.isDone ? 'line-through text-muted-foreground/40' : 'text-foreground'}`}>
-                                  {item.title}
-                                </span>
-                                <span className={`text-[10px] font-semibold shrink-0 ${pc}`}>{item.priority}</span>
-                                <button
-                                  onClick={() => void deleteCheck(item.id)}
-                                  className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-500/10 text-muted-foreground/40 hover:text-red-400 transition-all shrink-0"
-                                >
-                                  <X className="h-3 w-3" />
-                                </button>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {showCheckForm && (
-                        <div className="mt-3 space-y-2 p-3 rounded-xl border border-border/40 bg-muted/20">
-                          <input
-                            autoFocus
-                            value={newCheckTitle}
-                            onChange={e => setNewCheckTitle(e.target.value)}
-                            onKeyDown={e => { if (e.key === 'Enter') void addChecklist(); if (e.key === 'Escape') setShowCheckForm(false); }}
-                            placeholder="Item title…"
-                            className="w-full bg-transparent text-sm border border-border/40 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/40 placeholder:text-muted-foreground/35"
-                          />
-                          <div className="flex items-center gap-2">
-                            <select
-                              value={newCheckPriority}
-                              onChange={e => setNewCheckPriority(e.target.value)}
-                              className="text-xs flex-1 border border-border/40 rounded-lg px-2 py-1.5 bg-muted/30 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                            >
-                              {['Low', 'Medium', 'High', 'Urgent'].map(p => <option key={p} value={p}>{p}</option>)}
-                            </select>
-                            <button
-                              onClick={() => void addChecklist()}
-                              disabled={addingCheck || !newCheckTitle.trim()}
-                              className="text-xs px-3 py-1.5 rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 font-semibold transition-all"
-                            >
-                              {addingCheck ? '…' : 'Add'}
-                            </button>
-                            <button onClick={() => setShowCheckForm(false)} className="text-xs px-3 py-1.5 rounded-lg border border-border/40 hover:bg-muted/60 transition-colors text-muted-foreground">
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {total === 0 && !showCheckForm && (
-                        <p className="text-xs text-muted-foreground/35 italic">No checklist items yet</p>
-                      )}
-                    </>
-                  );
-                })()}
-              </section>
+              <SubtaskManager taskId={task.id} />
 
               {/* ── Attachments ── */}
               <section>
@@ -805,11 +683,6 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                     } catch { toast.error('Could not delete attachment'); }
                   };
 
-                  const fmtSize = (bytes: number) => {
-                    if (bytes < 1024) return `${bytes} B`;
-                    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-                    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-                  };
 
                   return (
                     <>
@@ -888,11 +761,16 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                   {feedbackList.length > 1 && (
                     <button
                       onClick={async () => {
+                        if (aiSummary) {
+                          setShowAiSummary(true);
+                          return;
+                        }
                         setAiSummarizing(true);
                         setAiSummary(null);
                         try {
                           const res = await api.aiSummarizeTask(task.id);
                           setAiSummary(res.summary);
+                          setShowAiSummary(true);
                         } catch (e) {
                           toast.error(e instanceof Error ? e.message : 'Could not summarize');
                         } finally {
@@ -908,15 +786,36 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                   )}
                 </div>
 
-                {aiSummary && (
+                {showAiSummary && aiSummary && (
                   <div className="mb-4 rounded-xl border border-primary/20 bg-primary/5 p-3 text-xs text-foreground leading-relaxed whitespace-pre-wrap">
                     <div className="flex items-center justify-between mb-1.5">
                       <span className="flex items-center gap-1.5 text-primary font-semibold text-[11px] uppercase tracking-wide">
                         <Sparkles className="h-3 w-3" /> AI Summary
                       </span>
-                      <button onClick={() => setAiSummary(null)} className="text-muted-foreground hover:text-foreground transition-colors">
-                        <X className="h-3 w-3" />
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setAiSummarizing(true);
+                            try {
+                              const res = await api.aiSummarizeTask(task.id);
+                              setAiSummary(res.summary);
+                            } catch (e) {
+                              toast.error(e instanceof Error ? e.message : 'Could not summarize');
+                            } finally {
+                              setAiSummarizing(false);
+                            }
+                          }}
+                          disabled={aiSummarizing}
+                          className="text-primary hover:text-primary/80 transition-colors text-[10px] font-semibold flex items-center gap-1"
+                        >
+                          <RotateCcw className="h-2.5 w-2.5" />
+                          Regenerate
+                        </button>
+                        <button onClick={() => setShowAiSummary(false)} className="text-muted-foreground hover:text-foreground transition-colors">
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
                     </div>
                     {aiSummary}
                   </div>
@@ -1085,9 +984,9 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                     ))}
                   </div>
                 ) : (
-                  <span className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl font-semibold border ${priorityConfig[task.priority].style}`}>
-                    <span className={`w-2 h-2 rounded-full ${priorityConfig[task.priority].dot}`} />
-                    {task.priority}
+                  <span className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl font-semibold border ${priCfg.style}`}>
+                    <span className={`w-2 h-2 rounded-full ${priCfg.dot}`} />
+                    {displayPriority}
                   </span>
                 )}
               </section>
@@ -1216,13 +1115,13 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                   {task.startedAt && (
                     <div>
                       <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-semibold mb-0.5">Started</div>
-                      <div className="text-[11px] font-mono text-blue-400/70">{task.startedAt}</div>
+                      <div className="text-[11px] font-mono text-blue-400/70">{formatLocalDateTime(task.startedAt)}</div>
                     </div>
                   )}
                   {task.completedAt && (
                     <div>
                       <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-semibold mb-0.5">Completed</div>
-                      <div className="text-[11px] font-mono text-emerald-400/70">{task.completedAt}</div>
+                      <div className="text-[11px] font-mono text-emerald-400/70">{formatLocalDateTime(task.completedAt)}</div>
                     </div>
                   )}
                 </div>

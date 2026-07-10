@@ -55,7 +55,7 @@ function layoutDay(items: { id: string; start: number; end: number }[]): Map<str
   return map;
 }
 
-export default function CalendarWeekView({ weekDates, entries, projects, todayStr, onSelectEntry, onAddAt, onResizeEntry, onMoveEntry, onToggleBillable }: {
+export default function CalendarWeekView({ weekDates, entries, projects, todayStr, onSelectEntry, onAddAt, onResizeEntry, onMoveEntry, onToggleBillable, readOnly = false }: {
   weekDates: string[];
   entries: TimesheetWorkEntry[];
   projects: Project[];
@@ -65,6 +65,7 @@ export default function CalendarWeekView({ weekDates, entries, projects, todaySt
   onResizeEntry: (entry: TimesheetWorkEntry, fromCompact: string, toCompact: string) => void;
   onMoveEntry: (entry: TimesheetWorkEntry, date: string, fromCompact: string, toCompact: string) => void;
   onToggleBillable: (entry: TimesheetWorkEntry) => void;
+  readOnly?: boolean;
 }) {
   const hours = Array.from({ length: 24 }, (_, i) => i);
   const cols = `52px repeat(${weekDates.length}, minmax(0, 1fr))`;
@@ -83,7 +84,7 @@ export default function CalendarWeekView({ weekDates, entries, projects, todaySt
     return Math.max(0, Math.min(1439, Math.round((((clientY - rect.top) / CAL_HOUR_H) * 60) / 15) * 15));
   };
   const finishDrag = () => {
-    if (!drag) return;
+    if (readOnly || !drag) return;
     const lo = Math.min(drag.a, drag.b);
     let hi = Math.max(drag.a, drag.b);
     if (hi - lo < 15) hi = Math.min(1439, lo + 60);
@@ -96,6 +97,7 @@ export default function CalendarWeekView({ weekDates, entries, projects, todaySt
   const resizeRef = useRef<{ entry: TimesheetWorkEntry; edge: 'top' | 'bottom'; colTop: number; startMin: number; endMin: number; changed: boolean } | null>(null);
   const [resizePreview, setResizePreview] = useState<{ id: string; startMin: number; endMin: number } | null>(null);
   const beginResize = (ev: React.MouseEvent, entry: TimesheetWorkEntry, edge: 'top' | 'bottom') => {
+    if (readOnly) return;
     ev.stopPropagation();
     ev.preventDefault();
     const colEl = (ev.currentTarget as HTMLElement).closest('[data-col]') as HTMLElement | null;
@@ -131,6 +133,7 @@ export default function CalendarWeekView({ weekDates, entries, projects, todaySt
   const moveRef = useRef<{ entry: TimesheetWorkEntry; durMin: number; grabMin: number; date: string; startMin: number; moved: boolean } | null>(null);
   const [movePreview, setMovePreview] = useState<{ id: string; date: string; startMin: number } | null>(null);
   const beginMove = (ev: React.MouseEvent, entry: TimesheetWorkEntry) => {
+    if (readOnly) return;
     ev.stopPropagation();
     ev.preventDefault();
     const startX = ev.clientX, startY = ev.clientY;
@@ -173,7 +176,15 @@ export default function CalendarWeekView({ weekDates, entries, projects, todaySt
   };
 
   return (
-    <div className="rounded-2xl border border-border/40 bg-card shadow-sm overflow-x-auto">
+    <div className="relative">
+      {readOnly && (
+        <div className="absolute inset-0 z-20 flex items-start justify-center pt-10 rounded-2xl bg-background/50 backdrop-blur-[1px] pointer-events-auto">
+          <p className="text-sm font-medium text-muted-foreground bg-card border border-border/50 px-4 py-2 rounded-xl shadow-sm">
+            This week&apos;s timesheet is locked — editing is disabled.
+          </p>
+        </div>
+      )}
+    <div className={cn('rounded-2xl border border-border/40 bg-card shadow-sm overflow-x-auto', readOnly && 'pointer-events-none opacity-60')}>
       <div className="min-w-[760px]">
         {/* Day header */}
         <div className="grid sticky top-0 z-10 bg-card" style={{ gridTemplateColumns: cols }}>
@@ -322,6 +333,7 @@ export default function CalendarWeekView({ weekDates, entries, projects, todaySt
           </div>
         </div>
       </div>
+    </div>
     </div>
   );
 }

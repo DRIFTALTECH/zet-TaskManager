@@ -6,6 +6,7 @@ import {
   Plus, Search, X, UserPlus, ChevronRight, FolderOpen,
   Trash2, Users, LayoutGrid, ListTodo, Sparkles,
 } from 'lucide-react';
+import CreateProjectDialog from '@/components/CreateProjectDialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -46,15 +47,13 @@ function projectAccent(id: string) {
 // ═══════════════════════════════════════════════════════════════════════════════
 const ManageEmployeesPage = () => {
   const {
-    users, projects, tasks, createProject, addSection, removeSection,
+    users, projects, tasks, addSection, removeSection,
     addMemberToProject, removeMemberFromProject,
   } = useAppStore();
 
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [createProjOpen, setCreateProjOpen] = useState(false);
-  const [projName, setProjName] = useState('');
-  const [projDesc, setProjDesc] = useState('');
   const [addSectionOpen, setAddSectionOpen] = useState(false);
   const [sectionName, setSectionName] = useState('');
   const [sectionProjectId, setSectionProjectId] = useState('');
@@ -83,15 +82,6 @@ const ManageEmployeesPage = () => {
   }, [memberToRemove, selectedProject, projectTasks]);
 
   const inputCls = 'w-full rounded-xl border border-border/50 bg-muted/40 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 transition-all placeholder:text-muted-foreground/40';
-
-  const handleCreateProject = async () => {
-    if (!projName.trim()) return toast.error('Enter project name');
-    try {
-      await createProject(projName.trim(), projDesc.trim());
-      toast.success('Project created!');
-      setCreateProjOpen(false); setProjName(''); setProjDesc('');
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not create project'); }
-  };
 
   const handleAddSection = async () => {
     if (!sectionName.trim()) return toast.error('Enter section name');
@@ -522,37 +512,7 @@ const ManageEmployeesPage = () => {
         </div>
       </div>
 
-      {/* ── Create Project Modal ──────────────────────────────────────────── */}
-      <Dialog open={createProjOpen} onOpenChange={o => { setCreateProjOpen(o); if (!o) { setProjName(''); setProjDesc(''); } }}>
-        <DialogContent className="rounded-2xl">
-          <DialogHeader>
-            <DialogTitle className="text-xl font-bold">Create Project</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 pt-2">
-            <input
-              autoFocus
-              value={projName}
-              onChange={e => setProjName(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && void handleCreateProject()}
-              className={inputCls}
-              placeholder="Project name"
-            />
-            <textarea
-              value={projDesc}
-              onChange={e => setProjDesc(e.target.value)}
-              className={`${inputCls} min-h-[72px] resize-none`}
-              placeholder="Description (optional)"
-            />
-            <button
-              onClick={() => void handleCreateProject()}
-              disabled={!projName.trim()}
-              className="w-full rounded-xl bg-primary py-2.5 text-sm font-bold text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-all shadow-sm hover:shadow-md"
-            >
-              Create Project
-            </button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <CreateProjectDialog open={createProjOpen} onOpenChange={setCreateProjOpen} />
 
       {/* ── Add Section Modal ─────────────────────────────────────────────── */}
       <Dialog open={addSectionOpen} onOpenChange={o => { setAddSectionOpen(o); if (!o) setSectionName(''); }}>

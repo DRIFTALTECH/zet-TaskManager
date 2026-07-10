@@ -1,63 +1,75 @@
 import json
 
-from sqlalchemy.orm import Session
-
 import realtime
+from crud._base import Db, fetch_all, fetch_one, row_to_model, rows_to_models
 from database.models import Task
 
 
-def get_by_id(db: Session, task_id: str) -> Task | None:
-    return db.query(Task).get(task_id)
+def get_by_id(db: Db, task_id: str) -> Task | None:
+    return row_to_model(Task, fetch_one(db, "SELECT * FROM tasks WHERE id = %s", (task_id,)))
 
 
-def list_all(db: Session) -> list[Task]:
-    return db.query(Task).all()
+def list_all(db: Db) -> list[Task]:
+    return rows_to_models(Task, fetch_all(db, "SELECT * FROM tasks"))
 
 
-def list_for_member_projects(db: Session, user_id: str) -> list[Task]:
+def list_for_member_projects(db: Db, user_id: str) -> list[Task]:
     """Tasks in any project the user is a member of — filtered in SQL via a join."""
-    from database.models import ProjectMember
-
-    return (
-        db.query(Task)
-        .join(ProjectMember, ProjectMember.project_id == Task.project_id)
-        .filter(ProjectMember.user_id == user_id)
-        .all()
+    return rows_to_models(
+        Task,
+        fetch_all(
+            db,
+            """
+            SELECT t.* FROM tasks t
+            INNER JOIN project_members pm ON pm.project_id = t.project_id
+            WHERE pm.user_id = %s
+            """,
+            (user_id,),
+        ),
     )
 
 
-def list_for_project(db: Session, project_id: str) -> list[Task]:
-    return db.query(Task).filter(Task.project_id == project_id).all()
+def list_for_project(db: Db, project_id: str) -> list[Task]:
+    return rows_to_models(
+        Task,
+        fetch_all(db, "SELECT * FROM tasks WHERE project_id = %s", (project_id,)),
+    )
 
 
-def list_touched_on_for_user(db: Session, user_id: str, day: str) -> list[Task]:
+def list_touched_on_for_user(db: Db, user_id: str, day: str) -> list[Task]:
     """Tasks the user started or completed on `day`.
 
     A task counts if the user is its primary assignee OR a co-assignee (task_assignees),
     and it was started (started_at timestamp on `day`) or completed (completed_at == day).
     Filtering is done in SQL — no fetch-all-then-loop.
     """
-    from sqlalchemy import or_
-
-    from database.models import TaskAssignee
-
-    assignee_task_ids = db.query(TaskAssignee.task_id).filter(TaskAssignee.user_id == user_id)
-    return (
-        db.query(Task)
-        .filter(
-            or_(Task.assigned_to == user_id, Task.id.in_(assignee_task_ids)),
-            or_(Task.started_at.like(f"{day}%"), Task.completed_at == day),
-        )
-        .all()
+    return rows_to_models(
+        Task,
+        fetch_all(
+            db,
+            """
+            SELECT * FROM tasks
+            WHERE (assigned_to = %s OR id IN (
+                SELECT task_id FROM task_assignees WHERE user_id = %s
+            ))
+            AND (started_at LIKE %s OR completed_at = %s)
+            """,
+            (user_id, user_id, f"{day}%", day),
+        ),
     )
 
 
-def count_for_section(db: Session, section_id: str) -> int:
-    return db.query(Task).filter(Task.section_id == section_id).count()
+def count_for_section(db: Db, section_id: str) -> int:
+    row = fetch_one(
+        db,
+        "SELECT COUNT(*) AS cnt FROM tasks WHERE section_id = %s",
+        (section_id,),
+    )
+    return int(row["cnt"]) if row else 0
 
 
 def create_task(
-    db: Session,
+    db: Db,
     *,
     task_id: str,
     title: str,
@@ -75,53 +87,101 @@ def create_task(
     time_tracked: int,
     tags: list[str],
     created_at: str,
+    min_log_minutes: int = 1,
     time_log: dict[str, int] | None = None,
     custom_fields: dict[str, str] | None = None,
 ) -> Task:
-    t = Task(
-        id=task_id,
-        title=title,
-        description=description,
-        project_id=project_id,
-        section_id=section_id,
-        assigned_to=assigned_to,
-        assigned_by=assigned_by,
-        created_by=created_by,
-        due_date=due_date,
-        priority=priority,
-        status=status,
-        is_started=is_started,
-        started_at=None,
-        completed_at=None,
-        approved_by_manager=approved_by_manager,
-        time_tracked=time_tracked,
-        tags_json=json.dumps(tags),
-        custom_fields_json=json.dumps(custom_fields or {}),
-        created_at=created_at,
+    db.write(
+        """
+        INSERT INTO tasks (
+            id, title, description, project_id, section_id,
+            assigned_to, assigned_by, created_by, due_date,
+            priority, status, is_started, started_at, completed_at,
+            approved_by_manager, time_tracked, min_log_minutes,
+            tags_json, custom_fields_json, created_at
+        ) VALUES (
+            %s, %s, %s, %s, %s,
+            %s, %s, %s, %s,
+            %s, %s, %s, %s, %s,
+            %s, %s, %s,
+            %s, %s, %s
+        )
+        """,
+        (
+            task_id,
+            title,
+            description,
+            project_id,
+            section_id,
+            assigned_to,
+            assigned_by,
+            created_by,
+            due_date,
+            priority,
+            status,
+            is_started,
+            None,
+            None,
+            approved_by_manager,
+            time_tracked,
+            min_log_minutes,
+            json.dumps(tags),
+            json.dumps(custom_fields or {}),
+            created_at,
+        ),
     )
-    db.add(t)
-    db.commit()
-    db.refresh(t)
     realtime.bump("tasks")
-    return t
+    return row_to_model(
+        Task,
+        fetch_one(db, "SELECT * FROM tasks WHERE id = %s", (task_id,)),
+    )  # type: ignore[return-value]
 
 
-def update_task(db: Session, task: Task) -> Task:
-    db.add(task)
-    db.commit()
-    db.refresh(task)
+def update_task(db: Db, task: Task) -> Task:
+    db.write(
+        """
+        UPDATE tasks SET
+            title = %s, description = %s, project_id = %s, section_id = %s,
+            assigned_to = %s, assigned_by = %s, created_by = %s, due_date = %s,
+            priority = %s, status = %s, is_started = %s, started_at = %s,
+            completed_at = %s, approved_by_manager = %s, time_tracked = %s,
+            min_log_minutes = %s,
+            tags_json = %s, custom_fields_json = %s, created_at = %s
+        WHERE id = %s
+        """,
+        (
+            task.title,
+            task.description,
+            task.project_id,
+            task.section_id,
+            task.assigned_to,
+            task.assigned_by,
+            task.created_by,
+            task.due_date,
+            task.priority,
+            task.status,
+            task.is_started,
+            task.started_at,
+            task.completed_at,
+            task.approved_by_manager,
+            task.time_tracked,
+            getattr(task, "min_log_minutes", 1) or 1,
+            task.tags_json,
+            task.custom_fields_json,
+            task.created_at,
+            task.id,
+        ),
+    )
     realtime.bump("tasks")
-    return task
+    return row_to_model(Task, fetch_one(db, "SELECT * FROM tasks WHERE id = %s", (task.id,)))  # type: ignore[return-value]
 
 
-def delete_task(db: Session, task_id: str) -> None:
-    db.query(Task).filter(Task.id == task_id).delete()
-    db.commit()
+def delete_task(db: Db, task_id: str) -> None:
+    db.write("DELETE FROM tasks WHERE id = %s", (task_id,))
     realtime.bump("tasks")
 
 
-def reassign_status(db: Session, from_status: str, to_status: str) -> None:
+def reassign_status(db: Db, from_status: str, to_status: str) -> None:
     """Bulk-move every task in one status/column to another (e.g. on column delete)."""
-    db.query(Task).filter(Task.status == from_status).update({"status": to_status})
-    db.commit()
+    db.write("UPDATE tasks SET status = %s WHERE status = %s", (to_status, from_status))
     realtime.bump("tasks")

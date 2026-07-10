@@ -1,20 +1,21 @@
 /**
  * ReportsPage — Clockify-style reporting over timesheet data.
  * Three views: Summary (chart + breakdown + donut), Detailed (entry table),
- * Weekly (project/user × day matrix). Filters: Team · Project · Section ·
- * Billable · Description. Export to PDF (print) or CSV. Live client-side filtering.
+ * Weekly (project/user × day matrix). Filters: Team · Person · Project · Section ·
+ * Billable · Description. Export to PDF (print), CSV, or per-employee Excel.
  */
 import { useAppStore } from '@/stores/appStore';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Bar, BarChart, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  Bar, BarChart, CartesianGrid, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer,
   PieChart, Pie, Cell,
 } from 'recharts';
 import { motion } from 'framer-motion';
 import {
   ChevronLeft, ChevronRight, BarChart3, ListChecks, CalendarRange, Download,
   FileText, Search, ChevronDown, ChevronRight as ChevRight, Clock, FolderKanban,
+  User, X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,17 +24,22 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
+import {
+  Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
+} from '@/components/ui/command';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import type { TimesheetWorkEntry } from '@/types';
 import { pageEnter } from '@/lib/motion';
 import { ZET, zetStackColor } from '@/lib/zet-charts';
 import { cn } from '@/lib/utils';
-import { downloadCSV, openPrintWindow, printTable } from '@/lib/report-export';
+import { downloadCSV, openPrintWindow, printTable, exportEmployeeReport, type EmployeeReportSummary } from '@/lib/report-export';
+import { ClientSummaryPanel } from '@/components/analytics/ClientSummaryPanel';
 import {
   subDays, addDays, addWeeks, addMonths, format, parseISO,
   eachDayOfInterval, startOfWeek, endOfWeek, startOfMonth, endOfMonth,
@@ -54,7 +60,7 @@ const fmtHMS = (s: number) => {
 };
 const hoursDec = (s: number) => Math.round((s / 3600) * 100) / 100;
 
-type Tab = 'summary' | 'detailed' | 'weekly';
+type Tab = 'summary' | 'detailed' | 'weekly' | 'clients';
 type Preset = 'today' | 'week' | 'month' | 'last30' | 'custom';
 type GroupBy = 'project' | 'section' | 'user' | 'billable';
 type WeeklyBy = 'project' | 'user';
@@ -107,15 +113,24 @@ const ReportsPage = () => {
   const users = useAppStore(s => s.users);
   const projects = useAppStore(s => s.projects);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const isManager = currentUser?.role === 'manager' || currentUser?.role === 'admin';
 
-  const [tab, setTab] = useState<Tab>('summary');
+  const [tab, setTab] = useState<Tab>(() => {
+    const t = searchParams.get('tab');
+    if (t === 'clients') return 'clients';
+    if (t === 'detailed') return 'detailed';
+    if (t === 'weekly') return 'weekly';
+    return 'summary';
+  });
   const [preset, setPreset] = useState<Preset>('week');
   const [presetOff, setPresetOff] = useState(0);
   const [custom, setCustom] = useState<DateRange | undefined>();
   const [weekOff, setWeekOff] = useState(0);
 
   const [team, setTeam] = useState<string>(isManager ? 'all' : 'me');
+  const [personFilter, setPersonFilter] = useState('');
+  const [personPickerOpen, setPersonPickerOpen] = useState(false);
   const [projectFilter, setProjectFilter] = useState('all');
   const [sectionFilter, setSectionFilter] = useState('all');
   const [billable, setBillable] = useState<Billable>('all');
@@ -136,6 +151,21 @@ const ReportsPage = () => {
     return m;
   }, [projects]);
   const sectionName = useCallback((id: string) => sectionNameMap.get(id) ?? 'No section', [sectionNameMap]);
+
+  const personOptions = useMemo(() => {
+    if (!currentUser) return [];
+    if (!isManager) return [currentUser];
+    return [...users].sort((a, b) => a.name.localeCompare(b.name));
+  }, [currentUser, isManager, users]);
+
+  const selectedPerson = useMemo(
+    () => personOptions.find(u => u.id === personFilter) ?? null,
+    [personOptions, personFilter],
+  );
+
+  useEffect(() => {
+    if (currentUser && !isManager) setPersonFilter(currentUser.id);
+  }, [currentUser, isManager]);
 
   // ── active range ───────────────────────────────────────────────────────────
   const range = useMemo(() => {
@@ -162,19 +192,21 @@ const ReportsPage = () => {
     }
   }, [currentUser, isManager, team, range]);
 
-  useEffect(() => { void load(); }, [load]);
-  useEffect(() => { setExpanded(new Set()); }, [tab, weeklyBy, team, range]);
+  const timesheetEpoch = useAppStore(s => s.timesheetEpoch);
+  useEffect(() => { void load(); }, [load, timesheetEpoch]);
+  useEffect(() => { setExpanded(new Set()); }, [tab, weeklyBy, team, personFilter, range]);
 
   // ── filtering (live) ───────────────────────────────────────────────────────
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return entries.filter(e =>
+      (personFilter === '' || e.userId === personFilter) &&
       (projectFilter === 'all' || e.projectId === projectFilter) &&
       (sectionFilter === 'all' || e.sectionId === sectionFilter) &&
       (billable === 'all' || (billable === 'billable' ? e.billable : !e.billable)) &&
       (!q || e.description.toLowerCase().includes(q)),
     );
-  }, [entries, projectFilter, sectionFilter, billable, query]);
+  }, [entries, personFilter, projectFilter, sectionFilter, billable, query]);
 
   const total = useMemo(() => filtered.reduce((a, e) => a + e.seconds, 0), [filtered]);
   const billableSec = useMemo(() => filtered.filter(e => e.billable).reduce((a, e) => a + e.seconds, 0), [filtered]);
@@ -305,6 +337,56 @@ const ReportsPage = () => {
     }
   };
 
+  const buildDetailedExportRows = (rows: TimesheetWorkEntry[]) => {
+    const header = ['Description', 'Project', 'Section', 'Date', 'From', 'To', 'Duration', 'Billable'];
+    const data = rows.map(e => [
+      e.description || '—',
+      projectName(e.projectId),
+      sectionName(e.sectionId),
+      e.workDate,
+      e.timeFrom,
+      e.timeTo,
+      fmtHMS(e.seconds),
+      e.billable ? 'Yes' : 'No',
+    ]);
+    return { header, data };
+  };
+
+  const buildEmployeeSummary = (personEntries: TimesheetWorkEntry[], employeeName: string): EmployeeReportSummary => {
+    const totSec = personEntries.reduce((a, e) => a + e.seconds, 0);
+    const billSec = personEntries.filter(e => e.billable).reduce((a, e) => a + e.seconds, 0);
+    return {
+      employeeName,
+      periodLabel: rangeLabel,
+      periodStart: range.start,
+      periodEnd: range.end,
+      totalHours: fmtHMS(totSec),
+      billableHours: fmtHMS(billSec),
+      nonBillableHours: fmtHMS(totSec - billSec),
+      entryCount: personEntries.length,
+      projectCount: new Set(personEntries.map(e => e.projectId)).size,
+    };
+  };
+
+  const exportCurrentEmployeeReport = () => {
+    if (!selectedPerson) return;
+    const personEntries = [...filtered].sort(
+      (a, b) => b.workDate.localeCompare(a.workDate) || b.timeFrom.localeCompare(a.timeFrom),
+    );
+    const { header, data } = buildDetailedExportRows(personEntries);
+    try {
+      exportEmployeeReport({
+        format: 'excel',
+        summary: buildEmployeeSummary(personEntries, selectedPerson.name),
+        detailHeader: header,
+        detailRows: data,
+      });
+      toast.success('Employee report exported');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not export employee report');
+    }
+  };
+
   const sectionsForFilter = useMemo(
     () => (projectFilter === 'all' ? [] : projects.find(p => p.id === projectFilter)?.sections ?? []),
     [projectFilter, projects],
@@ -332,6 +414,9 @@ const ReportsPage = () => {
                 <TabsTrigger value="summary" className="gap-1.5 text-xs"><BarChart3 className="size-3.5" /> Summary</TabsTrigger>
                 <TabsTrigger value="detailed" className="gap-1.5 text-xs"><ListChecks className="size-3.5" /> Detailed</TabsTrigger>
                 <TabsTrigger value="weekly" className="gap-1.5 text-xs"><CalendarRange className="size-3.5" /> Weekly</TabsTrigger>
+                {isManager && (
+                  <TabsTrigger value="clients" className="gap-1.5 text-xs"><FolderKanban className="size-3.5" /> Client Summary</TabsTrigger>
+                )}
               </TabsList>
             </Tabs>
           </div>
@@ -369,6 +454,23 @@ const ReportsPage = () => {
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={exportPDF}><FileText className="size-3.5 mr-2" /> Export PDF</DropdownMenuItem>
                 <DropdownMenuItem onClick={exportCSV}><Download className="size-3.5 mr-2" /> Export CSV</DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {personFilter ? (
+                  <DropdownMenuItem onClick={exportCurrentEmployeeReport}>
+                    <User className="size-3.5 mr-2" /> Export Current Employee Report
+                  </DropdownMenuItem>
+                ) : (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="flex w-full cursor-not-allowed">
+                        <DropdownMenuItem disabled className="w-full opacity-50 pointer-events-none">
+                          <User className="size-3.5 mr-2" /> Export Current Employee Report
+                        </DropdownMenuItem>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="left">Select an employee to export their report.</TooltipContent>
+                  </Tooltip>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -385,6 +487,61 @@ const ReportsPage = () => {
                 {users.filter(u => u.id !== currentUser.id).map(u => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
               </SelectContent>
             </Select>
+          )}
+          <Popover open={personPickerOpen} onOpenChange={setPersonPickerOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                role="combobox"
+                aria-expanded={personPickerOpen}
+                className="h-8 min-w-[140px] justify-between gap-2 px-2.5 text-xs font-normal"
+              >
+                <span className="flex items-center gap-1.5 truncate">
+                  <User className="size-3.5 shrink-0 text-muted-foreground" />
+                  {selectedPerson ? selectedPerson.name : 'Person'}
+                </span>
+                <ChevronDown className="size-3.5 shrink-0 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[240px] p-0" align="start">
+              <Command>
+                <CommandInput placeholder="Search employee…" className="h-9 text-xs" />
+                <CommandList>
+                  <CommandEmpty>No employee found.</CommandEmpty>
+                  <CommandGroup>
+                    {isManager && (
+                      <CommandItem
+                        value="all people"
+                        onSelect={() => { setPersonFilter(''); setPersonPickerOpen(false); }}
+                        className="text-xs"
+                      >
+                        All people
+                      </CommandItem>
+                    )}
+                    {personOptions.map(u => (
+                      <CommandItem
+                        key={u.id}
+                        value={`${u.name} ${u.email}`}
+                        onSelect={() => { setPersonFilter(u.id); setPersonPickerOpen(false); }}
+                        className="text-xs"
+                      >
+                        {u.name}{u.id === currentUser.id ? ' (you)' : ''}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+          {personFilter && isManager && (
+            <button
+              type="button"
+              onClick={() => setPersonFilter('')}
+              className="inline-flex items-center gap-1 h-8 px-2 rounded-lg text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+              title="Clear person filter"
+            >
+              <X className="size-3" /> Clear
+            </button>
           )}
           <Select value={projectFilter} onValueChange={setProjectFilter}>
             <SelectTrigger className="h-8 w-auto min-w-[130px] text-xs"><SelectValue placeholder="Project" /></SelectTrigger>
@@ -454,7 +611,7 @@ const ReportsPage = () => {
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                       <XAxis dataKey="label" tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }} interval="preserveStartEnd" minTickGap={16} />
                       <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickFormatter={v => `${v}h`} width={42} />
-                      <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'hsl(var(--muted)/0.4)' }} formatter={(v: number, n: string) => [`${v}h`, n]} />
+                      <RechartsTooltip contentStyle={tooltipStyle} cursor={{ fill: 'hsl(var(--muted)/0.4)' }} formatter={(v: number, n: string) => [`${v}h`, n]} />
                       {topGroups.map((g, i) => (
                         <Bar key={g.key} dataKey={g.key} name={g.name} stackId="a" fill={zetStackColor(i)} radius={i === topGroups.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} maxBarSize={48} />
                       ))}
@@ -474,7 +631,7 @@ const ReportsPage = () => {
                           <Pie data={topGroups.map(g => ({ name: g.name, value: g.seconds }))} dataKey="value" nameKey="name" innerRadius={66} outerRadius={100} paddingAngle={2} stroke="hsl(var(--card))" strokeWidth={2}>
                             {topGroups.map((_, i) => <Cell key={i} fill={zetStackColor(i)} />)}
                           </Pie>
-                          <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => fmtHMS(v)} />
+                          <RechartsTooltip contentStyle={tooltipStyle} formatter={(v: number) => fmtHMS(v)} />
                         </PieChart>
                       </ResponsiveContainer>
                       <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-center">
@@ -605,6 +762,11 @@ const ReportsPage = () => {
               </div>
             )}
           </Card>
+        )}
+
+        {/* ── CLIENT SUMMARY (manager/admin) ── */}
+        {tab === 'clients' && isManager && (
+          <ClientSummaryPanel />
         )}
       </div>
     </motion.div>

@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy.orm import Session
+from database.database import Db
 
 import crud.notifications as notifications_crud
 import crud.users as users_crud
@@ -13,7 +13,7 @@ def _now() -> str:
 
 
 def create_notification(
-    db: Session,
+    db: Db,
     *,
     user_id: str,
     type: str,
@@ -40,7 +40,7 @@ def create_notification(
 
 
 def notify_users(
-    db: Session,
+    db: Db,
     *,
     user_ids: list[str],
     type: str,
@@ -60,7 +60,7 @@ def notify_users(
             )
 
 
-def get_notifications(db: Session, user_id: str, limit: int = 50) -> list[NotificationOut]:
+def get_notifications(db: Db, user_id: str, limit: int = 50) -> list[NotificationOut]:
     rows = notifications_crud.list_for_user(db, user_id, limit)
     actors = {uid: users_crud.get_by_id(db, uid) for uid in {n.triggered_by for n in rows}}
     result = []
@@ -82,16 +82,18 @@ def get_notifications(db: Session, user_id: str, limit: int = 50) -> list[Notifi
     return result
 
 
-def unread_count(db: Session, user_id: str) -> int:
+def unread_count(db: Db, user_id: str) -> int:
     return notifications_crud.unread_count(db, user_id)
 
 
-def mark_read(db: Session, user_id: str, notification_id: int) -> None:
+def mark_read(db: Db, user_id: str, notification_id: int) -> None:
     n = notifications_crud.get_for_user(db, user_id, notification_id)
     if n:
-        n.is_read = True
-        notifications_crud.commit(db)
+        db.write(
+            "UPDATE notifications SET is_read = TRUE WHERE id = %s AND user_id = %s",
+            (notification_id, user_id),
+        )
 
 
-def mark_all_read(db: Session, user_id: str) -> None:
+def mark_all_read(db: Db, user_id: str) -> None:
     notifications_crud.mark_all_read(db, user_id)

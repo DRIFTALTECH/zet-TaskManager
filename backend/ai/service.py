@@ -6,6 +6,7 @@ Public helpers:
   complete_structured()   → Pydantic model via with_structured_output()
   complete_structured_strict() → constrained decoding (Groq json_schema)
   bind_agent(tools)       → tool-bound chat runnable for the Zani agent
+  parse_message_content() → strip reasoning from any LLM message/result
   transcribe()            → speech-to-text via Groq Whisper (stubbed)
 
 Every call uses Groq first and automatically falls back to a local Ollama model
@@ -20,6 +21,8 @@ from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 from pydantic import BaseModel
+
+from ai.response_parser import extract_final_answer, message_to_text, sanitize_model_strings
 
 # ── Models ────────────────────────────────────────────────────────────────────
 # Groq retires models on a schedule (the Llama-4 line was decommissioned in 2026 in
@@ -46,6 +49,23 @@ def _supports_strict_json_schema(model: str) -> bool:
     Llama-3.3 does not — for those we use ordinary structured output instead."""
     m = (model or "").lower()
     return "gpt-oss" in m or "llama-4" in m or "kimi" in m
+
+
+def _is_reasoning_model(model: str) -> bool:
+    m = (model or "").lower()
+    return any(token in m for token in ("gpt-oss", "qwen", "kimi", "compound"))
+
+
+def _groq_reasoning_kwargs(model: str) -> dict:
+    """Disable or hide provider reasoning when the model supports it."""
+    if not _is_reasoning_model(model):
+        return {}
+    kwargs: dict = {"reasoning_format": "hidden"}
+    if "qwen" in (model or "").lower():
+        kwargs["reasoning_effort"] = "none"
+    return kwargs
+
+
 _FALLBACK_ENABLED = os.getenv("AI_OLLAMA_FALLBACK", "1").lower() not in ("0", "false", "no", "")
 
 # Don't let a hung provider wedge a request thread.
@@ -63,8 +83,12 @@ def _groq(model: str, temperature: float):
     if not api_key:
         return None
     return ChatGroq(
-        model=model, temperature=temperature, api_key=api_key,
-        timeout=_LLM_TIMEOUT, max_retries=_LLM_MAX_RETRIES,
+        model=model,
+        temperature=temperature,
+        api_key=api_key,
+        timeout=_LLM_TIMEOUT,
+        max_retries=_LLM_MAX_RETRIES,
+        **_groq_reasoning_kwargs(model),
     )
 
 
@@ -76,7 +100,13 @@ def _ollama(temperature: float):
         from langchain_ollama import ChatOllama
     except Exception:
         return None
-    kwargs: dict = {"model": OLLAMA_MODEL, "base_url": OLLAMA_BASE_URL, "temperature": temperature, "timeout": _LLM_TIMEOUT}
+    kwargs: dict = {
+        "model": OLLAMA_MODEL,
+        "base_url": OLLAMA_BASE_URL,
+        "temperature": temperature,
+        "timeout": _LLM_TIMEOUT,
+        "reasoning": False,
+    }
     if OLLAMA_API_KEY:
         # Ollama Cloud auth — Bearer header on the underlying client.
         kwargs["client_kwargs"] = {"headers": {"Authorization": f"Bearer {OLLAMA_API_KEY}"}}
@@ -100,6 +130,11 @@ def _with_fallback(primary: Runnable | None, fallbacks: list[Runnable]) -> Runna
     if not chain:
         raise _no_provider()
     return chain[0] if len(chain) == 1 else chain[0].with_fallbacks(chain[1:])
+
+
+def parse_message_content(result) -> str:
+    """Normalize any LLM invoke result and return only the user-facing answer."""
+    return extract_final_answer(message_to_text(result))
 
 
 # ── Client (agent) ──────────────────────────────────────────────────────────────
@@ -131,8 +166,7 @@ def complete(prompt: ChatPromptTemplate, variables: dict) -> str:
         (prompt | g) if g is not None else None,
         [prompt | o] if o is not None else [],
     )
-    result = runnable.invoke(variables)
-    return result.content.strip()
+    return parse_message_content(runnable.invoke(variables))
 
 
 def complete_structured(
@@ -147,7 +181,7 @@ def complete_structured(
         (prompt | g.with_structured_output(schema)) if g is not None else None,
         [prompt | o.with_structured_output(schema)] if o is not None else [],
     )
-    return runnable.invoke(variables)
+    return sanitize_model_strings(runnable.invoke(variables))
 
 
 def complete_structured_strict(
@@ -177,7 +211,7 @@ def complete_structured_strict(
         primary,
         [prompt | o.with_structured_output(schema)] if o is not None else [],
     )
-    return runnable.invoke(variables)
+    return sanitize_model_strings(runnable.invoke(variables))
 
 
 def transcribe(audio_bytes: bytes, filename: str = "audio.webm") -> str:

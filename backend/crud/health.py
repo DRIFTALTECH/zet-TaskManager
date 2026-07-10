@@ -1,8 +1,7 @@
-from sqlalchemy import text
-from sqlalchemy.orm import Session
+from crud._base import Db
 
 
-def ping(db: Session) -> bool:
+def ping(db: Db) -> bool:
     """Cheap liveness query — confirms the DB connection is usable."""
-    db.execute(text("SELECT 1"))
+    db.read("SELECT 1 AS ok")
     return True

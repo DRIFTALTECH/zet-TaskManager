@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { isTaskAssignedTo } from '@/lib/task-utils';
+import { isTaskAssignedTo, normalizePriority } from '@/lib/task-utils';
 import UserAvatar from '@/components/UserAvatar';
 
 interface Props {
@@ -182,6 +182,7 @@ export default function GlobalSearchModal({ open, onOpenChange }: Props) {
                   {results!.tasks.map(t => {
                     const project = projects.find(p => p.id === t.projectId);
                     const StatusIcon = STATUS_ICONS[t.status] ?? ListTodo;
+                    const priority = normalizePriority(t.priority);
                     return (
                       <button
                         key={t.id}
@@ -195,8 +196,8 @@ export default function GlobalSearchModal({ open, onOpenChange }: Props) {
                             <p className="text-xs text-muted-foreground/50 truncate">{project.name}</p>
                           )}
                         </div>
-                        <span className={`text-[11px] font-semibold shrink-0 ${PRIORITY_COLORS[t.priority] ?? ''}`}>
-                          {t.priority}
+                        <span className={`text-[11px] font-semibold shrink-0 ${PRIORITY_COLORS[priority] ?? ''}`}>
+                          {priority}
                         </span>
                         <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/20 group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0" />
                       </button>

@@ -27,21 +27,50 @@ from __future__ import annotations
 import json as _json
 from datetime import date, timedelta
 
-from sqlalchemy.orm import Session
 from langchain_core.tools import tool
 
-from database.models import (
-    User,
-    Project as ProjectModel,
-    Section as SectionModel,
-    Task as TaskModel,
-    TaskAssignee,
-    TimesheetEntry,
-    ProjectMember,
-)
+from crud import projects as projects_crud
+from crud import sections as sections_crud
+from crud import task_assignees as task_assignees_crud
+from crud import tasks as tasks_crud
+from crud import timesheet_entries as timesheet_crud
+from crud import users as users_crud
+from database.database import Db
+from database.models import Task, User
+import crud.analytics as analytics_crud
 
 
-def build_tools(db: Session, current_user: User) -> list:
+def _tasks_for_user(db: Db, user_id: str) -> list[Task]:
+    return analytics_crud.tasks_for_user_assignee(db, user_id)
+
+
+def _task_ids_for_user(db: Db, user_id: str) -> list[str]:
+    return [t.id for t in _tasks_for_user(db, user_id)]
+
+
+def _task_card(db: Db, t: Task, today: str, *, is_overdue: bool | None = None) -> dict:
+    project = projects_crud.get_by_id(db, t.project_id)
+    section = sections_crud.get_by_id(db, t.section_id)
+    overdue = (
+        is_overdue
+        if is_overdue is not None
+        else bool(t.due_date and t.due_date < today and not t.approved_by_manager and not t.completed_at)
+    )
+    return {
+        "type": "task",
+        "id": t.id,
+        "title": t.title,
+        "priority": t.priority,
+        "status": t.status,
+        "due_date": t.due_date or "",
+        "is_overdue": overdue,
+        "project_name": project.name if project else None,
+        "section_name": section.name if section else None,
+        "project_id": t.project_id,
+    }
+
+
+def build_tools(db: Db, current_user: User) -> list:
 
     # ── 1. create_project ─────────────────────────────────────────────────────
 
@@ -59,9 +88,11 @@ def build_tools(db: Session, current_user: User) -> list:
         if current_user.role not in ("manager", "admin"):
             return "ACCESS DENIED: Only managers can create projects."
 
-        existing = db.query(ProjectModel).filter(
-            ProjectModel.name.ilike(name.strip())
-        ).first()
+        name_stripped = name.strip()
+        existing = next(
+            (p for p in projects_crud.list_all(db) if p.name.lower() == name_stripped.lower()),
+            None,
+        )
         if existing:
             return (
                 f"ALREADY_EXISTS: A project named '{name}' already exists "
@@ -70,7 +101,7 @@ def build_tools(db: Session, current_user: User) -> list:
 
         payload = _json.dumps({
             "type": "create_project",
-            "name": name.strip(),
+            "name": name_stripped,
             "description": description.strip(),
         })
         return f"PROPOSED: {payload}"
@@ -88,14 +119,19 @@ def build_tools(db: Session, current_user: User) -> list:
             project_id: ID of the target project
             section_name: Name for the new section
         """
-        project = db.get(ProjectModel, project_id)
+        project = projects_crud.get_by_id(db, project_id)
         if not project:
             return f"ERROR: Project {project_id} not found."
 
-        existing = db.query(SectionModel).filter(
-            SectionModel.project_id == project_id,
-            SectionModel.name.ilike(section_name.strip()),
-        ).first()
+        section_stripped = section_name.strip()
+        existing = next(
+            (
+                s
+                for s in sections_crud.list_for_project(db, project_id)
+                if s.name.lower() == section_stripped.lower()
+            ),
+            None,
+        )
         if existing:
             return (
                 f"ALREADY_EXISTS: Section '{section_name}' already exists in "
@@ -106,7 +142,7 @@ def build_tools(db: Session, current_user: User) -> list:
             "type": "create_section",
             "project_id": project_id,
             "project_name": project.name,
-            "section_name": section_name.strip(),
+            "section_name": section_stripped,
         })
         return f"PROPOSED: {payload}"
 
@@ -139,17 +175,17 @@ def build_tools(db: Session, current_user: User) -> list:
             tags: Comma-separated tags e.g. 'frontend,bug'
         """
         # Validate every ID before proposing — prevents hallucinated IDs silently passing through
-        project = db.get(ProjectModel, project_id)
+        project = projects_crud.get_by_id(db, project_id)
         if not project:
             return f"ERROR: project_id '{project_id}' not found. Call list_projects to get valid IDs."
 
-        section = db.get(SectionModel, section_id)
+        section = sections_crud.get_by_id(db, section_id)
         if not section:
             return f"ERROR: section_id '{section_id}' not found. Call list_projects to get valid section IDs."
         if section.project_id != project_id:
             return f"ERROR: section '{section.name}' does not belong to project '{project.name}'. Use a section from the correct project."
 
-        assignee = db.get(User, assignee_id)
+        assignee = users_crud.get_by_id(db, assignee_id)
         if not assignee:
             return f"ERROR: assignee_id '{assignee_id}' not found. Call list_users to get valid user IDs."
 
@@ -187,17 +223,15 @@ def build_tools(db: Session, current_user: User) -> list:
         if current_user.role not in ("manager", "admin"):
             return "ACCESS DENIED: Only managers can add members to projects."
 
-        project = db.get(ProjectModel, project_id)
-        user = db.get(User, user_id)
+        project = projects_crud.get_by_id(db, project_id)
+        user = users_crud.get_by_id(db, user_id)
 
         if not project:
             return f"ERROR: Project {project_id} not found."
         if not user:
             return f"ERROR: User {user_id} not found."
 
-        # Check if already a member
-        already_member = any(m.user_id == user_id for m in project.members)
-        if already_member:
+        if user_id in projects_crud.member_ids(db, project_id):
             return (
                 f"ALREADY_EXISTS: {user.name} is already a member of "
                 f"'{project.name}'. No need to add again."
@@ -278,12 +312,9 @@ def build_tools(db: Session, current_user: User) -> list:
         """
         try:
             today = date.today().isoformat()
-            assignee_rows = db.query(TaskAssignee).filter(TaskAssignee.user_id == current_user.id).all()
-            task_ids = [r.task_id for r in assignee_rows]
-            if not task_ids:
+            tasks = _tasks_for_user(db, current_user.id)
+            if not tasks:
                 return "SUCCESS: You have no tasks assigned to you."
-
-            tasks = db.query(TaskModel).filter(TaskModel.id.in_(task_ids)).all()
 
             if status_filter:
                 sf = status_filter.lower()
@@ -294,22 +325,7 @@ def build_tools(db: Session, current_user: User) -> list:
             if not tasks:
                 return "SUCCESS: No tasks match your filters."
 
-            cards = []
-            for t in tasks:
-                project = db.get(ProjectModel, t.project_id)
-                section = db.get(SectionModel, t.section_id)
-                cards.append({
-                    "type": "task",
-                    "id": t.id,
-                    "title": t.title,
-                    "priority": t.priority,
-                    "status": t.status,
-                    "due_date": t.due_date or "",
-                    "is_overdue": bool(t.due_date and t.due_date < today and not t.approved_by_manager and not t.completed_at),
-                    "project_name": project.name if project else None,
-                    "section_name": section.name if section else None,
-                    "project_id": t.project_id,
-                })
+            cards = [_task_card(db, t, today) for t in tasks]
             return f"CARDS: {_json.dumps(cards)}"
         except Exception as e:
             return f"ERROR: {e}"
@@ -324,35 +340,15 @@ def build_tools(db: Session, current_user: User) -> list:
         """
         try:
             today = date.today().isoformat()
-            assignee_rows = db.query(TaskAssignee).filter(TaskAssignee.user_id == current_user.id).all()
-            task_ids = [r.task_id for r in assignee_rows]
-            if not task_ids:
+            user_tasks = _tasks_for_user(db, current_user.id)
+            if not user_tasks:
                 return "SUCCESS: You have no tasks assigned to you."
 
-            tasks = db.query(TaskModel).filter(
-                TaskModel.id.in_(task_ids),
-                TaskModel.due_date == today,
-            ).all()
-
+            tasks = [t for t in user_tasks if t.due_date == today]
             if not tasks:
                 return f"SUCCESS: No tasks are due today ({today})."
 
-            cards = []
-            for t in tasks:
-                project = db.get(ProjectModel, t.project_id)
-                section = db.get(SectionModel, t.section_id)
-                cards.append({
-                    "type": "task",
-                    "id": t.id,
-                    "title": t.title,
-                    "priority": t.priority,
-                    "status": t.status,
-                    "due_date": t.due_date or "",
-                    "is_overdue": False,
-                    "project_name": project.name if project else None,
-                    "section_name": section.name if section else None,
-                    "project_id": t.project_id,
-                })
+            cards = [_task_card(db, t, today, is_overdue=False) for t in tasks]
             return f"CARDS: {_json.dumps(cards)}"
         except Exception as e:
             return f"ERROR: {e}"
@@ -367,37 +363,19 @@ def build_tools(db: Session, current_user: User) -> list:
         """
         try:
             today = date.today().isoformat()
-            assignee_rows = db.query(TaskAssignee).filter(TaskAssignee.user_id == current_user.id).all()
-            task_ids = [r.task_id for r in assignee_rows]
-            if not task_ids:
+            tasks = _tasks_for_user(db, current_user.id)
+            if not tasks:
                 return "SUCCESS: You have no tasks assigned to you."
 
-            tasks = db.query(TaskModel).filter(
-                TaskModel.id.in_(task_ids),
-                TaskModel.due_date < today,
-                TaskModel.approved_by_manager == False,  # noqa: E712
-                TaskModel.completed_at == None,          # noqa: E711
-            ).all()
+            tasks = [
+                t for t in tasks
+                if t.due_date and t.due_date < today and not t.approved_by_manager and not t.completed_at
+            ]
 
             if not tasks:
                 return "SUCCESS: Great news — no overdue tasks!"
 
-            cards = []
-            for t in tasks:
-                project = db.get(ProjectModel, t.project_id)
-                section = db.get(SectionModel, t.section_id)
-                cards.append({
-                    "type": "task",
-                    "id": t.id,
-                    "title": t.title,
-                    "priority": t.priority,
-                    "status": t.status,
-                    "due_date": t.due_date or "",
-                    "is_overdue": True,
-                    "project_name": project.name if project else None,
-                    "section_name": section.name if section else None,
-                    "project_id": t.project_id,
-                })
+            cards = [_task_card(db, t, today, is_overdue=True) for t in tasks]
             return f"CARDS: {_json.dumps(cards)}"
         except Exception as e:
             return f"ERROR: {e}"
@@ -416,18 +394,15 @@ def build_tools(db: Session, current_user: User) -> list:
             today_str = today.isoformat()
             monday_str = (today - timedelta(days=today.weekday())).isoformat()
 
-            assignee_rows = db.query(TaskAssignee).filter(TaskAssignee.user_id == current_user.id).all()
-            task_ids = [r.task_id for r in assignee_rows]
+            tasks = _tasks_for_user(db, current_user.id)
 
-            if not task_ids:
+            if not tasks:
                 card = {
                     "type": "stat",
                     "assigned_total": 0, "in_progress": 0,
                     "completed_this_week": 0, "overdue": 0,
                 }
                 return f"CARDS: {_json.dumps([card])}"
-
-            tasks = db.query(TaskModel).filter(TaskModel.id.in_(task_ids)).all()
 
             assigned_total = len(tasks)
             in_progress = sum(1 for t in tasks if t.is_started and not t.approved_by_manager and not t.completed_at)
@@ -465,11 +440,7 @@ def build_tools(db: Session, current_user: User) -> list:
             week_start = monday.isoformat()
             week_end = today.isoformat()
 
-            entries = db.query(TimesheetEntry).filter(
-                TimesheetEntry.user_id == current_user.id,
-                TimesheetEntry.work_date >= week_start,
-                TimesheetEntry.work_date <= week_end,
-            ).all()
+            entries = timesheet_crud.list_for_user_range(db, current_user.id, week_start, week_end)
 
             if not entries:
                 return f"SUCCESS: No timesheet entries logged this week ({week_start} – {week_end})."
@@ -477,7 +448,7 @@ def build_tools(db: Session, current_user: User) -> list:
             total_seconds = sum(e.seconds for e in entries)
             by_project: dict[str, dict] = {}
             for e in entries:
-                project = db.get(ProjectModel, e.project_id)
+                project = projects_crud.get_by_id(db, e.project_id)
                 pname = project.name if project else e.project_id
                 if pname not in by_project:
                     by_project[pname] = {"project_name": pname, "seconds": 0, "entry_count": 0}
@@ -512,22 +483,24 @@ def build_tools(db: Session, current_user: User) -> list:
         Use for: 'what projects am I on?', 'show my projects', 'project list'.
         """
         try:
-            memberships = db.query(ProjectMember).filter(ProjectMember.user_id == current_user.id).all()
-            if not memberships:
+            project_ids = projects_crud.project_ids_for_user(db, current_user.id)
+            if not project_ids:
                 return "SUCCESS: You are not a member of any projects yet."
 
-            assignee_rows = db.query(TaskAssignee).filter(TaskAssignee.user_id == current_user.id).all()
-            my_task_ids = {r.task_id for r in assignee_rows}
+            my_task_ids = set(_task_ids_for_user(db, current_user.id))
+
+            projects_list = analytics_crud.get_projects_by_ids(db, list(project_ids))
+            project_map = {p.id: p for p in projects_list}
 
             cards = []
-            for m in memberships:
-                project = db.get(ProjectModel, m.project_id)
+            for pid in project_ids:
+                project = project_map.get(pid)
                 if not project:
                     continue
-                project_tasks = db.query(TaskModel).filter(
-                    TaskModel.project_id == project.id,
-                    TaskModel.id.in_(my_task_ids),
-                ).all() if my_task_ids else []
+                project_tasks = (
+                    [t for t in tasks_crud.list_for_project(db, project.id) if t.id in my_task_ids]
+                    if my_task_ids else []
+                )
 
                 total = len(project_tasks)
                 completed = sum(1 for t in project_tasks if t.approved_by_manager or t.completed_at)
@@ -539,7 +512,7 @@ def build_tools(db: Session, current_user: User) -> list:
                     "description": project.description or "",
                     "total_tasks": total,
                     "completed_tasks": completed,
-                    "section_count": len(project.sections),
+                    "section_count": len(sections_crud.list_for_project(db, project.id)),
                 })
             return f"CARDS: {_json.dumps(cards)}"
         except Exception as e:

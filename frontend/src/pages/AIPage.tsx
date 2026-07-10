@@ -101,7 +101,7 @@ function ProposalCard({
   onEditTask: (p: TaskPrefill) => void;
   onExecuted: () => void;
 }) {
-  const { createProject, addSection, createTask, addMemberToProject, currentUser } = useAppStore();
+  const { createClient, createProject, addSection, createTask, addMemberToProject, currentUser } = useAppStore();
   const [accepted, setAccepted] = useState(false);
   const [accepting, setAccepting] = useState(false);
 
@@ -116,9 +116,11 @@ function ProposalCard({
     const p = { ...proposal, ...overrides };
     try {
       switch (p.type) {
-        case 'create_project':
-          await createProject(p.name!, p.description ?? '');
+        case 'create_project': {
+          const client = await createClient('General');
+          await createProject(p.name!, p.description ?? '', client.id);
           break;
+        }
         case 'create_section':
           await addSection(p.project_id!, p.section_name!);
           break;

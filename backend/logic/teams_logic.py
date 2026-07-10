@@ -18,7 +18,7 @@ import re
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
+from database.database import Db
 
 import config
 import crud.teams as teams_crud
@@ -36,7 +36,7 @@ _VTT_VOICE = re.compile(r"<v\s+([^>]+)>(.*?)</v>", re.IGNORECASE | re.DOTALL)
 _TAG = re.compile(r"<[^>]+>")
 
 
-def _gate(db: Session, user_id: str) -> None:
+def _gate(db: Db, user_id: str) -> None:
     # Manager/admin only. The organizer whose meetings can be read is bounded by
     # the Teams application-access-policy granted in Azure (intentional trust
     # boundary): admins scope which organizers this app may pull, and any ZET
@@ -71,7 +71,7 @@ def vtt_to_text(vtt: str) -> str:
     return "\n".join(f"{s}: {t}" if s else t for s, t in lines).strip()
 
 
-def status_out(db: Session, user_id: str) -> TeamsStatusOut:
+def status_out(db: Db, user_id: str) -> TeamsStatusOut:
     _gate(db, user_id)
     return TeamsStatusOut(
         configured=msgraph.is_configured(),
@@ -92,7 +92,7 @@ def _transcript_date(transcript: dict, fallback: str | None) -> str:
 
 
 def _ingest_transcript(
-    db: Session,
+    db: Db,
     user_id: str,
     *,
     organizer_id: str,
@@ -129,7 +129,7 @@ def _ingest_transcript(
 
 
 def import_meeting(
-    db: Session,
+    db: Db,
     user_id: str,
     *,
     organizer_email: str,
@@ -179,7 +179,7 @@ def import_meeting(
 
 
 def sync_transcripts(
-    db: Session,
+    db: Db,
     user_id: str,
     *,
     organizer_email: str,

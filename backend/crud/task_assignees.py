@@ -1,50 +1,61 @@
-from sqlalchemy.orm import Session
-
 import realtime
-from database.models import TaskAssignee
+from crud._base import Db, fetch_all, fetch_one
 
 
-def list_user_ids_ordered(db: Session, task_id: str) -> list[str]:
-    rows = (
-        db.query(TaskAssignee)
-        .filter(TaskAssignee.task_id == task_id)
-        .order_by(TaskAssignee.position.asc(), TaskAssignee.user_id.asc())
-        .all()
+def list_user_ids_ordered(db: Db, task_id: str) -> list[str]:
+    rows = fetch_all(
+        db,
+        """
+        SELECT user_id FROM task_assignees
+        WHERE task_id = %s
+        ORDER BY position ASC, user_id ASC
+        """,
+        (task_id,),
     )
-    return [r.user_id for r in rows]
+    return [r["user_id"] for r in rows]
 
 
-def map_user_ids_for_tasks(db: Session, task_ids: list[str]) -> dict[str, list[str]]:
+def map_user_ids_for_tasks(db: Db, task_ids: list[str]) -> dict[str, list[str]]:
     """Ordered assignee user-ids for many tasks in a single query.
 
     Returns { task_id: [user_id, ...] }. Tasks with no assignees are omitted.
     """
     if not task_ids:
         return {}
-    rows = (
-        db.query(TaskAssignee)
-        .filter(TaskAssignee.task_id.in_(task_ids))
-        .order_by(TaskAssignee.position.asc(), TaskAssignee.user_id.asc())
-        .all()
+    rows = fetch_all(
+        db,
+        """
+        SELECT task_id, user_id FROM task_assignees
+        WHERE task_id = ANY(%s)
+        ORDER BY position ASC, user_id ASC
+        """,
+        (task_ids,),
     )
     out: dict[str, list[str]] = {}
     for r in rows:
-        out.setdefault(r.task_id, []).append(r.user_id)
+        out.setdefault(r["task_id"], []).append(r["user_id"])
     return out
 
 
-def is_assignee(db: Session, task_id: str, user_id: str) -> bool:
+def is_assignee(db: Db, task_id: str, user_id: str) -> bool:
     return (
-        db.query(TaskAssignee)
-        .filter(TaskAssignee.task_id == task_id, TaskAssignee.user_id == user_id)
-        .first()
+        fetch_one(
+            db,
+            """
+            SELECT task_id FROM task_assignees
+            WHERE task_id = %s AND user_id = %s
+            """,
+            (task_id, user_id),
+        )
         is not None
     )
 
 
-def set_assignees(db: Session, task_id: str, user_ids: list[str]) -> None:
-    db.query(TaskAssignee).filter(TaskAssignee.task_id == task_id).delete()
+def set_assignees(db: Db, task_id: str, user_ids: list[str]) -> None:
+    db.write("DELETE FROM task_assignees WHERE task_id = %s", (task_id,))
     for pos, uid in enumerate(user_ids):
-        db.add(TaskAssignee(task_id=task_id, user_id=uid, position=pos))
-    db.commit()
+        db.write(
+            "INSERT INTO task_assignees (task_id, user_id, position) VALUES (%s, %s, %s)",
+            (task_id, uid, pos),
+        )
     realtime.bump("tasks")

@@ -1,19 +1,68 @@
 import { useAppStore } from '@/stores/appStore';
 import { motion } from 'framer-motion';
-import { Mail, Briefcase, ListTodo, Users, Search, X, ChevronRight } from 'lucide-react';
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Mail, Briefcase, ListTodo, Users, Search, X, ChevronRight, GitBranch, Activity, TrendingUp } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';import { useQuery } from '@tanstack/react-query';
 import { snappy, pageEnter } from '@/lib/motion';
 import { isTaskAssignedTo } from '@/lib/task-utils';
-
+import { format, subDays } from 'date-fns';
+import { analyticsApi } from '@/lib/analyticsApi';
+import { OrgTree } from '@/components/analytics/OrgTree';
+import { AIInsightsPanel } from '@/components/analytics/AIInsightsPanel';
+import { ANALYTICS_LABELS } from '@/lib/analyticsLabels';
+import { orgNodeToInsightContext } from '@/lib/insightUtils';
+import type { OrgNode } from '@/lib/analyticsApi';
 import UserAvatar from '@/components/UserAvatar';
+import { UserSkillBadges } from '@/components/SkillsPicker';
+import { WipPage } from '@/pages/WipPage';
 
+const isoFmt = (d: Date) => format(d, 'yyyy-MM-dd');
+const defaultRange = () => ({ startDate: isoFmt(subDays(new Date(), 29)), endDate: isoFmt(new Date()) });
+
+
+type UserTab = 'members' | 'organization' | 'wip';
+
+const TAB_FROM_PARAM: Record<string, UserTab> = {
+  organization: 'organization',
+  wip: 'wip',
+};
+
+function tabFromSearchParam(tab: string | null): UserTab {
+  if (tab && tab in TAB_FROM_PARAM) return TAB_FROM_PARAM[tab];
+  return 'members';
+}
 
 const UsersPage = () => {
-  const { users, tasks, projects } = useAppStore();
+  const { users, tasks, projects, currentUser } = useAppStore();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'admin';
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [activeTab, setActiveTab] = useState<UserTab>(() => tabFromSearchParam(searchParams.get('tab')));
+  const [range] = useState(defaultRange);
+  const [selectedOrgNode, setSelectedOrgNode] = useState<OrgNode | null>(null);
+
+  useEffect(() => {
+    setActiveTab(tabFromSearchParam(searchParams.get('tab')));
+  }, [searchParams]);
+
+  const selectTab = (tab: UserTab) => {
+    setActiveTab(tab);
+    if (tab === 'members') {
+      setSearchParams({});
+    } else {
+      setSearchParams({ tab });
+    }
+  };
+
+  // ── Analytics queries (manager-only tabs) ─────────────────────────────────
+  const orgQuery = useQuery({
+    queryKey: ['analytics-org', range],
+    queryFn: () => analyticsApi.getOrganization(range),
+    enabled: isManager && activeTab === 'organization',
+    staleTime: 60_000,
+  });
 
   const filteredUsers = users
     .filter(u => {
@@ -30,6 +79,30 @@ const UsersPage = () => {
 
   const managers = filteredUsers.filter(u => u.role === 'manager').length;
   const employees = filteredUsers.filter(u => u.role === 'employee').length;
+
+  const orgInsightContext = useMemo(() => {
+    const org = orgQuery.data;
+    if (!org) return {};
+    return {
+      dateRange: range,
+      summary: org.summary,
+      managers: org.managers.map((m) => ({
+        name: m.name,
+        directReports: m.directReports,
+        loggedHours: m.metrics.assignedHours,
+        activeTasks: m.metrics.activeTasks,
+      })),
+      organizationTree: org.tree.map(orgNodeToInsightContext),
+    };
+  }, [orgQuery.data, range]);
+
+  const selectedNodeContext = useMemo(() => {
+    if (!selectedOrgNode) return {};
+    return {
+      dateRange: range,
+      focus: orgNodeToInsightContext(selectedOrgNode),
+    };
+  }, [selectedOrgNode, range]);
 
   return (
     <motion.div
@@ -57,6 +130,15 @@ const UsersPage = () => {
 
           {/* Stats row */}
           <div className="flex items-center gap-2 mt-1 flex-wrap">
+            {isManager && (
+              <Link
+                to="/users/forecast"
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl bg-violet-500/10 border border-violet-500/25 text-violet-300 font-semibold hover:bg-violet-500/20 transition-colors"
+              >
+                <TrendingUp className="h-3.5 w-3.5" />
+                {ANALYTICS_LABELS.whatWillHappenNext}
+              </Link>
+            )}
             {managers > 0 && (
               <div className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl bg-primary/10 border border-primary/20 text-primary font-semibold">
                 {managers} Manager{managers !== 1 ? 's' : ''}
@@ -70,41 +152,67 @@ const UsersPage = () => {
           </div>
         </div>
 
-        {/* Filters bar */}
-        <div className="flex flex-wrap items-center gap-3 mt-5">
-          {/* Search */}
-          <div className="flex items-center gap-2 bg-muted/40 border border-border/40 rounded-xl px-3.5 py-2 flex-1 min-w-[180px] max-w-xs">
-            <Search className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
-            <input
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              placeholder="Search by name or email…"
-              className="bg-transparent text-sm focus:outline-none flex-1 placeholder:text-muted-foreground/40"
-            />
-            {searchTerm && (
-              <button onClick={() => setSearchTerm('')} className="text-muted-foreground/50 hover:text-foreground transition-colors shrink-0">
-                <X className="h-3.5 w-3.5" />
+        {/* Tab bar */}
+        {isManager && (
+          <div className="flex items-center gap-1 mt-4 bg-muted/30 rounded-xl p-1 w-fit border border-border/30">
+            {([
+              { id: 'members', label: 'Members', Icon: Users },
+              { id: 'organization', label: 'Team Structure', Icon: GitBranch },
+              { id: 'wip', label: "Who's Working On What", Icon: Activity },
+            ] as { id: UserTab; label: string; Icon: React.ElementType }[]).map(({ id, label, Icon }) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => selectTab(id)}
+                className={`flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all ${
+                  activeTab === id
+                    ? 'bg-card text-foreground shadow-sm border border-border/40'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" />{label}
               </button>
-            )}
+            ))}
           </div>
+        )}
 
-          {/* Project filter */}
-          <div className="relative">
-            <select
-              value={selectedProjectId}
-              onChange={e => setSelectedProjectId(e.target.value)}
-              className="appearance-none pl-4 pr-9 py-2 rounded-xl border border-border/40 bg-muted/40 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 transition-all text-foreground/80 cursor-pointer hover:bg-muted/60"
-            >
-              <option value="">All Projects</option>
-              {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-            <ChevronRight className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50 rotate-90 pointer-events-none" />
+        {/* Members filters bar — only shown on Members tab */}
+        {activeTab === 'members' && (
+          <div className="flex flex-wrap items-center gap-3 mt-5">
+            {/* Search */}
+            <div className="flex items-center gap-2 bg-muted/40 border border-border/40 rounded-xl px-3.5 py-2 flex-1 min-w-[180px] max-w-xs">
+              <Search className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
+              <input
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                placeholder="Search by name or email…"
+                className="bg-transparent text-sm focus:outline-none flex-1 placeholder:text-muted-foreground/40"
+              />
+              {searchTerm && (
+                <button onClick={() => setSearchTerm('')} className="text-muted-foreground/50 hover:text-foreground transition-colors shrink-0">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Project filter */}
+            <div className="relative">
+              <select
+                value={selectedProjectId}
+                onChange={e => setSelectedProjectId(e.target.value)}
+                className="appearance-none pl-4 pr-9 py-2 rounded-xl border border-border/40 bg-muted/40 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 transition-all text-foreground/80 cursor-pointer hover:bg-muted/60"
+              >
+                <option value="">All Projects</option>
+                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              <ChevronRight className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50 rotate-90 pointer-events-none" />
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
-      {/* ── Users grid ───────────────────────────────────────────────────── */}
-      <div className="p-4 sm:p-8">
+      {/* ── Members tab ──────────────────────────────────────────────────── */}
+      {activeTab === 'members' && (<div className="p-4 sm:p-8">
         {filteredUsers.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full min-h-[300px] text-center">
             <div className="w-16 h-16 rounded-2xl bg-muted/40 flex items-center justify-center mb-4 border border-border/30">
@@ -147,7 +255,8 @@ const UsersPage = () => {
                         <div className="flex items-center gap-2 flex-wrap mb-1">
                           <h3 className="font-bold text-foreground group-hover:text-primary transition-colors truncate">{user.name}</h3>
                         </div>
-                        <span className={`inline-block text-[10px] px-2.5 py-0.5 rounded-full font-bold border ${
+                        <UserSkillBadges skills={user.skills ?? []} />
+                        <span className={`inline-block text-[10px] px-2.5 py-0.5 rounded-full font-bold border mt-1.5 ${
                           isManager
                             ? 'bg-primary/10 text-primary border-primary/20'
                             : 'bg-muted/60 text-muted-foreground border-border/40'
@@ -206,6 +315,45 @@ const UsersPage = () => {
           </div>
         )}
       </div>
+      )}
+
+      {/* ── Organization tab ──────────────────────────────────────────── */}
+      {activeTab === 'organization' && isManager && (
+        <div className="p-4 sm:p-8 space-y-5">
+          {orgQuery.data && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[{label:'Total', value:orgQuery.data.summary.totalEmployees},{label:'Managers', value:orgQuery.data.summary.managers},{label:'Employees', value:orgQuery.data.summary.employees},{label:'CEOs', value:orgQuery.data.summary.ceos}].map(({label, value}) => (
+                <div key={label} className="rounded-2xl border border-border/30 bg-card p-4 text-center">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground/50 font-semibold">{label}</p>
+                  <p className="text-2xl font-bold text-foreground mt-1">{value}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          <AIInsightsPanel
+            scope="team_structure"
+            context={orgInsightContext}
+            autoLoad
+          />
+          {selectedOrgNode && (
+            <AIInsightsPanel
+              scope="team_structure"
+              context={selectedNodeContext}
+              autoLoad
+              variant="inline"
+            />
+          )}
+          <OrgTree
+            nodes={orgQuery.data?.tree ?? []}
+            loading={orgQuery.isLoading}
+            selectedId={selectedOrgNode?.id ?? null}
+            onSelectNode={setSelectedOrgNode}
+          />
+        </div>
+      )}
+
+      {/* ── Who's Working On What tab ───────────────────────────────────── */}
+      {activeTab === 'wip' && isManager && <WipPage />}
     </motion.div>
   );
 };

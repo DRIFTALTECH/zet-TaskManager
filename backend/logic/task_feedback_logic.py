@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
+from database.database import Db
 
 import crud.task_assignees as assignees_crud
 import crud.task_feedback as feedback_crud
@@ -13,7 +13,7 @@ from logic import project_logic
 from logic.schemas import TaskFeedbackCreate, TaskFeedbackOut, TaskFeedbackPatch
 
 
-def _ensure_task_member(db: Session, task_id: str, user_id: str):
+def _ensure_task_member(db: Db, task_id: str, user_id: str):
     t = tasks_crud.get_by_id(db, task_id)
     if not t:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Task not found")
@@ -21,7 +21,7 @@ def _ensure_task_member(db: Session, task_id: str, user_id: str):
     return t
 
 
-def to_out(db: Session, row: TaskFeedback) -> TaskFeedbackOut:
+def to_out(db: Db, row: TaskFeedback) -> TaskFeedbackOut:
     author = users_crud.get_by_id(db, row.user_id)
     return TaskFeedbackOut(
         id=row.id,
@@ -34,13 +34,13 @@ def to_out(db: Session, row: TaskFeedback) -> TaskFeedbackOut:
     )
 
 
-def list_feedback(db: Session, viewer_id: str, task_id: str) -> list[TaskFeedbackOut]:
+def list_feedback(db: Db, viewer_id: str, task_id: str) -> list[TaskFeedbackOut]:
     _ensure_task_member(db, task_id, viewer_id)
     rows = feedback_crud.list_for_task(db, task_id)
     return [to_out(db, r) for r in rows]
 
 
-def create_feedback(db: Session, user_id: str, task_id: str, body: TaskFeedbackCreate) -> TaskFeedbackOut:
+def create_feedback(db: Db, user_id: str, task_id: str, body: TaskFeedbackCreate) -> TaskFeedbackOut:
     _ensure_task_member(db, task_id, user_id)
     msg = body.message.strip()
     if not msg:
@@ -58,7 +58,7 @@ def create_feedback(db: Session, user_id: str, task_id: str, body: TaskFeedbackC
     return to_out(db, row)
 
 
-def create_feedback_action(db: Session, user_id: str, task_id: str, body: TaskFeedbackCreate) -> TaskFeedbackOut:
+def create_feedback_action(db: Db, user_id: str, task_id: str, body: TaskFeedbackCreate) -> TaskFeedbackOut:
     """Create feedback + audit + notify creator/assignees/mentions + commit."""
     from logic import notification_logic
     from logic.audit import log_audit
@@ -89,7 +89,7 @@ def create_feedback_action(db: Session, user_id: str, task_id: str, body: TaskFe
     return result
 
 
-def patch_feedback(db: Session, user_id: str, task_id: str, feedback_id: str, body: TaskFeedbackPatch) -> TaskFeedbackOut:
+def patch_feedback(db: Db, user_id: str, task_id: str, feedback_id: str, body: TaskFeedbackPatch) -> TaskFeedbackOut:
     _ensure_task_member(db, task_id, user_id)
     row = feedback_crud.get_by_id(db, feedback_id)
     if not row or row.task_id != task_id:
@@ -106,7 +106,7 @@ def patch_feedback(db: Session, user_id: str, task_id: str, feedback_id: str, bo
     return to_out(db, row)
 
 
-def delete_feedback(db: Session, user_id: str, task_id: str, feedback_id: str) -> None:
+def delete_feedback(db: Db, user_id: str, task_id: str, feedback_id: str) -> None:
     _ensure_task_member(db, task_id, user_id)
     row = feedback_crud.get_by_id(db, feedback_id)
     if not row or row.task_id != task_id:

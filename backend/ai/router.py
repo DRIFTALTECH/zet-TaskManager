@@ -2,7 +2,6 @@ import logging
 import os
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from sqlalchemy.orm import Session
 
 from ai import chains, service
 from logic import daily_summary_logic, task_extraction_logic
@@ -18,7 +17,7 @@ from ai.schemas import (
     TimesheetParseRequest,
     TimesheetParseResponse,
 )
-from database.database import get_db
+from database.database import Db, get_db
 from logic import user_logic
 from routes.deps import get_current_user_id
 
@@ -59,7 +58,7 @@ def ai_health():
 def ai_chat(
     body: ChatRequest,
     user_id: str = Depends(get_current_user_id),
-    db: Session = Depends(get_db),
+    db: Db = Depends(get_db),
 ):
     """
     Agentic chat endpoint. Zani can now create projects, sections, tasks, and
@@ -101,7 +100,7 @@ def generate_description(
 def summarize_task(
     task_id: str,
     _user_id: str = Depends(get_current_user_id),
-    db: Session = Depends(get_db),
+    db: Db = Depends(get_db),
 ):
     """Summarize the comment thread for a task into a bullet-point TL;DR."""
     try:
@@ -138,7 +137,7 @@ def parse_timesheet(
 def summarize_day(
     date: str | None = None,
     user_id: str = Depends(get_current_user_id),
-    db: Session = Depends(get_db),
+    db: Db = Depends(get_db),
 ):
     """Generate a short AI recap of the current user's work for a day (default: today)."""
     try:
@@ -157,7 +156,7 @@ async def extract_tasks(
     text: str | None = Form(None),
     file: UploadFile | None = File(None),
     user_id: str = Depends(get_current_user_id),
-    db: Session = Depends(get_db),
+    db: Db = Depends(get_db),
 ):
     """Task-creation chain: typed text, an uploaded document, or recorded/uploaded
     audio → structured tasks with suggested assignees/projects."""
@@ -184,7 +183,7 @@ async def parse_source(
     text: str | None = Form(None),
     file: UploadFile | None = File(None),
     user_id: str = Depends(get_current_user_id),
-    db: Session = Depends(get_db),
+    db: Db = Depends(get_db),
 ):
     """Resolve an uploaded document or audio clip to plain text so the user can
     review/edit it before tasks are extracted. Returns {sourceText}."""

@@ -5,19 +5,19 @@ Holds the formatting/business logic only — every DB query lives in crud/audit.
 import json
 from datetime import datetime, timezone
 
-from sqlalchemy.orm import Session
+from database.database import Db
 
 import crud.audit as audit_crud
 import crud.users as users_crud
 from database.models import AuditLog
 
 
-def purge_old_audit_logs(db: Session) -> None:
+def purge_old_audit_logs(db: Db) -> None:
     audit_crud.purge_old(db)
 
 
 def log_audit(
-    db: Session,
+    db: Db,
     user_id: str,
     action: str,
     entity_type: str,
@@ -41,14 +41,14 @@ def log_audit(
         pass  # never let audit failure surface to the caller
 
 
-def list_for_viewer(db: Session, user_id: str, limit: int = 200):
+def list_for_viewer(db: Db, user_id: str, limit: int = 200):
     """Audit rows scoped to the viewer: managers/admins see all, employees their own."""
     caller = users_crud.get_by_id(db, user_id)
     is_manager = caller is not None and caller.role in ("manager", "admin")
     return get_audit_logs(db, user_id, is_manager, limit=limit)
 
 
-def get_audit_logs(db: Session, user_id: str, is_manager: bool, limit: int = 200):
+def get_audit_logs(db: Db, user_id: str, is_manager: bool, limit: int = 200):
     """Return audit rows. Managers see all; employees see only their own.
     Purges rows older than 7 days before querying."""
     audit_crud.purge_old(db)

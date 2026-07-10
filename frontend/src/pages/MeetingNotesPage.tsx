@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { PublicClientApplication } from '@azure/msal-browser';
-import { getMicrosoftClientId, getMicrosoftTenantId, getApiUrl } from '@/lib/env';
+import { getMicrosoftClientId, getMicrosoftTenantId } from '@/lib/env';
 import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval,
   addMonths, format, isSameMonth, isToday, parseISO,
@@ -60,7 +60,9 @@ export default function MeetingNotesPage() {
   const loadMonth = useCallback(async () => {
     setLoadingMonth(true);
     try {
-      const list = await api.getScrumDays(iso(days[0]), iso(days[days.length - 1]));
+      const gridStart = startOfWeek(startOfMonth(cursor), { weekStartsOn: 1 });
+      const gridEnd = endOfWeek(endOfMonth(cursor), { weekStartsOn: 1 });
+      const list = await api.getScrumDays(iso(gridStart), iso(gridEnd));
       const map: Record<string, ScrumDaySummary> = {};
       for (const s of list) map[s.date] = s;
       setSummaries(map);
@@ -69,7 +71,7 @@ export default function MeetingNotesPage() {
     } finally {
       setLoadingMonth(false);
     }
-  }, [days]);
+  }, [cursor]);
 
   useEffect(() => { void loadMonth(); }, [loadMonth]);
 
@@ -463,16 +465,6 @@ function ScrumCard({ scrum, users, onChanged, onDeleted }: {
 
 // ── Import from Teams dialog ──────────────────────────────────────────────────
 
-/** Teams short link: https://teams.microsoft.com/meet/{id}?p=... */
-function extractTeamsMeetIdFromJoinUrl(url: string): string | null {
-  try {
-    const match = new URL(url.trim()).pathname.match(/\/meet\/([^/]+)/i);
-    return match?.[1] ?? null;
-  } catch {
-    return null;
-  }
-}
-
 /** Flatten WebVTT to "Speaker: text" lines (matches backend teams_logic.vtt_to_text). */
 function vttToText(vtt: string): string {
   const vttTs = /^\d{2}:\d{2}:\d{2}\.\d{3}\s*-->/;
@@ -569,31 +561,12 @@ function TeamsImportDialog({ open, defaultDate, onClose, onImported }: {
           throw new Error('No active Microsoft session found. Falling back to interactive login.');
         }
         authResult = await pca.acquireTokenSilent(tokenRequest);
-      } catch (err) {
-        console.log("DEBUG: acquireTokenSilent failed or no active session. Triggering acquireTokenPopup...", err);
+      } catch {
         authResult = await pca.acquireTokenPopup({
           scopes: tokenRequest.scopes
         });
       }
       const token = authResult.accessToken;
-
-      // DEBUG: direct lookup by Teams meet id from join URL (not Graph onlineMeeting id)
-      const teamsMeetId = extractTeamsMeetIdFromJoinUrl(joinUrl);
-      console.log('DEBUG [onlineMeeting-by-id] extracted Teams meet id:', teamsMeetId);
-      if (teamsMeetId) {
-        const debugByIdUrl = `https://graph.microsoft.com/v1.0/me/onlineMeetings/${encodeURIComponent(teamsMeetId)}`;
-        try {
-          const debugByIdRes = await fetch(debugByIdUrl, {
-            method: 'GET',
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          const debugByIdBody = await debugByIdRes.text();
-          console.log('DEBUG [onlineMeeting-by-id] status:', debugByIdRes.status);
-          console.log('DEBUG [onlineMeeting-by-id] response body:', debugByIdBody);
-        } catch (byIdErr) {
-          console.error('DEBUG [onlineMeeting-by-id] fetch failed:', byIdErr);
-        }
-      }
 
       // 4. Resolve Meeting ID from join URL
       // Graph stores JoinWebUrl as a plain URL; the OData filter value must NOT be
@@ -620,65 +593,31 @@ function TeamsImportDialog({ open, defaultDate, onClose, onImported }: {
 
       // 5. Get transcript ID
       const transcriptListUrl = `https://graph.microsoft.com/v1.0/me/onlineMeetings/${meetingId}/transcripts`;
-      console.log('DEBUG [transcript-list] resolved Graph meeting id:', meetingId);
-      console.log('DEBUG [transcript-list] request URL:', transcriptListUrl);
       const transcriptsRes = await fetch(
         transcriptListUrl,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      const transcriptsBody = await transcriptsRes.text();
-      console.log('DEBUG [transcript-list] status:', transcriptsRes.status);
-      console.log('DEBUG [transcript-list] response body:', transcriptsBody);
       if (!transcriptsRes.ok) throw new Error('Could not retrieve transcripts list.');
-      const transcriptsData = JSON.parse(transcriptsBody);
+      const transcriptsData = await transcriptsRes.json();
       const firstTranscript = transcriptsData.value?.[0];
       const transcriptId = firstTranscript?.id;
       if (!transcriptId) throw new Error('No transcripts found. Ensure transcription was turned on.');
 
       // 6. Download WebVTT content
       const transcriptContentUrl = firstTranscript?.transcriptContentUrl;
-      console.log('DEBUG [transcript-content] exact transcriptContentUrl being fetched:', transcriptContentUrl);
       const contentRes = await fetch(
         transcriptContentUrl,
         { headers: { Authorization: `Bearer ${token}`, Accept: 'text/vtt' } }
       );
-      const body = await contentRes.text();
-      console.log('DEBUG [transcript-content] status:', contentRes.status);
-      console.log('DEBUG [transcript-content] content-type:', contentRes.headers.get('content-type'));
-      console.log('DEBUG [transcript-content] response body:', body);
       if (!contentRes.ok) throw new Error('Could not download transcript content.');
-      const vttContent = body;
+      const vttContent = await contentRes.text();
 
-      // 7. Create scrum via existing meeting-notes endpoint (reuses backend parse logic)
+      // 7. Create scrum via meeting-notes API (parse + timesheet generation on server)
       const workDate = resolveTeamsWorkDate(firstTranscript, meeting, defaultDate);
       const meetingTitle = (meeting?.subject as string | undefined)?.trim() || 'Teams Meeting';
-      const rawText = vttToText(vttContent);
-      const scrumBody = { title: meetingTitle, rawText };
-      const scrumUrl = `${getApiUrl()}/meeting-notes/day/${workDate}`;
-      console.log('DEBUG [create-scrum] request URL:', scrumUrl);
-      console.log('DEBUG [create-scrum] request body:', scrumBody);
-      const backendRes = await fetch(scrumUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('tm_token')}`
-        },
-        body: JSON.stringify(scrumBody)
-      });
-      const scrumResponseBody = await backendRes.text();
-      console.log('DEBUG [create-scrum] status:', backendRes.status);
-      console.log('DEBUG [create-scrum] response body:', scrumResponseBody);
-      if (!backendRes.ok) {
-        let detail = 'Failed to create scrum on the backend.';
-        try {
-          const errJson = JSON.parse(scrumResponseBody);
-          detail = errJson.detail || detail;
-        } catch {
-          /* body already logged */
-        }
-        throw new Error(detail);
-      }
+      await api.createScrum(workDate, meetingTitle, vttToText(vttContent));
 
+      useAppStore.getState().invalidateTimesheets();
       toast.success('Transcript imported and parsed successfully!');
       await onImported();
       onClose();
@@ -726,8 +665,7 @@ function TeamsImportDialog({ open, defaultDate, onClose, onImported }: {
           throw new Error('No active Microsoft session found. Falling back to interactive login.');
         }
         authResult = await pca.acquireTokenSilent(tokenRequest);
-      } catch (err) {
-        console.log("DEBUG: acquireTokenSilent failed or no active session for sync. Triggering acquireTokenPopup...", err);
+      } catch {
         authResult = await pca.acquireTokenPopup({
           scopes: tokenRequest.scopes
         });
@@ -773,29 +711,16 @@ function TeamsImportDialog({ open, defaultDate, onClose, onImported }: {
           if (!vtt.trim()) continue;
 
           const workDate = resolveTeamsWorkDate(t, undefined, defaultDate);
-          const scrumBody = { title: 'Teams Meeting', rawText: vttToText(vtt) };
-          const scrumUrl = `${getApiUrl()}/meeting-notes/day/${workDate}`;
-          console.log('DEBUG [create-scrum] request URL:', scrumUrl);
-          console.log('DEBUG [create-scrum] request body:', scrumBody);
-          const backendRes = await fetch(scrumUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('tm_token')}`
-            },
-            body: JSON.stringify(scrumBody)
-          });
-          const scrumResponseBody = await backendRes.text();
-          console.log('DEBUG [create-scrum] status:', backendRes.status);
-          console.log('DEBUG [create-scrum] response body:', scrumResponseBody);
-          if (backendRes.ok) {
-            importedCount++;
-          }
+          await api.createScrum(workDate, 'Teams Meeting', vttToText(vtt));
+          importedCount++;
         } catch (itemErr) {
           console.warn(`Failed to sync individual transcript ${transcriptId}:`, itemErr);
         }
       }
 
+      if (importedCount > 0) {
+        useAppStore.getState().invalidateTimesheets();
+      }
       toast.success(`Successfully synced all new transcripts! Imported ${importedCount} scrums.`);
       await onImported();
       onClose();
@@ -921,6 +846,7 @@ function NewScrumForm({ date, onCancel, onCreated }: {
     setBusy(true);
     try {
       await api.createScrum(date, title.trim() || 'Scrum', raw);
+      useAppStore.getState().invalidateTimesheets();
       toast.success('Scrum added & parsed');
       await onCreated();
     } catch (e) {

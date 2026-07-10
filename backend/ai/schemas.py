@@ -96,6 +96,16 @@ class DaySummaryResponse(BaseModel):
     hasData: bool           # false when there was nothing to summarise
 
 
+class DaySummaryLLMOutput(BaseModel):
+    """Structured LLM output for Your Day Wrapped — same pattern as analytics insights."""
+    summary: str = Field(
+        description=(
+            "Short end-of-day recap in second person with markdown bullets. "
+            "Only the final recap — no reasoning, preamble, or chain-of-thought."
+        ),
+    )
+
+
 # ── Structured output: extracted task ─────────────────────────────────────────
 
 class ExtractedTask(BaseModel):

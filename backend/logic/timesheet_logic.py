@@ -1,24 +1,470 @@
+import json
 import logging
 import re
 from datetime import datetime, timezone, date, timedelta
 
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
+from database.database import Db
 
 import crud.timesheet_entries as te_crud
+import crud.timesheet_submissions as ts_crud
 import crud.sections as sections_crud
 import crud.projects as projects_crud
 import crud.users as users_crud
 from ai import chains
 from ai.schemas import ProjectRef, SectionRef, TimesheetParseResponse, UserRef
 from database.init_db import new_id
-from database.models import TimesheetEntry, User
-from logic import project_logic, user_logic
-from logic.schemas import MomMemberOut, SectionCreate, TimesheetEntryCreate, TimesheetEntryOut, TimesheetEntryPatch
+from database.models import TimesheetEntry, TimesheetSubmission, User
+from logic import notification_logic, project_logic, user_logic
+from logic.audit import log_audit
+from logic.schemas import (
+    MomMemberOut,
+    SectionCreate,
+    TimesheetEntryCreate,
+    TimesheetEntryOut,
+    TimesheetEntryPatch,
+    TimesheetRejectBody,
+    TimesheetReviewDayOut,
+    TimesheetReviewEntryOut,
+    TimesheetSubmissionOut,
+    TimesheetSubmissionReviewOut,
+)
 
 log = logging.getLogger("zet.timesheet")
 
 TIME_RE = re.compile(r"^\s*(\d{1,2}):(\d{2})\s*$")
+LOCKED_STATUSES = frozenset({"submitted", "approved"})
+
+
+def _dates_in_week(week_start: str) -> list[str]:
+    monday = date.fromisoformat(week_start)
+    return [(monday + timedelta(days=i)).isoformat() for i in range(7)]
+
+
+def _parse_submitted_dates(sub: TimesheetSubmission | None) -> list[str]:
+    if sub is None:
+        return []
+    raw = getattr(sub, "submitted_dates", None) or "[]"
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return sorted({str(d) for d in parsed if d})
+
+
+def _encode_submitted_dates(dates: list[str]) -> str:
+    return json.dumps(sorted(set(dates)))
+
+
+def _is_date_locked(sub: TimesheetSubmission | None, work_date: str) -> bool:
+    if sub is None or sub.status not in LOCKED_STATUSES:
+        return False
+    return work_date in _parse_submitted_dates(sub)
+
+
+def _normalize_submit_dates(week_start: str, dates: list[str] | None) -> list[str]:
+    allowed = set(_dates_in_week(week_start))
+    if not dates:
+        return sorted(allowed)
+    out: list[str] = []
+    seen: set[str] = set()
+    for d in dates:
+        try:
+            date.fromisoformat(d)
+        except ValueError:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Invalid date: {d}")
+        if d not in allowed:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"Date {d} is not in week starting {week_start}",
+            )
+        if d in seen:
+            continue
+        seen.add(d)
+        out.append(d)
+    if not out:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "At least one date is required")
+    return sorted(out)
+
+
+def week_start_for(work_date: str) -> str:
+    """Monday ISO date for the week containing work_date."""
+    d = date.fromisoformat(work_date)
+    return (d - timedelta(days=d.weekday())).isoformat()
+
+
+def week_end_for(week_start: str) -> str:
+    monday = date.fromisoformat(week_start)
+    return (monday + timedelta(days=6)).isoformat()
+
+
+def _parse_week_start(week_start: str) -> str:
+    try:
+        d = date.fromisoformat(week_start)
+    except ValueError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "weekStart must be YYYY-MM-DD")
+    if d.weekday() != 0:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "weekStart must be a Monday")
+    return week_start
+
+
+def _ensure_date_editable(db: Db, user_id: str, work_date: str) -> None:
+    ws = week_start_for(work_date)
+    sub = ts_crud.get_for_user_week(db, user_id, ws)
+    if _is_date_locked(sub, work_date):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Timesheet for {work_date} is locked ({sub.status if sub else 'submitted'})",
+        )
+
+
+def _resolve_assigned_manager(db: Db, employee: User) -> str:
+    manager_id = getattr(employee, "manager_id", None)
+    if not manager_id:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "No manager assigned. Ask an admin to set your manager.",
+        )
+    manager = users_crud.get_by_id(db, manager_id)
+    if not manager or not bool(getattr(manager, "is_active", True)):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Assigned manager not found or inactive")
+    if manager.role not in ("manager", "admin"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Assigned manager must have manager or admin role")
+    return manager_id
+
+
+def _can_view_submission(db: Db, actor_id: str, sub: TimesheetSubmission) -> None:
+    if sub.user_id == actor_id:
+        return
+    project_logic.ensure_manager(db, actor_id)
+
+
+def _can_review_submission(db: Db, actor_id: str, sub: TimesheetSubmission) -> None:
+    project_logic.ensure_manager(db, actor_id)
+
+
+def submission_to_out(db: Db, sub: TimesheetSubmission | None, *, user_id: str, week_start: str) -> TimesheetSubmissionOut:
+    week_end = week_end_for(week_start)
+    if sub is None:
+        user = users_crud.get_by_id(db, user_id)
+        return TimesheetSubmissionOut(
+            id=None,
+            userId=user_id,
+            userName=user.name if user else None,
+            weekStart=week_start,
+            weekEnd=week_end,
+            status="draft",
+            submittedDates=[],
+        )
+    names = users_crud.names_for_ids(db, [sub.user_id, sub.reviewer_id] if sub.reviewer_id else [sub.user_id])
+    return TimesheetSubmissionOut(
+        id=sub.id,
+        userId=sub.user_id,
+        userName=names.get(sub.user_id),
+        weekStart=sub.week_start,
+        weekEnd=week_end_for(sub.week_start),
+        status=sub.status,  # type: ignore[arg-type]
+        submittedAt=sub.submitted_at,
+        submittedDates=_parse_submitted_dates(sub),
+        reviewerId=sub.reviewer_id,
+        reviewerName=names.get(sub.reviewer_id) if sub.reviewer_id else None,
+        reviewedAt=sub.reviewed_at,
+        rejectionNote=sub.rejection_note or None,
+    )
+
+
+def get_week_status(db: Db, user_id: str, week_start: str) -> TimesheetSubmissionOut:
+    ws = _parse_week_start(week_start)
+    sub = ts_crud.get_for_user_week(db, user_id, ws)
+    return submission_to_out(db, sub, user_id=user_id, week_start=ws)
+
+
+def list_pending_approvals(db: Db, manager_id: str) -> list[TimesheetSubmissionOut]:
+    project_logic.ensure_manager(db, manager_id)
+    rows = ts_crud.list_pending_for_reviewer(db, manager_id)
+    return [submission_to_out(db, r, user_id=r.user_id, week_start=r.week_start) for r in rows]
+
+
+def list_manager_submissions(
+    db: Db,
+    actor_id: str,
+    *,
+    submission_status: str | None = None,
+    user_id: str | None = None,
+    week_start: str | None = None,
+) -> list[TimesheetSubmissionOut]:
+    if submission_status is not None and submission_status not in ("submitted", "approved", "rejected"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "status must be submitted, approved, or rejected")
+    ws = _parse_week_start(week_start) if week_start is not None else None
+    actor = user_logic.get_user_or_404(db, actor_id)
+    if actor.role == "employee":
+        if user_id is not None and user_id != actor_id:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized to view other users' submissions")
+        rows = ts_crud.list_for_reviewer(
+            db, user_id=actor_id, status=submission_status, week_start=ws,
+        )
+    else:
+        project_logic.ensure_manager(db, actor_id)
+        rows = ts_crud.list_for_reviewer(
+            db, status=submission_status, user_id=user_id, week_start=ws,
+        )
+    return [submission_to_out(db, r, user_id=r.user_id, week_start=r.week_start) for r in rows]
+
+
+def _project_section_names(db: Db, rows: list[TimesheetEntry]) -> tuple[dict[str, str], dict[str, str]]:
+    pn: dict[str, str] = {}
+    sn: dict[str, str] = {}
+    for r in rows:
+        if r.project_id not in pn:
+            p = projects_crud.get_by_id(db, r.project_id)
+            pn[r.project_id] = p.name if p else ""
+        if r.section_id not in sn:
+            s = sections_crud.get_by_id(db, r.section_id)
+            sn[r.section_id] = s.name if s else ""
+    return pn, sn
+
+
+def get_submission_review(db: Db, actor_id: str, submission_id: str) -> TimesheetSubmissionReviewOut:
+    sub = ts_crud.get_by_id(db, submission_id)
+    if not sub:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Submission not found")
+    _can_view_submission(db, actor_id, sub)
+    week_end = week_end_for(sub.week_start)
+    rows = te_crud.list_for_user_range(db, sub.user_id, sub.week_start, week_end)
+    pn, sn = _project_section_names(db, rows)
+    by_date: dict[str, list[TimesheetEntry]] = {}
+    for r in rows:
+        by_date.setdefault(r.work_date, []).append(r)
+    review_dates = _parse_submitted_dates(sub)
+    if not review_dates:
+        review_dates = _dates_in_week(sub.week_start)
+    days: list[TimesheetReviewDayOut] = []
+    weekly_total = 0
+    for wd in review_dates:
+        day_rows = by_date.get(wd, [])
+        entries = [
+            TimesheetReviewEntryOut(
+                id=r.id,
+                workDate=r.work_date,
+                projectId=r.project_id,
+                projectName=pn.get(r.project_id, ""),
+                sectionId=r.section_id,
+                sectionName=sn.get(r.section_id, ""),
+                description=r.description or "",
+                timeFrom=r.time_from,
+                timeTo=r.time_to,
+                seconds=r.seconds,
+                billable=r.billable,
+            )
+            for r in day_rows
+        ]
+        day_total = sum(e.seconds for e in entries)
+        weekly_total += day_total
+        days.append(TimesheetReviewDayOut(workDate=wd, entries=entries, totalSeconds=day_total))
+    return TimesheetSubmissionReviewOut(
+        submission=submission_to_out(db, sub, user_id=sub.user_id, week_start=sub.week_start),
+        days=days,
+        totalSeconds=weekly_total,
+    )
+
+
+def submit_week(
+    db: Db, user_id: str, week_start: str, dates: list[str] | None = None,
+) -> TimesheetSubmissionOut:
+    ws = _parse_week_start(week_start)
+    target_dates = _normalize_submit_dates(ws, dates)
+    existing = ts_crud.get_for_user_week(db, user_id, ws)
+    locked_dates = _parse_submitted_dates(existing) if existing else []
+    locked_set = set(locked_dates)
+
+    if existing and existing.status in LOCKED_STATUSES:
+        dupes = [d for d in target_dates if d in locked_set]
+        if dupes:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"Already submitted: {', '.join(dupes)}",
+            )
+        new_dates = [d for d in target_dates if d not in locked_set]
+        if not new_dates:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "No new dates to submit")
+    elif existing and existing.status == "rejected":
+        new_dates = target_dates
+    else:
+        new_dates = target_dates
+
+    employee = user_logic.get_user_or_404(db, user_id)
+    reviewer_id = _resolve_assigned_manager(db, employee)
+    now = datetime.now(timezone.utc).isoformat()
+    week_label = f"{ws} — {week_end_for(ws)}"
+
+    if existing and existing.status == "rejected":
+        existing.status = "submitted"
+        existing.submitted_at = now
+        existing.reviewer_id = reviewer_id
+        existing.reviewed_at = None
+        existing.rejection_note = ""
+        existing.submitted_dates = _encode_submitted_dates(new_dates)
+        sub = ts_crud.update(db, existing)
+    elif existing and existing.status in LOCKED_STATUSES:
+        merged = sorted(locked_set | set(new_dates))
+        existing.status = "submitted"
+        existing.submitted_at = now
+        existing.reviewer_id = reviewer_id
+        existing.reviewed_at = None
+        existing.rejection_note = ""
+        existing.submitted_dates = _encode_submitted_dates(merged)
+        sub = ts_crud.update(db, existing)
+    else:
+        sub = ts_crud.create(
+            db,
+            TimesheetSubmission(
+                id=new_id("ts"),
+                user_id=user_id,
+                week_start=ws,
+                status="submitted",
+                submitted_at=now,
+                reviewer_id=reviewer_id,
+                reviewed_at=None,
+                rejection_note="",
+                submitted_dates=_encode_submitted_dates(new_dates),
+            ),
+        )
+
+    log_audit(
+        db, user_id, "timesheet.submitted", "timesheet_submission", sub.id,
+        week_label, {"weekStart": ws, "reviewerId": reviewer_id, "dates": new_dates},
+    )
+    notification_logic.notify_users(
+        db,
+        user_ids=[reviewer_id],
+        type="timesheet_submitted",
+        title="Timesheet submitted",
+        message=f'{employee.name} submitted their timesheet for {week_label}',
+        entity_type="timesheet_submission",
+        entity_id=sub.id,
+        triggered_by=user_id,
+    )
+    return submission_to_out(db, sub, user_id=user_id, week_start=ws)
+
+
+def _finalize_review_transition(
+    db: Db,
+    actor_id: str,
+    sub: TimesheetSubmission,
+    *,
+    audit_action: str,
+    audit_extra: dict,
+    notify_type: str,
+    notify_title: str,
+    notify_message: str,
+) -> TimesheetSubmissionOut:
+    week_label = f"{sub.week_start} — {week_end_for(sub.week_start)}"
+    log_audit(db, actor_id, audit_action, "timesheet_submission", sub.id, week_label, audit_extra)
+    notification_logic.notify_users(
+        db,
+        user_ids=[sub.user_id],
+        type=notify_type,
+        title=notify_title,
+        message=notify_message,
+        entity_type="timesheet_submission",
+        entity_id=sub.id,
+        triggered_by=actor_id,
+    )
+    return submission_to_out(db, sub, user_id=sub.user_id, week_start=sub.week_start)
+
+
+def approve_submission(db: Db, actor_id: str, submission_id: str) -> TimesheetSubmissionOut:
+    sub = ts_crud.get_by_id(db, submission_id)
+    if not sub:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Submission not found")
+    _can_review_submission(db, actor_id, sub)
+    if sub.status != "submitted":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Cannot approve a timesheet that is {sub.status}")
+    from_status = sub.status
+    now = datetime.now(timezone.utc).isoformat()
+    sub.status = "approved"
+    sub.reviewer_id = actor_id
+    sub.reviewed_at = now
+    sub = ts_crud.update(db, sub)
+    week_label = f"{sub.week_start} — {week_end_for(sub.week_start)}"
+    actor_name = users_crud.names_for_ids(db, [actor_id]).get(actor_id, "Manager")
+    return _finalize_review_transition(
+        db, actor_id, sub,
+        audit_action="timesheet.approved",
+        audit_extra={"employeeId": sub.user_id, "weekStart": sub.week_start, "fromStatus": from_status},
+        notify_type="timesheet_approved",
+        notify_title="Timesheet approved",
+        notify_message=f'{actor_name} approved your timesheet for {week_label}',
+    )
+
+
+def reject_submission(
+    db: Db, actor_id: str, submission_id: str, body: TimesheetRejectBody,
+) -> TimesheetSubmissionOut:
+    sub = ts_crud.get_by_id(db, submission_id)
+    if not sub:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Submission not found")
+    _can_review_submission(db, actor_id, sub)
+    if sub.status not in ("submitted", "approved"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Cannot reject a timesheet that is {sub.status}")
+    from_status = sub.status
+    now = datetime.now(timezone.utc).isoformat()
+    sub.status = "rejected"
+    sub.reviewer_id = actor_id
+    sub.reviewed_at = now
+    sub.rejection_note = (body.comment or "").strip()
+    sub = ts_crud.update(db, sub)
+    week_label = f"{sub.week_start} — {week_end_for(sub.week_start)}"
+    actor_name = users_crud.names_for_ids(db, [actor_id]).get(actor_id, "Manager")
+    msg = f'{actor_name} rejected your timesheet for {week_label}'
+    if sub.rejection_note:
+        msg = f"{msg}: {sub.rejection_note}"
+    return _finalize_review_transition(
+        db, actor_id, sub,
+        audit_action="timesheet.rejected",
+        audit_extra={
+            "employeeId": sub.user_id,
+            "weekStart": sub.week_start,
+            "fromStatus": from_status,
+            "comment": sub.rejection_note,
+        },
+        notify_type="timesheet_rejected",
+        notify_title="Timesheet rejected",
+        notify_message=msg,
+    )
+
+
+def reopen_submission(db: Db, actor_id: str, submission_id: str) -> TimesheetSubmissionOut:
+    sub = ts_crud.get_by_id(db, submission_id)
+    if not sub:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Submission not found")
+    _can_review_submission(db, actor_id, sub)
+    if sub.status not in ("approved", "rejected"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Cannot reopen a timesheet that is {sub.status}")
+    from_status = sub.status
+    employee = users_crud.get_by_id(db, sub.user_id)
+    sub.status = "submitted"
+    sub.reviewer_id = _resolve_assigned_manager(db, employee) if employee else None
+    sub.reviewed_at = None
+    sub.rejection_note = ""
+    sub = ts_crud.update(db, sub)
+    week_label = f"{sub.week_start} — {week_end_for(sub.week_start)}"
+    actor_name = users_crud.names_for_ids(db, [actor_id]).get(actor_id, "Manager")
+    return _finalize_review_transition(
+        db, actor_id, sub,
+        audit_action="timesheet.reopened",
+        audit_extra={
+            "fromStatus": from_status,
+            "toStatus": "submitted",
+            "reviewerId": actor_id,
+            "weekStart": sub.week_start,
+        },
+        notify_type="timesheet_reopened",
+        notify_title="Timesheet reopened for review",
+        notify_message=f'{actor_name} reopened your timesheet for {week_label}',
+    )
 
 
 def normalize_time_value(s: str) -> str:
@@ -72,7 +518,7 @@ def _reject_future_date(work_date: str) -> None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Cannot log time for a future date.")
 
 
-def _validate_section_project(db: Session, project_id: str, section_id: str) -> None:
+def _validate_section_project(db: Db, project_id: str, section_id: str) -> None:
     sec = sections_crud.get_by_id(db, section_id)
     if not sec or sec.project_id != project_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Section does not belong to this project")
@@ -94,20 +540,20 @@ def to_out(e: TimesheetEntry) -> TimesheetEntryOut:
     )
 
 
-def list_entries(db: Session, user_id: str, start: str, end: str) -> list[TimesheetEntryOut]:
+def list_entries(db: Db, user_id: str, start: str, end: str) -> list[TimesheetEntryOut]:
     if start > end:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "start must be <= end")
     rows = te_crud.list_for_user_range(db, user_id, start, end)
     return [to_out(r) for r in rows]
 
 
-def list_entries_as_manager(db: Session, manager_id: str, target_user_id: str, start: str, end: str) -> list[TimesheetEntryOut]:
+def list_entries_as_manager(db: Db, manager_id: str, target_user_id: str, start: str, end: str) -> list[TimesheetEntryOut]:
     project_logic.ensure_manager(db, manager_id)
     user_logic.get_user_or_404(db, target_user_id)
     return list_entries(db, target_user_id, start, end)
 
 
-def list_entries_team(db: Session, user_id: str, start: str, end: str) -> list[TimesheetEntryOut]:
+def list_entries_team(db: Db, user_id: str, start: str, end: str) -> list[TimesheetEntryOut]:
     """Manager/admin team report: every member's rows in range. Admin sees all;
     a manager sees only rows on projects they belong to (same visibility as /projects)."""
     if start > end:
@@ -121,7 +567,7 @@ def list_entries_team(db: Session, user_id: str, start: str, end: str) -> list[T
     return [to_out(r) for r in rows]
 
 
-def list_entries_for_project(db: Session, manager_id: str, project_id: str) -> list[TimesheetEntryOut]:
+def list_entries_for_project(db: Db, manager_id: str, project_id: str) -> list[TimesheetEntryOut]:
     """Manager-only: all timesheet rows logged against a project, across every member."""
     project_logic.ensure_manager(db, manager_id)
     if not projects_crud.get_by_id(db, project_id):
@@ -130,8 +576,16 @@ def list_entries_for_project(db: Session, manager_id: str, project_id: str) -> l
     return [to_out(r) for r in rows]
 
 
-def create_entry(db: Session, user_id: str, body: TimesheetEntryCreate) -> TimesheetEntryOut:
+def create_entry(
+    db: Db,
+    user_id: str,
+    body: TimesheetEntryCreate,
+    *,
+    from_scrum: bool = False,
+) -> TimesheetEntryOut:
     _reject_future_date(body.workDate)
+    if not from_scrum:
+        _ensure_date_editable(db, user_id, body.workDate)
     project_logic.ensure_project_member(db, body.projectId, user_id)
     _validate_section_project(db, body.projectId, body.sectionId)
     tf = normalize_time_value(body.timeFrom)
@@ -155,12 +609,14 @@ def create_entry(db: Session, user_id: str, body: TimesheetEntryCreate) -> Times
     return to_out(row)
 
 
-def patch_entry(db: Session, user_id: str, entry_id: str, body: TimesheetEntryPatch) -> TimesheetEntryOut:
+def patch_entry(db: Db, user_id: str, entry_id: str, body: TimesheetEntryPatch) -> TimesheetEntryOut:
     row = te_crud.get_by_id(db, entry_id)
     if not row or row.user_id != user_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Entry not found")
+    _ensure_date_editable(db, user_id, row.work_date)
     if body.workDate is not None:
         _reject_future_date(body.workDate)
+        _ensure_date_editable(db, user_id, body.workDate)
         row.work_date = body.workDate
     if body.projectId is not None:
         row.project_id = body.projectId
@@ -181,36 +637,66 @@ def patch_entry(db: Session, user_id: str, entry_id: str, body: TimesheetEntryPa
     return to_out(row)
 
 
-def delete_entry(db: Session, user_id: str, entry_id: str) -> None:
+def delete_entry(db: Db, user_id: str, entry_id: str) -> None:
     row = te_crud.get_by_id(db, entry_id)
     if not row or row.user_id != user_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Entry not found")
+    _ensure_date_editable(db, user_id, row.work_date)
     te_crud.delete_entry(db, row)
 
 
-def delete_all_entries_for_day(db: Session, user_id: str, work_date: str) -> int:
+def delete_all_entries_for_day(db: Db, user_id: str, work_date: str) -> int:
     """Remove every timesheet row the user has on work_date (YYYY-MM-DD)."""
     if len(work_date) != 10 or work_date[4] != "-" or work_date[7] != "-":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "workDate must be YYYY-MM-DD")
+    _ensure_date_editable(db, user_id, work_date)
     return te_crud.delete_all_for_user_date(db, user_id, work_date)
 
 
+def _active_users(db: Db) -> list[User]:
+    """Registered app users only — excludes invented transcript names."""
+    return [u for u in users_crud.list_all(db) if getattr(u, "is_active", True)]
+
+
 def _match_user_by_name(name: str, users: list[User]) -> User | None:
-    """Match a parsed scrum member name to a user (exact, then first-name)."""
+    """Match a parsed scrum member name to a registered user (exact, then unique first-name)."""
     n = name.strip().lower()
     if not n:
         return None
     for u in users:
-        if u.name.lower() == n:
+        if u.name.strip().lower() == n:
             return u
     first = n.split()[0]
     for u in users:
-        if u.name.lower().split()[0] == first:
+        un = u.name.strip().lower()
+        if un == first or n.startswith(un + " "):
             return u
+    by_first = [u for u in users if u.name.strip().lower().split()[0] == first]
+    if len(by_first) == 1:
+        return by_first[0]
     return None
 
 
-def _project_refs_for_user(db: Session, user_id: str) -> list[ProjectRef]:
+def filter_scrum_members(members: list[MomMemberOut], users: list[User]) -> list[MomMemberOut]:
+    """Keep only members that map to a real user; use canonical account names."""
+    out: list[MomMemberOut] = []
+    seen_ids: set[str] = set()
+    for member in members:
+        user = _match_user_by_name(member.name, users)
+        if user is None or user.id in seen_ids:
+            if user is None and member.name.strip():
+                log.info("scrum member %r ignored (no matching app user)", member.name)
+            continue
+        seen_ids.add(user.id)
+        items = [i.strip() for i in member.items if i.strip()]
+        if items:
+            out.append(MomMemberOut(name=user.name, items=items))
+    return out
+
+
+def _project_refs_for_user(
+    db: Db, user_id: str, *, all_users: list[User] | None = None
+) -> list[ProjectRef]:
     users_by_id = {
         u.id: UserRef(
             id=u.id,
@@ -218,7 +704,7 @@ def _project_refs_for_user(db: Session, user_id: str) -> list[ProjectRef]:
             job_title=getattr(u, "job_title", "") or "",
             current_experience_months=getattr(u, "experience_months", 0) or 0,
         )
-        for u in users_crud.list_all(db)
+        for u in (all_users if all_users is not None else users_crud.list_all(db))
     }
     return [
         ProjectRef(
@@ -231,13 +717,154 @@ def _project_refs_for_user(db: Session, user_id: str) -> list[ProjectRef]:
     ]
 
 
+def _project_refs_light(db: Db, user_id: str) -> list[ProjectRef]:
+    """Project/section list for AI parsing — skips per-project member lookups (faster)."""
+    return [
+        ProjectRef(
+            id=p.id,
+            name=p.name,
+            sections=[SectionRef(id=s.id, name=s.name) for s in p.sections],
+            members=[],
+        )
+        for p in project_logic.list_projects(db, user_id)
+    ]
+
+
+def _default_project_section(db: Db, user_id: str) -> tuple[str, str] | None:
+    """First project + section the user belongs to (fallback when AI returns nothing)."""
+    for p in project_logic.list_projects(db, user_id):
+        if p.sections:
+            return p.id, p.sections[0].id
+    return None
+
+
+def _scrum_entry_exists(
+    db: Db,
+    user_id: str,
+    work_date: str,
+    project_id: str,
+    section_id: str,
+    time_from: str,
+    time_to: str,
+    *,
+    existing: list[TimesheetEntry] | None = None,
+) -> bool:
+    """True when an identical row already exists (avoid duplicate scrum auto-entries)."""
+    tf = normalize_time_value(time_from)
+    tt = normalize_time_value(time_to)
+    rows = existing if existing is not None else te_crud.list_for_user_range(db, user_id, work_date, work_date)
+    for row in rows:
+        if (
+            row.project_id == project_id
+            and row.section_id == section_id
+            and row.time_from == tf
+            and row.time_to == tt
+        ):
+            return True
+    return False
+
+
+def _insert_scrum_entry(
+    db: Db,
+    user_id: str,
+    work_date: str,
+    project_id: str,
+    section_id: str,
+    description: str,
+    time_from: str,
+    time_to: str,
+    *,
+    existing: list[TimesheetEntry] | None = None,
+) -> TimesheetEntryOut | None:
+    if _scrum_entry_exists(
+        db, user_id, work_date, project_id, section_id, time_from, time_to, existing=existing
+    ):
+        return None
+    try:
+        return create_entry(
+            db,
+            user_id,
+            TimesheetEntryCreate(
+                workDate=work_date,
+                projectId=project_id,
+                sectionId=section_id,
+                description=description,
+                timeFrom=time_from,
+                timeTo=time_to,
+            ),
+            from_scrum=True,
+        )
+    except HTTPException as exc:
+        log.warning(
+            "scrum→timesheet user_id=%s create_entry rejected: %s (project=%s section=%s)",
+            user_id,
+            exc.detail,
+            project_id,
+            section_id,
+        )
+        return None
+
+
+def _fallback_scrum_entries(
+    db: Db,
+    user_id: str,
+    work_date: str,
+    items: list[str],
+    *,
+    existing: list[TimesheetEntry] | None = None,
+) -> list[TimesheetEntryOut]:
+    """Direct rows from scrum bullets when AI timesheet parse yields nothing."""
+    target = _default_project_section(db, user_id)
+    if not target:
+        log.warning("scrum→timesheet user_id=%s fallback skipped (no project/section)", user_id)
+        return []
+    project_id, section_id = target
+    n = len(items)
+    start_min = 9 * 60
+    end_min = 17 * 60
+    slot = max(30, (end_min - start_min) // n)
+
+    created: list[TimesheetEntryOut] = []
+    for i, desc in enumerate(items):
+        tf_min = start_min + i * slot
+        tt_min = min(end_min, tf_min + slot)
+        tf = f"{tf_min // 60:02d}:{tf_min % 60:02d}"
+        tt = f"{tt_min // 60:02d}:{tt_min % 60:02d}"
+        row = _insert_scrum_entry(
+            db,
+            user_id,
+            work_date,
+            project_id,
+            section_id,
+            desc,
+            tf,
+            tt,
+            existing=existing,
+        )
+        if row:
+            created.append(row)
+    return created
+
+
 def create_draft_entries_from_parse(
-    db: Session, user_id: str, work_date: str, parsed: TimesheetParseResponse
+    db: Db,
+    user_id: str,
+    work_date: str,
+    parsed: TimesheetParseResponse,
+    *,
+    from_scrum: bool = False,
+    existing: list[TimesheetEntry] | None = None,
 ) -> list[TimesheetEntryOut]:
     """Persist parse_timesheet rows as editable timesheet entries (no submit step)."""
     created: list[TimesheetEntryOut] = []
     for row in parsed.rows:
         if not row.project_id:
+            if from_scrum:
+                log.warning(
+                    "scrum→timesheet user_id=%s skipped row (no project_id): %r",
+                    user_id,
+                    row.description,
+                )
             continue
         section_id = row.section_id
         if (
@@ -257,6 +884,28 @@ def create_draft_entries_from_parse(
                 None,
             )
         if not section_id:
+            if from_scrum:
+                log.warning(
+                    "scrum→timesheet user_id=%s skipped row (no section_id): project=%s %r",
+                    user_id,
+                    row.project_id,
+                    row.description,
+                )
+            continue
+        if from_scrum:
+            row_out = _insert_scrum_entry(
+                db,
+                user_id,
+                work_date,
+                row.project_id,
+                section_id,
+                row.description or "",
+                row.time_from,
+                row.time_to,
+                existing=existing,
+            )
+            if row_out:
+                created.append(row_out)
             continue
         try:
             created.append(
@@ -279,48 +928,55 @@ def create_draft_entries_from_parse(
 
 
 def generate_timesheets_from_scrum_members(
-    db: Session, work_date: str, members: list[MomMemberOut]
+    db: Db, work_date: str, members: list[MomMemberOut]
 ) -> None:
     """For each matched scrum member, parse their items into draft timesheet entries."""
     if not members:
         return
-    all_users = users_crud.list_all(db)
-    for member in members:
-        log.info("scrum→timesheet member=%r", member.name)
-        user = _match_user_by_name(member.name, all_users)
+    app_users = _active_users(db)
+    matched = filter_scrum_members(members, app_users)
+    if not matched:
+        log.warning("scrum→timesheet no members matched registered users")
+        return
+
+    for member in matched:
+        user = _match_user_by_name(member.name, app_users)
         if user is None:
-            log.info("scrum→timesheet member=%r matched_user_id=none (skipped)", member.name)
             continue
-        log.info("scrum→timesheet member=%r matched_user_id=%s", member.name, user.id)
-        items = [i.strip() for i in member.items if i.strip()]
-        if not items:
-            log.info("scrum→timesheet member=%r user_id=%s no items (skipped)", member.name, user.id)
-            continue
-        summary = "\n".join(items)
-        projects = _project_refs_for_user(db, user.id)
-        try:
-            parsed = chains.parse_timesheet(summary, work_date, projects)
-            log.info(
-                "scrum→timesheet member=%r user_id=%s parse_timesheet rows=%d %s",
-                member.name,
-                user.id,
-                len(parsed.rows),
-                [r.model_dump() for r in parsed.rows],
+        items = member.items
+        existing = te_crud.list_for_user_range(db, user.id, work_date, work_date)
+        projects = _project_refs_light(db, user.id)
+        created: list[TimesheetEntryOut] = []
+
+        if projects:
+            summary = "\n".join(items)
+            try:
+                parsed = chains.parse_timesheet(summary, work_date, projects)
+                created = create_draft_entries_from_parse(
+                    db, user.id, work_date, parsed, from_scrum=True, existing=existing
+                )
+            except Exception as e:
+                log.warning(
+                    "scrum→timesheet user_id=%s parse_timesheet failed: %s",
+                    user.id,
+                    e,
+                    exc_info=True,
+                )
+
+        if not created:
+            created = _fallback_scrum_entries(
+                db, user.id, work_date, items, existing=existing
             )
-        except Exception as e:
-            log.info(
-                "scrum→timesheet member=%r user_id=%s parse_timesheet error: %s",
-                member.name,
-                user.id,
-                e,
-                exc_info=True,
-            )
-            continue
-        created = create_draft_entries_from_parse(db, user.id, work_date, parsed)
+            if created:
+                log.info(
+                    "scrum→timesheet user_id=%s fallback entries_created=%d",
+                    user.id,
+                    len(created),
+                )
+
         log.info(
-            "scrum→timesheet member=%r user_id=%s entries_created=%d entry_ids=%s",
+            "scrum→timesheet user=%r user_id=%s entries_created=%d",
             member.name,
             user.id,
             len(created),
-            [e.id for e in created],
         )

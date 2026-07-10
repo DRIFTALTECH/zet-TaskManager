@@ -20,6 +20,10 @@ export interface User {
   currentExperienceMonths: number;
   /** Admin can deactivate accounts; deactivated users cannot log in. */
   isActive?: boolean;
+  /** Line manager for timesheet approval routing (admin-assigned). */
+  managerId?: string | null;
+  /** Skill names assigned to this user. */
+  skills?: string[];
 }
 
 export interface Section {
@@ -28,10 +32,24 @@ export interface Section {
   projectId: string;
 }
 
+export interface Client {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
+export interface Skill {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
 export interface Project {
   id: string;
   name: string;
   description: string;
+  clientId?: string | null;
+  clientName?: string | null;
   createdBy: string;
   members: string[];
   sections: Section[];
@@ -65,6 +83,7 @@ export interface Task {
   completedAt?: string;
   approvedByManager: boolean;
   timeTracked: number;
+  minLogMinutes: number;
   tags: string[];
   createdAt: string;
   timeLog: Record<string, number>; // date (YYYY-MM-DD) -> seconds logged by current user
@@ -302,6 +321,50 @@ export interface PersonalAccessToken {
 
 export interface PersonalAccessTokenCreated extends PersonalAccessToken {
   token: string;
+}
+
+/** Weekly timesheet approval state from GET /timesheet/submissions/status. */
+export type TimesheetSubmissionStatus = 'draft' | 'submitted' | 'approved' | 'rejected';
+
+export interface TimesheetSubmission {
+  id: string | null;
+  userId: string;
+  userName: string | null;
+  weekStart: string;
+  weekEnd: string;
+  status: TimesheetSubmissionStatus;
+  submittedAt: string | null;
+  submittedDates?: string[];
+  reviewerId: string | null;
+  reviewerName: string | null;
+  reviewedAt: string | null;
+  rejectionNote: string | null;
+}
+
+export interface TimesheetReviewEntry {
+  id: string;
+  workDate: string;
+  projectId: string;
+  projectName: string;
+  sectionId: string;
+  sectionName: string;
+  description: string;
+  timeFrom: string;
+  timeTo: string;
+  seconds: number;
+  billable: boolean;
+}
+
+export interface TimesheetReviewDay {
+  workDate: string;
+  entries: TimesheetReviewEntry[];
+  totalSeconds: number;
+}
+
+export interface TimesheetSubmissionReview {
+  submission: TimesheetSubmission;
+  days: TimesheetReviewDay[];
+  totalSeconds: number;
 }
 
 /** Manual day rows on the Timesheet page (project, section, description, time range). */

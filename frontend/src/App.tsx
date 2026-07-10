@@ -16,6 +16,7 @@ import CalendarPage from "./pages/CalendarPage";
 import TimeReportPage from "./pages/TimeReportPage";
 import UsersPage from "./pages/UsersPage";
 import UserDetailPage from "./pages/UserDetailPage";
+import WhatWillHappenNextPage from "./pages/WhatWillHappenNextPage";
 import ManageProjectsOverview from "./pages/ManageProjectsOverview";
 import ProjectDetailPage from "./pages/ProjectDetailPage";
 import SettingsPage from "./pages/SettingsPage";
@@ -25,10 +26,20 @@ import AIPage from "./pages/AIPage";
 import MeetingNotesPage from "./pages/MeetingNotesPage";
 import AdminLoginPage from "./pages/AdminLoginPage";
 import AdminPage from "./pages/AdminPage";
+import OverviewPage from "./pages/OverviewPage";
+import ClientDetailPage from "./pages/ClientDetailPage";
+import { DashboardPanArea } from "./components/analytics/DashboardPanArea";
 import { useLiveSync } from "./hooks/useTaskSync";
 import Companion from "./components/agents/Companion";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 60_000,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 function AppLayout({ children }: { children: React.ReactNode }) {
   useLiveSync(); // live updates (tasks, projects, users) via smart polling
@@ -136,15 +147,22 @@ const App = () => (
           <Route path="/" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
           <Route path="/tasks" element={<ProtectedRoute><MyTasksPage /></ProtectedRoute>} />
           <Route path="/timesheet" element={<ProtectedRoute><TimesheetPage /></ProtectedRoute>} />
+          <Route path="/timesheet/approvals" element={<Navigate to="/timesheet?manage=1" replace />} />
           <Route path="/calendar" element={<ProtectedRoute><CalendarPage /></ProtectedRoute>} />
           <Route path="/meeting-notes" element={<ProtectedRoute><MeetingNotesPage /></ProtectedRoute>} />
           <Route path="/reports" element={<ProtectedRoute><TimeReportPage /></ProtectedRoute>} />
+          <Route path="/reports/clients/:clientId" element={<ProtectedRoute managerOnly><ClientDetailPage /></ProtectedRoute>} />
           <Route path="/users" element={<ProtectedRoute managerOnly><UsersPage /></ProtectedRoute>} />
+          <Route path="/users/forecast" element={<ProtectedRoute managerOnly><WhatWillHappenNextPage /></ProtectedRoute>} />
           <Route path="/users/:userId" element={<ProtectedRoute managerOnly><UserDetailPage /></ProtectedRoute>} />
+          <Route path="/wip" element={<Navigate to="/users?tab=wip" replace />} />
           <Route path="/manage" element={<ProtectedRoute managerOnly><ManageProjectsOverview /></ProtectedRoute>} />
+          <Route path="/manage/status" element={<ProtectedRoute managerOnly><ManageProjectsOverview /></ProtectedRoute>} />
           <Route path="/manage/:projectId" element={<ProtectedRoute managerOnly><ProjectDetailPage /></ProtectedRoute>} />
+          <Route path="/delivery" element={<Navigate to="/manage/status" replace />} />
           <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
           <Route path="/ai" element={<ProtectedRoute><AIPage /></ProtectedRoute>} />
+          <Route path="/overview" element={<ProtectedRoute managerOnly><DashboardPanArea><OverviewPage /></DashboardPanArea></ProtectedRoute>} />
           <Route path="/admin/login" element={<AdminLoginPage />} />
           <Route path="/admin" element={<AdminPage />} />
           <Route path="*" element={<Navigate to="/" />} />

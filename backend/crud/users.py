@@ -1,93 +1,124 @@
-from sqlalchemy import func
-from sqlalchemy.orm import Session
+from crud._base import Db, fetch_all, fetch_one, row_to_model, rows_to_models
 
 import realtime
-from database.models import ProjectMember, User
+from database.models import User
 
 
-def get_by_email(db: Session, email: str) -> User | None:
+def get_by_email(db: Db, email: str) -> User | None:
     normalized = email.strip().lower()
-    return db.query(User).filter(func.lower(User.email) == normalized).first()
+    row = fetch_one(
+        db,
+        "SELECT * FROM users WHERE LOWER(email) = %s LIMIT 1",
+        (normalized,),
+    )
+    return row_to_model(User, row)
 
 
-def get_by_id(db: Session, user_id: str) -> User | None:
-    return db.query(User).get(user_id)
+def get_by_id(db: Db, user_id: str) -> User | None:
+    row = fetch_one(db, "SELECT * FROM users WHERE id = %s", (user_id,))
+    return row_to_model(User, row)
 
 
-def list_all(db: Session) -> list[User]:
-    return db.query(User).order_by(User.name).all()
+def list_all(db: Db) -> list[User]:
+    rows = fetch_all(db, "SELECT * FROM users ORDER BY name")
+    return rows_to_models(User, rows)
 
 
-def names_for_ids(db: Session, user_ids: list[str]) -> dict[str, str]:
+def names_for_ids(db: Db, user_ids: list[str]) -> dict[str, str]:
     """Map of user_id → name for the given ids (one query)."""
     if not user_ids:
         return {}
-    rows = db.query(User.id, User.name).filter(User.id.in_(user_ids)).all()
-    return {r[0]: r[1] for r in rows}
+    placeholders = ", ".join(["%s"] * len(user_ids))
+    rows = fetch_all(
+        db,
+        f"SELECT id, name FROM users WHERE id IN ({placeholders})",
+        tuple(user_ids),
+    )
+    return {r["id"]: r["name"] for r in rows}
 
 
-def update_user(db: Session, user: User, *, name: str | None = None, avatar: str | None = None) -> User:
+def update_user(db: Db, user: User, *, name: str | None = None, avatar: str | None = None) -> User:
+    sets: list[str] = []
+    params: list = []
     if name is not None:
-        user.name = name
+        sets.append("name = %s")
+        params.append(name)
     if avatar is not None:
-        user.avatar = avatar
-    db.add(user)
-    db.commit()
-    db.refresh(user)
+        sets.append("avatar = %s")
+        params.append(avatar)
+    if sets:
+        params.append(user.id)
+        db.write(f"UPDATE users SET {', '.join(sets)} WHERE id = %s", tuple(params))
     realtime.bump("users")
-    return user
+    updated = get_by_id(db, user.id)
+    assert updated is not None
+    return updated
 
 
-def update_password(db: Session, user: User, password_hash: str) -> User:
-    user.password_hash = password_hash
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
+def update_password(db: Db, user: User, password_hash: str) -> User:
+    db.write("UPDATE users SET password_hash = %s WHERE id = %s", (password_hash, user.id))
+    updated = get_by_id(db, user.id)
+    assert updated is not None
+    return updated
 
 
-def project_ids_for_user(db: Session, user_id: str) -> list[str]:
-    rows = db.query(ProjectMember.project_id).filter(ProjectMember.user_id == user_id).all()
-    return [r[0] for r in rows]
+def project_ids_for_user(db: Db, user_id: str) -> list[str]:
+    rows = fetch_all(
+        db,
+        "SELECT project_id FROM project_members WHERE user_id = %s",
+        (user_id,),
+    )
+    return [r["project_id"] for r in rows]
 
 
-def set_role(db: Session, user: User, role: str) -> User:
-    user.role = role
-    db.add(user)
-    db.commit()
-    db.refresh(user)
+def set_manager_id(db: Db, user: User, manager_id: str | None) -> User:
+    db.write("UPDATE users SET manager_id = %s WHERE id = %s", (manager_id, user.id))
     realtime.bump("users")
-    return user
+    updated = get_by_id(db, user.id)
+    assert updated is not None
+    return updated
 
 
-def set_active(db: Session, user: User, is_active: bool) -> User:
-    user.is_active = is_active
-    db.add(user)
-    db.commit()
-    db.refresh(user)
+def set_role(db: Db, user: User, role: str) -> User:
+    db.write("UPDATE users SET role = %s WHERE id = %s", (role, user.id))
     realtime.bump("users")
-    return user
+    updated = get_by_id(db, user.id)
+    assert updated is not None
+    return updated
 
 
-def set_project_membership(db: Session, user_id: str, project_ids: list[str]) -> None:
+def set_active(db: Db, user: User, is_active: bool) -> User:
+    db.write("UPDATE users SET is_active = %s WHERE id = %s", (is_active, user.id))
+    realtime.bump("users")
+    updated = get_by_id(db, user.id)
+    assert updated is not None
+    return updated
+
+
+def set_project_membership(db: Db, user_id: str, project_ids: list[str]) -> None:
     """Replace the set of projects this user belongs to with exactly `project_ids`."""
     wanted = {p for p in project_ids if p}
-    existing = {
-        r[0] for r in db.query(ProjectMember.project_id)
-        .filter(ProjectMember.user_id == user_id).all()
-    }
+    existing_rows = fetch_all(
+        db,
+        "SELECT project_id FROM project_members WHERE user_id = %s",
+        (user_id,),
+    )
+    existing = {r["project_id"] for r in existing_rows}
     for pid in existing - wanted:
-        db.query(ProjectMember).filter(
-            ProjectMember.user_id == user_id, ProjectMember.project_id == pid
-        ).delete(synchronize_session=False)
+        db.write(
+            "DELETE FROM project_members WHERE user_id = %s AND project_id = %s",
+            (user_id, pid),
+        )
     for pid in wanted - existing:
-        db.add(ProjectMember(user_id=user_id, project_id=pid))
-    db.commit()
+        db.write(
+            "INSERT INTO project_members (user_id, project_id) VALUES (%s, %s)",
+            (user_id, pid),
+        )
     realtime.bump("projects", "users")
 
 
 def create_user(
-    db: Session,
+    db: Db,
     *,
     user_id: str,
     name: str,
@@ -100,19 +131,15 @@ def create_user(
     joined_at: str = "",
 ) -> User:
     from datetime import datetime, timezone
-    u = User(
-        id=user_id,
-        name=name,
-        email=email,
-        password_hash=password_hash,
-        role=role,
-        avatar=avatar,
-        job_title=job_title,
-        experience_months=experience_months,
-        joined_at=joined_at or datetime.now(timezone.utc).isoformat(),
+
+    joined = joined_at or datetime.now(timezone.utc).isoformat()
+    db.write(
+        """INSERT INTO users (
+               id, name, email, password_hash, role, avatar, job_title, experience_months, joined_at
+           ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+        (user_id, name, email, password_hash, role, avatar, job_title, experience_months, joined),
     )
-    db.add(u)
-    db.commit()
-    db.refresh(u)
     realtime.bump("users")
-    return u
+    created = get_by_id(db, user_id)
+    assert created is not None
+    return created

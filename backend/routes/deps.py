@@ -1,7 +1,6 @@
 from fastapi import Depends, Header, HTTPException, status
-from sqlalchemy.orm import Session
 
-from database.database import get_db
+from database.database import Db, get_db
 from logic import auth_logic
 
 
@@ -13,14 +12,14 @@ def get_token(authorization: str | None = Header(None)) -> str:
 
 def get_current_user_id(
     token: str = Depends(get_token),
-    db: Session = Depends(get_db),
+    db: Db = Depends(get_db),
 ) -> str:
     return auth_logic.resolve_user_id(db, token)
 
 
 def require_admin(
     token: str = Depends(get_token),
-    db: Session = Depends(get_db),
+    db: Db = Depends(get_db),
 ) -> None:
     """Dependency guarding admin-only routes. Raises 401/403 unless the bearer
     token is an admin-scoped token (master admin or an app user with the admin role)."""

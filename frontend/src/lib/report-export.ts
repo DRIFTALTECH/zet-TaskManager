@@ -3,8 +3,10 @@
  *
  * PDF uses the browser's own "Save as PDF" via a standalone print window, so the
  * exported document is laid out independently of the app's CSS (no theme bleed,
- * always light, Clockify-style). Zero dependencies.
+ * always light, Clockify-style). Zero dependencies for CSV/PDF; Excel via xlsx.
  */
+
+import * as XLSX from 'xlsx';
 
 const csvEscape = (v: string | number): string => {
   const s = String(v ?? '');
@@ -102,4 +104,149 @@ export function openPrintWindow(opts: {
   w.document.write(html);
   w.document.close();
   w.focus();
+}
+
+// ── Per-employee report export ───────────────────────────────────────────────
+
+export interface EmployeeReportSummary {
+  employeeName: string;
+  periodLabel: string;
+  periodStart: string;
+  periodEnd: string;
+  totalHours: string;
+  billableHours: string;
+  nonBillableHours: string;
+  entryCount: number;
+  projectCount: number;
+}
+
+export function slugEmployeeName(name: string): string {
+  const slug = name.trim().replace(/[^\w\s-]/g, '').replace(/\s+/g, '_').replace(/_+/g, '_');
+  return slug || 'Employee';
+}
+
+export function employeeReportFilename(
+  employeeName: string,
+  periodStart: string,
+  periodEnd: string,
+): string {
+  return `Timesheet_Report_${slugEmployeeName(employeeName)}_${periodStart}_to_${periodEnd}`;
+}
+
+function summaryRowsFromEmployeeReport(summary: EmployeeReportSummary): [string, string][] {
+  return [
+    ['Employee Name', summary.employeeName],
+    ['Report Period', summary.periodLabel],
+    ['Total Hours', summary.totalHours],
+    ['Billable Hours', summary.billableHours],
+    ['Non-Billable Hours', summary.nonBillableHours],
+    ['Number of Entries', String(summary.entryCount)],
+    ['Number of Projects Worked On', String(summary.projectCount)],
+  ];
+}
+
+function employeeReportSummaryHtml(summary: EmployeeReportSummary): string {
+  const trs = summaryRowsFromEmployeeReport(summary)
+    .map(([label, value]) =>
+      `<tr><td style="color:#6b7280;font-weight:600;padding:6px 12px 6px 0;white-space:nowrap">${esc(label)}</td>`
+      + `<td style="padding:6px 0">${esc(value)}</td></tr>`,
+    )
+    .join('');
+  return `<div style="margin-bottom:24px;padding:16px 18px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px">`
+    + `<table>${trs}</table></div>`;
+}
+
+function downloadBlobCsv(filename: string, body: string): void {
+  const blob = new Blob(['﻿' + body], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename.endsWith('.csv') ? filename : `${filename}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+export function downloadEmployeeExcel(
+  filename: string,
+  summary: EmployeeReportSummary,
+  header: string[],
+  rows: (string | number)[][],
+): void {
+  const aoa: (string | number)[][] = [
+    ...summaryRowsFromEmployeeReport(summary),
+    [],
+    header,
+    ...rows,
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = [{ wch: 30 }, { wch: 44 }, { wch: 18 }, { wch: 18 }, { wch: 14 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 10 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Timesheet');
+  XLSX.writeFile(wb, filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`);
+}
+
+export function downloadEmployeeCSV(
+  filename: string,
+  summary: EmployeeReportSummary,
+  header: string[],
+  rows: (string | number)[][],
+): void {
+  const summaryLines = summaryRowsFromEmployeeReport(summary)
+    .map(([label, value]) => `${csvEscape(label)},${csvEscape(value)}`);
+  const body = [
+    ...summaryLines,
+    '',
+    header.map(csvEscape).join(','),
+    ...rows.map(r => r.map(csvEscape).join(',')),
+  ].join('\r\n');
+  downloadBlobCsv(filename, body);
+}
+
+export function openEmployeePrintWindow(
+  summary: EmployeeReportSummary,
+  detailColumns: PrintColumn[],
+  detailRows: (string | number)[][],
+): void {
+  openPrintWindow({
+    title: `Timesheet Report — ${summary.employeeName}`,
+    subtitle: summary.periodLabel,
+    total: summary.totalHours,
+    sections: [
+      employeeReportSummaryHtml(summary),
+      printTable(detailColumns, detailRows),
+    ],
+  });
+}
+
+export type EmployeeReportFormat = 'excel' | 'csv' | 'pdf';
+
+export interface EmployeeReportExportInput {
+  format: EmployeeReportFormat;
+  summary: EmployeeReportSummary;
+  detailHeader: string[];
+  detailRows: (string | number)[][];
+}
+
+/** Shared per-employee export — summary block + detailed rows, all active filters applied by caller. */
+export function exportEmployeeReport(input: EmployeeReportExportInput): void {
+  const base = employeeReportFilename(
+    input.summary.employeeName,
+    input.summary.periodStart,
+    input.summary.periodEnd,
+  );
+  if (input.format === 'excel') {
+    downloadEmployeeExcel(base, input.summary, input.detailHeader, input.detailRows);
+    return;
+  }
+  if (input.format === 'csv') {
+    downloadEmployeeCSV(base, input.summary, input.detailHeader, input.detailRows);
+    return;
+  }
+  openEmployeePrintWindow(
+    input.summary,
+    input.detailHeader.map(label => ({ label })),
+    input.detailRows,
+  );
 }

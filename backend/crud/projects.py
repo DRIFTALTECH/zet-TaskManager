@@ -1,109 +1,139 @@
-from sqlalchemy.orm import Session
-
 import realtime
-from database.models import Project, ProjectMember
+from crud._base import Db, fetch_all, fetch_one, row_to_model, rows_to_models
+from database.models import Project
 
 
-def get_by_id(db: Session, project_id: str) -> Project | None:
-    return db.query(Project).get(project_id)
+def get_by_id(db: Db, project_id: str) -> Project | None:
+    return row_to_model(Project, fetch_one(db, "SELECT * FROM projects WHERE id = %s", (project_id,)))
 
 
-def list_all(db: Session) -> list[Project]:
-    return db.query(Project).order_by(Project.name).all()
+def list_all(db: Db) -> list[Project]:
+    return rows_to_models(Project, fetch_all(db, "SELECT * FROM projects ORDER BY name"))
 
 
-def list_for_member(db: Session, user_id: str) -> list[Project]:
+def list_for_member(db: Db, user_id: str) -> list[Project]:
     """Projects the user is a member of — filtered in SQL via a join."""
-    return (
-        db.query(Project)
-        .join(ProjectMember, ProjectMember.project_id == Project.id)
-        .filter(ProjectMember.user_id == user_id)
-        .order_by(Project.name)
-        .all()
+    return rows_to_models(
+        Project,
+        fetch_all(
+            db,
+            """
+            SELECT p.* FROM projects p
+            INNER JOIN project_members pm ON pm.project_id = p.id
+            WHERE pm.user_id = %s
+            ORDER BY p.name
+            """,
+            (user_id,),
+        ),
     )
 
 
 def create_project(
-    db: Session,
+    db: Db,
     *,
     project_id: str,
     name: str,
     description: str,
+    client_id: str | None,
     created_by: str,
     created_at: str,
 ) -> Project:
-    p = Project(
-        id=project_id,
-        name=name,
-        description=description,
-        created_by=created_by,
-        created_at=created_at,
+    db.write(
+        """
+        INSERT INTO projects (id, name, description, client_id, created_by, created_at)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        """,
+        (project_id, name, description, client_id, created_by, created_at),
     )
-    db.add(p)
-    db.commit()
-    db.refresh(p)
     realtime.bump("projects")
-    return p
+    return row_to_model(
+        Project,
+        fetch_one(db, "SELECT * FROM projects WHERE id = %s", (project_id,)),
+    )  # type: ignore[return-value]
+
+
+def update_client(db: Db, project_id: str, client_id: str | None) -> None:
+    p = get_by_id(db, project_id)
+    if not p:
+        return
+    db.write(
+        "UPDATE projects SET client_id = %s WHERE id = %s",
+        (client_id, project_id),
+    )
+    realtime.bump("projects")
 
 
 def update_appearance(
-    db: Session, project_id: str, background_image: str, accent_color: str, project_image: str
+    db: Db, project_id: str, background_image: str, accent_color: str, project_image: str
 ) -> None:
-    p = db.query(Project).get(project_id)
+    p = get_by_id(db, project_id)
     if not p:
         return
-    p.background_image = background_image
-    p.accent_color = accent_color
-    p.project_image = project_image
-    db.commit()
+    db.write(
+        """
+        UPDATE projects
+        SET background_image = %s, accent_color = %s, project_image = %s
+        WHERE id = %s
+        """,
+        (background_image, accent_color, project_image, project_id),
+    )
     realtime.bump("projects")
 
 
-def add_member(db: Session, project_id: str, user_id: str) -> None:
-    exists = (
-        db.query(ProjectMember)
-        .filter(ProjectMember.project_id == project_id, ProjectMember.user_id == user_id)
-        .first()
+def add_member(db: Db, project_id: str, user_id: str) -> None:
+    exists = fetch_one(
+        db,
+        """
+        SELECT project_id FROM project_members
+        WHERE project_id = %s AND user_id = %s
+        """,
+        (project_id, user_id),
     )
     if exists:
         return
-    db.add(ProjectMember(project_id=project_id, user_id=user_id))
-    db.commit()
+    db.write(
+        "INSERT INTO project_members (project_id, user_id) VALUES (%s, %s)",
+        (project_id, user_id),
+    )
     # Membership affects both the project's roster and the user's project list.
     realtime.bump("projects", "users")
 
 
-def remove_member(db: Session, project_id: str, user_id: str) -> None:
-    db.query(ProjectMember).filter(
-        ProjectMember.project_id == project_id,
-        ProjectMember.user_id == user_id,
-    ).delete()
-    db.commit()
+def remove_member(db: Db, project_id: str, user_id: str) -> None:
+    db.write(
+        "DELETE FROM project_members WHERE project_id = %s AND user_id = %s",
+        (project_id, user_id),
+    )
     realtime.bump("projects", "users")
 
 
-def delete_project(db: Session, project_id: str) -> None:
+def delete_project(db: Db, project_id: str) -> None:
     """Delete a project and everything under it. Project-referencing FKs have no
     DB cascade, so we delete dependents in order; task children (assignees, logs,
     feedback, checklists, attachments, timer runs) DO cascade on task delete via
     their ondelete=CASCADE FKs (SQLite foreign_keys pragma is enabled)."""
-    from database.models import Section, Task, TimesheetEntry
-
-    db.query(TimesheetEntry).filter(TimesheetEntry.project_id == project_id).delete(synchronize_session=False)
-    db.query(Task).filter(Task.project_id == project_id).delete(synchronize_session=False)
-    db.query(Section).filter(Section.project_id == project_id).delete(synchronize_session=False)
-    db.query(ProjectMember).filter(ProjectMember.project_id == project_id).delete(synchronize_session=False)
-    db.query(Project).filter(Project.id == project_id).delete(synchronize_session=False)
-    db.commit()
+    db.write("DELETE FROM timesheet_entries WHERE project_id = %s", (project_id,))
+    db.write("DELETE FROM tasks WHERE project_id = %s", (project_id,))
+    db.write("DELETE FROM sections WHERE project_id = %s", (project_id,))
+    db.write("DELETE FROM project_members WHERE project_id = %s", (project_id,))
+    db.write("DELETE FROM projects WHERE id = %s", (project_id,))
     realtime.bump("projects", "tasks", "users")
 
 
-def member_ids(db: Session, project_id: str) -> list[str]:
-    rows = db.query(ProjectMember.user_id).filter(ProjectMember.project_id == project_id).all()
-    return [r[0] for r in rows]
+def member_ids(db: Db, project_id: str) -> list[str]:
+    rows = fetch_all(
+        db,
+        "SELECT user_id FROM project_members WHERE project_id = %s",
+        (project_id,),
+    )
+    return [r["user_id"] for r in rows]
 
 
-def project_ids_for_user(db: Session, user_id: str) -> set[str]:
+def project_ids_for_user(db: Db, user_id: str) -> set[str]:
     """All project ids the user is a member of — one query (for visibility checks)."""
-    rows = db.query(ProjectMember.project_id).filter(ProjectMember.user_id == user_id).all()
-    return {r[0] for r in rows}
+    rows = fetch_all(
+        db,
+        "SELECT project_id FROM project_members WHERE user_id = %s",
+        (user_id,),
+    )
+    return {r["project_id"] for r in rows}

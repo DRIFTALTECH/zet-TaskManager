@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   User, Lock, Sun, Moon, Camera, Check, Eye, EyeOff,
   Shield, Mail, Briefcase, Terminal, Copy, AlertTriangle, Trash2, Plug,
-  ShieldCheck, Search, X, RefreshCw, ChevronDown, Puzzle, Code2, Bot,
+  ShieldCheck, Search, X, RefreshCw, ChevronDown, Puzzle, Code2, Bot, Clock,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { toast } from 'sonner';
@@ -693,6 +693,22 @@ export default function SettingsPage() {
               </div>
             </div>
           </div>
+
+          {isManager && (
+            <div className="rounded-2xl border border-border/40 bg-card shadow-sm overflow-hidden p-5">
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-xl bg-primary/10 flex items-center justify-center">
+                  <Clock className="h-4 w-4 text-primary" />
+                </div>
+                <div>
+                  <h2 className="font-semibold text-foreground">Clockify Integration</h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Clockify data is imported using the external Clockify Importer.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* ── Developer Settings (MCP) ──────────────────────────── */}
           <div className="rounded-2xl border border-border/30 bg-card overflow-hidden">

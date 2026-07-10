@@ -7,9 +7,11 @@ data-gathering tallies and that the route wires logic → chain correctly.
 import uuid
 from datetime import date, datetime, timezone
 
+from conftest import make_project
+
 
 def _make_task(client, user, H):
-    pid = client.post("/projects", json={"name": "DS", "description": ""}, headers=H).json()["id"]
+    pid = make_project(client, H, name="DS")["id"]
     sid = client.post(f"/projects/{pid}/sections", json={"name": "S"}, headers=H).json()["sections"][0]["id"]
     tid = client.post("/tasks", json={
         "title": "Ship the recap", "projectId": pid, "sectionId": sid,
@@ -25,25 +27,36 @@ def test_summarize_day_gathers_today(client, manager, monkeypatch):
     today = date.today().isoformat()
 
     import ai.chains as chains
+    import crud.tasks as tasks_crud
     import crud.timelog as timelog_crud
+    import crud.timesheet_entries as te_crud
     from database.database import SessionLocal
-    from database.models import Task, TimesheetEntry
+    from database.models import TimesheetEntry
 
-    # Mark the task started today + log time + add a billable timesheet row.
     db = SessionLocal()
-    task = db.get(Task, tid)
+    task = tasks_crud.get_by_id(db, tid)
+    assert task is not None
     task.started_at = datetime.now(timezone.utc).isoformat()
-    db.add(task); db.commit()
+    tasks_crud.update_task(db, task)
     timelog_crud.add_seconds(db, tid, today, 3600, user["id"])
-    db.add(TimesheetEntry(
-        id=uuid.uuid4().hex, user_id=user["id"], work_date=today,
-        project_id=pid, section_id=sid, description="Reviewed PRs",
-        time_from="09:00", time_to="09:30", seconds=1800, billable=True,
-        created_at=datetime.now(timezone.utc).isoformat(),
-    ))
-    db.commit(); db.close()
+    te_crud.create_entry(
+        db,
+        TimesheetEntry(
+            id=uuid.uuid4().hex,
+            user_id=user["id"],
+            work_date=today,
+            project_id=pid,
+            section_id=sid,
+            description="Reviewed PRs",
+            time_from="09:00",
+            time_to="09:30",
+            seconds=1800,
+            billable=True,
+            created_at=datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+    db.close()
 
-    # Don't hit a real LLM.
     monkeypatch.setattr(chains, "summarize_day", lambda work_date, work_log: "You had a solid day.")
 
     out = client.get("/ai/summarize-day", headers=H).json()

@@ -1,7 +1,7 @@
 import re
 
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
+from database.database import Db
 
 import crud.kanban as kanban_crud
 import crud.tasks as tasks_crud
@@ -11,7 +11,7 @@ from logic.schemas import KanbanColumnCreate, KanbanColumnOut, KanbanColumnRenam
 PROTECTED_IDS: frozenset[str] = frozenset(["backlog", "in_progress", "testing", "in_review", "done"])
 
 
-def list_columns(db: Session) -> list[KanbanColumnOut]:
+def list_columns(db: Db) -> list[KanbanColumnOut]:
     cols = kanban_crud.list_ordered(db)
     return [KanbanColumnOut(id=c.id, label=c.label) for c in cols]
 
@@ -20,7 +20,7 @@ def _make_slug(label: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", label.strip().lower()).strip("_")
 
 
-def add_column(db: Session, body: KanbanColumnCreate) -> list[KanbanColumnOut]:
+def add_column(db: Db, body: KanbanColumnCreate) -> list[KanbanColumnOut]:
     label = body.label.strip()
     if not label:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Column name cannot be empty")
@@ -37,7 +37,7 @@ def add_column(db: Session, body: KanbanColumnCreate) -> list[KanbanColumnOut]:
     return list_columns(db)
 
 
-def rename_column(db: Session, column_id: str, body: KanbanColumnRename) -> list[KanbanColumnOut]:
+def rename_column(db: Db, column_id: str, body: KanbanColumnRename) -> list[KanbanColumnOut]:
     col = kanban_crud.get_by_id(db, column_id)
     if not col:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Column not found")
@@ -49,7 +49,7 @@ def rename_column(db: Session, column_id: str, body: KanbanColumnRename) -> list
     return list_columns(db)
 
 
-def delete_column(db: Session, column_id: str) -> list[KanbanColumnOut]:
+def delete_column(db: Db, column_id: str) -> list[KanbanColumnOut]:
     if column_id in PROTECTED_IDS:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
@@ -64,7 +64,7 @@ def delete_column(db: Session, column_id: str) -> list[KanbanColumnOut]:
     return list_columns(db)
 
 
-def reorder_columns(db: Session, body: KanbanReorderBody) -> list[KanbanColumnOut]:
+def reorder_columns(db: Db, body: KanbanReorderBody) -> list[KanbanColumnOut]:
     existing = {c.id for c in kanban_crud.list_ordered(db)}
     incoming = list(body.ids)
     if set(incoming) != existing:

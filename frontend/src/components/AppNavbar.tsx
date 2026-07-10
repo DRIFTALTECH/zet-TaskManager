@@ -12,19 +12,23 @@ const pageTitles: Record<string, string> = {
   '/': 'Dashboard',
   '/tasks': 'My Tasks',
   '/timesheet': 'Timesheet',
+  '/calendar': 'Calendar',
   '/reports': 'Time report',
   '/users': 'Users',
   '/manage': 'Manage projects',
   '/settings': 'Settings',
   '/audit': 'Audit',
+  '/overview': 'Overview',
   '/ai': 'Zani',
 };
+
+const HIDE_PROJECT_PICKER_PATHS = new Set(['/tasks', '/overview', '/timesheet', '/calendar']);
 
 const AppNavbar = () => {
   const { theme, toggleTheme, currentUser, projects, selectedProjectId, selectProject } = useAppStore();
   const [searchOpen, setSearchOpen] = useState(false);
   const location = useLocation();
-  const hideProjectPicker = location.pathname === '/tasks';
+  const hideProjectPicker = HIDE_PROJECT_PICKER_PATHS.has(location.pathname);
 
   const userProjects = projects.filter(p => currentUser?.projectIds.includes(p.id));
   const pageTitle = pageTitles[location.pathname] ?? 'ZET';

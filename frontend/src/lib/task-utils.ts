@@ -9,3 +9,23 @@ export function taskAssigneeIds(task: Task): string[] {
 export function isTaskAssignedTo(task: Task, userId: string): boolean {
   return taskAssigneeIds(task).includes(userId);
 }
+
+/** Assignee filter: empty set = no restriction (show all). */
+export function taskMatchesAssigneeFilter(task: Task, selectedUserIds: Set<string>): boolean {
+  if (selectedUserIds.size === 0) return true;
+  for (const id of selectedUserIds) {
+    if (isTaskAssignedTo(task, id)) return true;
+  }
+  return false;
+}
+
+const PRIORITIES = new Set(['Low', 'Medium', 'High', 'Urgent']);
+
+/** Clockify imports used lowercase priority — normalize for UI maps. */
+export function normalizePriority(priority: string | undefined): Task['priority'] {
+  if (!priority) return 'Medium';
+  if (PRIORITIES.has(priority)) return priority as Task['priority'];
+  const titled = priority.charAt(0).toUpperCase() + priority.slice(1).toLowerCase();
+  if (PRIORITIES.has(titled)) return titled as Task['priority'];
+  return 'Medium';
+}

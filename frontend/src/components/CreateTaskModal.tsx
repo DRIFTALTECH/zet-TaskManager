@@ -11,6 +11,8 @@ import { cn } from '@/lib/utils';
 import { localTodayISO, localTomorrowISO } from '@/lib/due-date-utils';
 import { api } from '@/lib/api';
 import ProjectSectionPicker from '@/components/ProjectSectionPicker';
+import { SubtaskDraftSection } from '@/components/SubtaskSection';
+import { collectSubtaskTitles, newSubtaskDraftRow, type SubtaskDraftRow } from '@/lib/subtask-utils';
 import type { TaskPrefill } from '@/pages/AIPage';
 
 interface Props {
@@ -42,6 +44,7 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
   const [newSectionName, setNewSectionName] = useState('');
   const [creatingSec, setCreatingSec] = useState(false);
   const [generatingDesc, setGeneratingDesc] = useState(false);
+  const [subtaskRows, setSubtaskRows] = useState<SubtaskDraftRow[]>(() => [newSubtaskDraftRow()]);
 
   const userProjects = currentUser ? projects.filter(p => currentUser.projectIds.includes(p.id)) : [];
 
@@ -113,6 +116,7 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
     setTagsStr('');
     setShowNewSection(false);
     setNewSectionName('');
+    setSubtaskRows([newSubtaskDraftRow()]);
   };
 
   const handleCreateSection = async () => {
@@ -178,8 +182,10 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
     }
     const ids = [...assigneeIds];
     if (ids.length === 0) return toast.error('Select at least one person assigned to this task');
+    const subtasks = collectSubtaskTitles(subtaskRows);
+    if (!subtasks.ok) return toast.error(subtasks.error);
     try {
-      await createTask({
+      const created = await createTask({
         title: title.trim(),
         description: description.trim(),
         projectId: effectiveProjectId,
@@ -191,6 +197,16 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
         priority,
         tags: tagsStr.split(',').map(t => t.trim()).filter(Boolean),
       });
+      try {
+        for (const subtaskTitle of subtasks.titles) {
+          await api.createChecklist(created.id, subtaskTitle);
+        }
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Task created, but some subtasks could not be saved');
+        onOpenChange(false);
+        resetForm();
+        return;
+      }
       // Tasker mascot animates the "task created" confirmation.
       onOpenChange(false);
       resetForm();
@@ -368,6 +384,8 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
                 placeholder="Comma-separated, e.g. frontend, urgent"
               />
             </div>
+
+            <SubtaskDraftSection rows={subtaskRows} onChange={setSubtaskRows} />
           </div>
         </div>
 

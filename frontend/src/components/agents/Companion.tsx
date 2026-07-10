@@ -17,6 +17,7 @@ import { api } from '@/lib/api';
 import type { Task, DaySummary } from '@/types';
 import AgentAvatar from './AgentAvatar';
 import { burstConfetti } from './confetti';
+import { sanitizeAiText } from '@/lib/insightUtils';
 import { usePrefersReducedMotion, fmtDur } from './shared';
 import { MenuItem, Stat } from './shared-ui';
 import type { AgentId, AgentMood } from './agents';
@@ -124,7 +125,10 @@ function StandupModal({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const lines = (data?.summary ?? '').split('\n').map(l => l.trim()).filter(Boolean);
+  const lines = (data?.summary ?? '')
+    .split('\n')
+    .map((l) => sanitizeAiText(l.trim()))
+    .filter(Boolean);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

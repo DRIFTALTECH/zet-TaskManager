@@ -1,4 +1,12 @@
-/** Production fallbacks when Vite env vars are unset (e.g. deployed static build). */
-export const DEFAULT_API_URL = 'https://zetapi.driftal.tech';
-export const DEFAULT_MICROSOFT_CLIENT_ID = 'eb4d79fc-169b-4d89-b381-e239ec7dfe5e';
-export const DEFAULT_MICROSOFT_TENANT_ID = '567ad03c-3f9a-42e7-bc13-9f75f6bc87b6';
+const MISSING_API_URL_MSG =
+  'VITE_API_URL is not set. Configure it in frontend/.env.development (vite dev) ' +
+  'or frontend/.env.production (vite build), or export it in the environment.';
+
+/** Shared API URL resolution for runtime (getApiUrl) and vite.config dev proxy. */
+export function requireApiUrl(viteApiUrl: string | undefined): string {
+  const url = viteApiUrl?.trim();
+  if (!url) {
+    throw new Error(MISSING_API_URL_MSG);
+  }
+  return url.replace(/\/+$/, '');
+}

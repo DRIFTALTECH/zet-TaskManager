@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { User, Project, Task, TaskStatus, KanbanColumn, Role } from '@/types';
+import { User, Project, Task, TaskStatus, KanbanColumn, Role, Client, Skill } from '@/types';
 import { api, TOKEN_KEY } from '@/lib/api';
 import { defaultSelectedProjectIdForUser } from '@/lib/project-utils';
 
@@ -62,9 +62,17 @@ interface AppState {
   projects: Project[];
   selectedProjectId: string | null;
   selectProject: (id: string | null) => void;
-  createProject: (name: string, description: string) => Promise<void>;
+  clients: Client[];
+  loadClients: () => Promise<void>;
+  createClient: (name: string) => Promise<Client>;
+  skills: Skill[];
+  loadSkills: () => Promise<void>;
+  createSkill: (name: string) => Promise<Skill>;
+  updateUserSkills: (userId: string, skillIds: string[]) => Promise<void>;
+  createProject: (name: string, description: string, clientId: string) => Promise<void>;
   addSection: (projectId: string, name: string) => Promise<void>;
   setProjectAppearance: (projectId: string, body: { backgroundImage?: string; accentColor?: string; projectImage?: string }) => Promise<void>;
+  updateProjectClient: (projectId: string, clientId: string | null) => Promise<void>;
   uploadProjectMedia: (projectId: string, kind: 'background' | 'project', file: Blob, accentColor?: string) => Promise<void>;
   removeSection: (projectId: string, sectionId: string) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
@@ -82,7 +90,7 @@ interface AppState {
       assignedBy: string;
       createdBy: string;
     },
-  ) => Promise<void>;
+  ) => Promise<Task>;
   updateTask: (id: string, updates: Partial<Task>) => Promise<void>;
   startTask: (id: string) => Promise<void>;
   moveTask: (id: string, status: TaskStatus) => Promise<void>;
@@ -103,14 +111,24 @@ interface AppState {
 
   searchQuery: string;
   setSearchQuery: (q: string) => void;
+
+  /** Bumped when server-side timesheet rows change outside this page (e.g. meeting notes). */
+  timesheetEpoch: number;
+  invalidateTimesheets: () => void;
 }
 
 async function refetchUsersProjects(get: () => AppState, set: (p: Partial<AppState>) => void) {
-  const [users, projects] = await Promise.all([api.getUsers(), api.getProjects()]);
   const cu = get().currentUser;
+  const isManager = cu?.role === 'manager' || cu?.role === 'admin';
+  const [users, projects, clients] = await Promise.all([
+    api.getUsers(),
+    api.getProjects(),
+    isManager ? api.getClients().catch(() => [] as Client[]) : Promise.resolve([] as Client[]),
+  ]);
   set({
     users,
     projects,
+    clients,
     currentUser: cu ? users.find(u => u.id === cu.id) ?? cu : null,
   });
 }
@@ -126,6 +144,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         currentUser: null,
         users: [],
         projects: [],
+        clients: [],
+        skills: [],
         tasks: [],
         kanbanColumns: DEFAULT_COLUMNS,
         selectedProjectId: null,
@@ -134,18 +154,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     try {
       const me = await api.getMe();
-      const [users, projects, tasks, kanbanColumns, activeTimerRows] = await Promise.all([
+      const isManager = me.role === 'manager' || me.role === 'admin';
+      const [users, projects, tasks, kanbanColumns, activeTimerRows, clients] = await Promise.all([
         api.getUsers(),
         api.getProjects(),
         api.getTasks(),
         api.getKanbanColumns(),
         api.getActiveTimers().catch(() => []),
+        isManager ? api.getClients().catch(() => [] as Client[]) : Promise.resolve([] as Client[]),
       ]);
       set({
         hydrated: true,
         currentUser: me,
         users,
         projects,
+        clients,
         tasks,
         kanbanColumns,
         selectedProjectId: defaultSelectedProjectIdForUser(projects, me.projectIds),
@@ -158,6 +181,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         currentUser: null,
         users: [],
         projects: [],
+        clients: [],
+        skills: [],
         tasks: [],
         kanbanColumns: DEFAULT_COLUMNS,
         selectedProjectId: null,
@@ -295,8 +320,61 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectedProjectId: null,
   selectProject: id => set({ selectedProjectId: id && id.length > 0 ? id : null }),
 
-  createProject: async (name, description) => {
-    const p = await api.createProject(name, description);
+  clients: [],
+  loadClients: async () => {
+    const cu = get().currentUser;
+    if (!cu || (cu.role !== 'manager' && cu.role !== 'admin')) {
+      set({ clients: [] });
+      return;
+    }
+    try {
+      set({ clients: await api.getClients() });
+    } catch {
+      // keep existing list on transient failure
+    }
+  },
+
+  createClient: async (name) => {
+    const client = await api.createClient(name);
+    set({
+      clients: [...get().clients.filter(c => c.id !== client.id), client]
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    });
+    return client;
+  },
+
+  skills: [],
+  loadSkills: async () => {
+    const cu = get().currentUser;
+    if (!cu || (cu.role !== 'manager' && cu.role !== 'admin')) {
+      set({ skills: [] });
+      return;
+    }
+    try {
+      set({ skills: await api.getSkills() });
+    } catch {
+      // keep existing list on transient failure
+    }
+  },
+
+  createSkill: async (name) => {
+    const skill = await api.createSkill(name);
+    set({
+      skills: [...get().skills.filter(s => s.id !== skill.id), skill]
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    });
+    return skill;
+  },
+
+  updateUserSkills: async (userId, skillIds) => {
+    const updated = await api.updateUserSkills(userId, skillIds);
+    set({
+      users: get().users.map(u => (u.id === userId ? updated : u)),
+    });
+  },
+
+  createProject: async (name, description, clientId) => {
+    const p = await api.createProject(name, description, clientId);
     await refetchUsersProjects(get, set);
     set({ selectedProjectId: p.id });
   },
@@ -310,6 +388,13 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setProjectAppearance: async (projectId, body) => {
     const updated = await api.setProjectAppearance(projectId, body);
+    set({
+      projects: get().projects.map(pr => (pr.id === projectId ? updated : pr)),
+    });
+  },
+
+  updateProjectClient: async (projectId, clientId) => {
+    const updated = await api.updateProjectClient(projectId, clientId);
     set({
       projects: get().projects.map(pr => (pr.id === projectId ? updated : pr)),
     });
@@ -388,6 +473,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
     set({ tasks: [...get().tasks, t] });
     get().emitAgentEvent('task_created');
+    return t;
   },
 
   updateTask: async (id, updates) => {
@@ -402,6 +488,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (updates.assigneeIds !== undefined) patch.assigneeIds = updates.assigneeIds;
     if (updates.customFields !== undefined) patch.customFields = updates.customFields;
     if (updates.dueDate !== undefined) patch.dueDate = updates.dueDate;
+    if (updates.minLogMinutes !== undefined) patch.minLogMinutes = updates.minLogMinutes;
     const t = await api.patchTask(id, patch);
     set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
     // Moved to a new section → Tasker "moved" animation.
@@ -503,4 +590,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   searchQuery: '',
   setSearchQuery: q => set({ searchQuery: q }),
+
+  timesheetEpoch: 0,
+  invalidateTimesheets: () => {
+    set(s => ({ timesheetEpoch: s.timesheetEpoch + 1 }));
+    void get().syncProjectsAndUsers();
+  },
 }));

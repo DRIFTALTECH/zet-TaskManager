@@ -17,8 +17,9 @@ import { toast } from 'sonner';
 import { pageEnter } from '@/lib/motion';
 import { useAppStore } from '@/stores/appStore';
 import { api } from '@/lib/api';
+import { isoWeekMonday, timesheetDateLocked } from '@/lib/timesheetSubmission';
 import { isTaskAssignedTo } from '@/lib/task-utils';
-import type { TimesheetWorkEntry, Task } from '@/types';
+import type { TimesheetSubmission, TimesheetWorkEntry, Task } from '@/types';
 import CalendarWeekView from '@/components/CalendarWeekView';
 import TaskSuggest from '@/components/TaskSuggest';
 import ProjectSectionPicker from '@/components/ProjectSectionPicker';
@@ -69,6 +70,7 @@ export default function CalendarPage() {
   const [dayDate, setDayDate] = useState(() => iso(new Date()));
   const [entries, setEntries] = useState<TimesheetWorkEntry[]>([]);
   const [loading, setLoading] = useState(false);
+  const [submission, setSubmission] = useState<TimesheetSubmission | null>(null);
   const todayStr = iso(new Date());
 
   const userProjects = useMemo(
@@ -99,7 +101,24 @@ export default function CalendarPage() {
       setLoading(false);
     }
   }, [currentUser, range.start, range.end]);
-  useEffect(() => { void load(); }, [load]);
+  const timesheetEpoch = useAppStore(s => s.timesheetEpoch);
+  useEffect(() => { void load(); }, [load, timesheetEpoch]);
+
+  const weekStartForView = kind === 'week' ? weekDates[0] : isoWeekMonday(dayDate);
+  const loadSubmission = useCallback(async () => {
+    if (!currentUser) return;
+    try {
+      setSubmission(await api.getTimesheetSubmissionStatus(weekStartForView));
+    } catch {
+      setSubmission(null);
+    }
+  }, [currentUser, weekStartForView]);
+  useEffect(() => { void loadSubmission(); }, [loadSubmission]);
+
+  const isDateLocked = useCallback(
+    (workDate: string) => timesheetDateLocked(submission, workDate),
+    [submission],
+  );
 
   // ── modal / form ────────────────────────────────────────────────────────────
   const [modal, setModal] = useState<Modal | null>(null);
@@ -114,11 +133,13 @@ export default function CalendarPage() {
   const [deleting, setDeleting] = useState(false);
 
   const openNewAt = (date: string, from: string, to: string) => {
+    if (isDateLocked(date)) return;
     setFProject(''); setFSection(''); setFDesc(''); setFBillable(true);
     setFFrom(from); setFTo(to);
     setModal({ mode: 'new', date, from, to });
   };
   const openEdit = (e: TimesheetWorkEntry) => {
+    if (isDateLocked(e.workDate)) return;
     setFProject(e.projectId); setFSection(e.sectionId); setFDesc(e.description);
     setFFrom(apiToCompact(e.timeFrom)); setFTo(apiToCompact(e.timeTo)); setFBillable(e.billable);
     setModal({ mode: 'edit', entry: e });
@@ -145,7 +166,7 @@ export default function CalendarPage() {
   };
 
   const save = async () => {
-    if (!modal) return;
+    if (!modal || isDateLocked(modal.mode === 'new' ? modal.date : modal.entry.workDate)) return;
     if (!fProject || !fSection) { toast.error('Select a project and section'); return; }
     let from: string; let to: string;
     try { from = compactToApi(fFrom); to = compactToApi(fTo); }
@@ -166,7 +187,7 @@ export default function CalendarPage() {
   };
 
   const confirmDelete = async () => {
-    if (!toDelete) return;
+    if (!toDelete || isDateLocked(toDelete.workDate)) return;
     setDeleting(true);
     try {
       await api.deleteTimesheetWorkEntry(toDelete.id);
@@ -179,6 +200,7 @@ export default function CalendarPage() {
   };
 
   const resizeEntry = async (entry: TimesheetWorkEntry, from: string, to: string) => {
+    if (isDateLocked(entry.workDate)) return;
     const tf = compactToApi(from); const tt = compactToApi(to);
     // Optimistic resize, then persist (server recomputes seconds from the new span).
     setEntries(prev => prev.map(x => (x.id === entry.id ? { ...x, timeFrom: tf, timeTo: tt } : x)));
@@ -195,6 +217,7 @@ export default function CalendarPage() {
   };
 
   const moveEntry = async (entry: TimesheetWorkEntry, date: string, from: string, to: string) => {
+    if (isDateLocked(entry.workDate) || isDateLocked(date)) return;
     const tf = compactToApi(from); const tt = compactToApi(to);
     setEntries(prev => prev.map(x => (x.id === entry.id ? { ...x, workDate: date, timeFrom: tf, timeTo: tt } : x)));
     try {
@@ -210,6 +233,7 @@ export default function CalendarPage() {
   };
 
   const toggleBillable = async (entry: TimesheetWorkEntry) => {
+    if (isDateLocked(entry.workDate)) return;
     setEntries(prev => prev.map(x => (x.id === entry.id ? { ...x, billable: !x.billable } : x)));
     try {
       await api.patchTimesheetWorkEntry(entry.id, { billable: !entry.billable });
@@ -269,6 +293,7 @@ export default function CalendarPage() {
             entries={entries}
             projects={projects}
             todayStr={todayStr}
+            readOnly={gridDates.every(d => isDateLocked(d))}
             onSelectEntry={openEdit}
             onAddAt={openNewAt}
             onResizeEntry={resizeEntry}

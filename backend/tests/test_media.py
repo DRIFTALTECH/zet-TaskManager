@@ -2,6 +2,8 @@
 
 import base64
 
+from conftest import make_project
+
 _PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
 )
@@ -9,7 +11,7 @@ _PNG = base64.b64decode(
 
 def test_media_upload_serves_url_and_sets_accent(client, manager):
     _user, H = manager
-    pid = client.post("/projects", json={"name": "M", "description": ""}, headers=H).json()["id"]
+    pid = make_project(client, H, name="M")["id"]
     r = client.post(
         f"/projects/{pid}/media",
         data={"kind": "background", "accent_color": "#3366ff"},
@@ -25,7 +27,7 @@ def test_media_upload_serves_url_and_sets_accent(client, manager):
 
 def test_media_rejects_non_raster(client, manager):
     _user, H = manager
-    pid = client.post("/projects", json={"name": "M2", "description": ""}, headers=H).json()["id"]
+    pid = make_project(client, H, name="M2")["id"]
     bad = client.post(
         f"/projects/{pid}/media",
         data={"kind": "project"},

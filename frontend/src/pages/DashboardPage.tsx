@@ -27,13 +27,14 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
-  Plus, CheckCircle, GripVertical,
+  Plus, GripVertical,
   MoreHorizontal, Pencil, Trash2, Flag, Check,
-  ListFilter,
+  ListFilter, Users,
 } from 'lucide-react';
+import { KanbanBoardPan } from '@/components/KanbanBoardPan';
 import TaskDetailModal from '@/components/TaskDetailModal';
-import UserAvatar from '@/components/UserAvatar';
 import CreateTaskModal from '@/components/CreateTaskModal';
+import { SortableTaskCard, TaskCard } from '@/components/TaskCard';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -45,35 +46,19 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { snappy, pageEnter } from '@/lib/motion';
-import { isTaskAssignedTo, taskAssigneeIds } from '@/lib/task-utils';
 import {
-  dueBucketDateTextClass,
-  getDueBucket,
   taskMatchesDashboardDueFilter,
+  taskMatchesDueDateRange,
   taskMatchesPriorityFilter,
   type DashboardDueFilter,
 } from '@/lib/due-date-utils';
+import { taskMatchesAssigneeFilter } from '@/lib/task-utils';
+import UserAvatar from '@/components/UserAvatar';
+import { DatePickerInput } from '@/components/DatePickerInput';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
 
 const PROTECTED_IDS = new Set(['backlog', 'in_progress', 'in_review', 'done']);
-
-const ID_PILL_PALETTES = [
-  'bg-blue-500/15 text-blue-400 border-blue-500/25',
-  'bg-violet-500/15 text-violet-400 border-violet-500/25',
-  'bg-emerald-500/15 text-emerald-400 border-emerald-500/25',
-  'bg-orange-500/15 text-orange-400 border-orange-500/25',
-  'bg-pink-500/15 text-pink-400 border-pink-500/25',
-  'bg-teal-500/15 text-teal-400 border-teal-500/25',
-  'bg-amber-500/15 text-amber-400 border-amber-500/25',
-  'bg-cyan-500/15 text-cyan-400 border-cyan-500/25',
-  'bg-indigo-500/15 text-indigo-400 border-indigo-500/25',
-  'bg-rose-500/15 text-rose-400 border-rose-500/25',
-];
-function idPillColor(id: string): string {
-  let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
-  return ID_PILL_PALETTES[h % ID_PILL_PALETTES.length];
-}
 const DONE_COL_KEY = 'tm_done_col';
 
 const priorityBadgeStyles: Record<Priority, string> = {
@@ -83,167 +68,15 @@ const priorityBadgeStyles: Record<Priority, string> = {
   Low: 'bg-green-500/15 text-green-400 border-green-500/20',
 };
 
-const priorityGlowColor: Record<Priority, string> = {
-  Urgent: 'rgba(239,68,68,0.25)',
-  High: 'rgba(249,115,22,0.25)',
-  Medium: 'rgba(234,179,8,0.2)',
-  Low: 'rgba(34,197,94,0.2)',
-};
-
-function useElapsedTime(epochStart: number | null): string {
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    if (!epochStart) return;
-    const id = setInterval(() => setTick(n => n + 1), 1000);
-    return () => clearInterval(id);
-  }, [epochStart]);
-  if (!epochStart) return '';
-  const secs = Math.max(0, Math.floor((Date.now() - epochStart) / 1000));
-  const h = Math.floor(secs / 3600);
-  const m = Math.floor((secs % 3600) / 60);
-  const s = secs % 60;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  if (h > 0) return `${h}:${pad(m)}:${pad(s)}`;
-  return `${pad(m)}:${pad(s)}`;
-}
-
-function TaskCard({
-  task, onClick, showApprove, onApprove, approving, canDrag,
-  isTimerActive, timerEpochStart, canStartTimer, onStartTimer, onStopTimer,
-  showProjectPill,
-}: {
-  task: Task; onClick: () => void;
-  showApprove?: boolean; onApprove?: () => void; approving?: boolean;
-  canDrag: boolean;
-  isTimerActive: boolean; timerEpochStart: number | null;
-  canStartTimer: boolean; onStartTimer: () => void; onStopTimer: () => void;
-  showProjectPill?: boolean;
-}) {
-  const { users, projects } = useAppStore();
-  const taskProject = projects.find(p => p.id === task.projectId);
-  const taskSection = taskProject?.sections.find(s => s.id === task.sectionId);
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: task.id, data: { type: 'task' as const }, animateLayoutChanges: () => false, disabled: !canDrag,
-  });
-  const assigneeList = taskAssigneeIds(task).map(id => users.find(u => u.id === id)).filter(Boolean) as typeof users;
-  const elapsed = useElapsedTime(timerEpochStart);
-  const isDoneLane = task.status === 'completed' || task.status === 'done';
-  const dueBucket = getDueBucket(task.dueDate);
-  const isOverdue = dueBucket === 'overdue' && !isDoneLane;
-  const showTimer = (canStartTimer || isTimerActive) && task.status !== 'completed' && task.status !== 'done';
-  const formatDate = (d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  return (
-    <div
-      ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition: transition ?? undefined, opacity: isDragging ? 0 : 1, ...(isDragging ? { pointerEvents: 'none' as const } : {}) }}
-      {...attributes} {...(canDrag ? listeners : {})}
-      onClick={onClick}
-      className={`group relative min-h-[250px] touch-none select-none ${canDrag ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
-    >
-      <div
-        className="rounded-2xl border-2 border-border/70 bg-gradient-to-br from-muted/70 via-card to-muted/40 dark:from-muted/50 dark:via-card dark:to-muted/30 p-6 min-h-[250px] flex flex-col transition-[transform,box-shadow] duration-200 ease-out will-change-transform group-hover:-translate-y-1.5 group-hover:scale-[1.02] shadow-md group-hover:shadow-xl group-hover:[box-shadow:0_20px_60px_-10px_var(--card-glow)]"
-        style={{ ['--card-glow' as string]: priorityGlowColor[task.priority] }}
-      >
-        <div className="flex items-center justify-between mb-4">
-          <span className="text-xs font-mono text-muted-foreground/60 tracking-wider">TF-{task.id.replace(/\D/g, '').padStart(3, '0')}</span>
-          <span className={`text-[11px] px-3 py-1 rounded-full font-semibold border ${priorityBadgeStyles[task.priority]}`}>{task.priority}</span>
-        </div>
-        <h4 className="text-base font-bold leading-snug mb-2 text-foreground line-clamp-2 shrink-0">{task.title}</h4>
-        <div className="flex-1 min-h-0 min-w-0" aria-hidden />
-        <div className="pt-2 mt-auto space-y-2 shrink-0">
-          {((showProjectPill && taskProject) || taskSection || showTimer) && (
-            <div className="flex items-center justify-between gap-2 min-h-10">
-              <div className="flex items-center gap-1.5 flex-wrap min-w-0 pr-2 flex-1">
-                {showProjectPill && taskProject && taskSection ? (
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold truncate max-w-[200px] ${idPillColor(taskProject.id)}`}>
-                    {taskProject.name} · {taskSection.name}
-                  </span>
-                ) : (
-                  <>
-                    {showProjectPill && taskProject && (
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold truncate max-w-[120px] ${idPillColor(taskProject.id)}`}>
-                        {taskProject.name}
-                      </span>
-                    )}
-                    {taskSection && (
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold truncate max-w-[120px] ${idPillColor(taskSection.id)}`}>
-                        {taskSection.name}
-                      </span>
-                    )}
-                  </>
-                )}
-              </div>
-              <div className="flex items-center justify-end shrink-0">
-                {showTimer && (
-                  isTimerActive ? (
-                    <div className="flex items-center gap-1.5 justify-end">
-                      <button
-                        type="button"
-                        className="text-sm font-semibold px-4 py-2 min-h-10 rounded-lg bg-destructive/90 text-destructive-foreground hover:bg-destructive transition-colors"
-                        onClick={e => { e.stopPropagation(); onStopTimer(); }}
-                      >
-                        Stop
-                      </button>
-                      {elapsed ? (
-                        <span className="text-xs font-mono text-muted-foreground tabular-nums">{elapsed}</span>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      className="text-sm font-semibold px-4 py-2 min-h-10 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-                      onClick={e => { e.stopPropagation(); onStartTimer(); }}
-                    >
-                      Start
-                    </button>
-                  )
-                )}
-              </div>
-            </div>
-          )}
-          <div className="flex items-end justify-between gap-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="flex -space-x-2 shrink-0">
-                {assigneeList.slice(0, 3).map(u => (
-                  <UserAvatar key={u.id} name={u.name} avatar={u.avatar} size="xs" className="border-2 border-card" />
-                ))}
-                {assigneeList.length === 0 && <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center"><span className="text-[10px] text-muted-foreground">?</span></div>}
-              </div>
-              <span className="text-sm text-muted-foreground font-medium truncate">
-                {assigneeList.length === 0 ? 'Unassigned' : assigneeList.length === 1 ? assigneeList[0].name.split(' ')[0] : `${assigneeList.length} people`}
-              </span>
-            </div>
-            <span className={`text-sm font-mono shrink-0 ${dueBucketDateTextClass(dueBucket, isDoneLane)}`}>
-              {formatDate(task.dueDate)}
-            </span>
-          </div>
-        </div>
-        {showApprove && (
-          <div className="pt-3 mt-1 border-t border-border/50">
-            <Button type="button" size="sm"
-              className="w-full rounded-xl gap-1.5 bg-green-600 text-white hover:bg-green-700 border-green-600 shadow-sm"
-              disabled={approving}
-              onClick={e => { e.stopPropagation(); void onApprove?.(); }}>
-              <CheckCircle className="h-3.5 w-3.5" />
-              {approving ? 'Approving…' : 'Approve completed'}
-            </Button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function KanbanColumnPanel({
-  column, tasks, onTaskClick, onNewTask, isDropTarget, isManager, currentUserId,
-  approvingId, onApprove, activeTimers, onStartTimer, onStopTimer,
+  column, tasks, onTaskClick, onNewTask, isDropTarget, isManager,
+  approvingId, onApprove,
   isDoneColumn, onSetDoneColumn, onRenameColumn, onDeleteColumn, showProjectPill,
 }: {
   column: KanbanColumn; tasks: Task[];
   onTaskClick: (t: Task) => void; onNewTask: () => void;
-  isDropTarget: boolean; isManager: boolean; currentUserId: string;
+  isDropTarget: boolean; isManager: boolean;
   approvingId: string | null; onApprove: (id: string) => void;
-  activeTimers: Record<string, number>; onStartTimer: (id: string) => void; onStopTimer: (id: string) => void;
   isDoneColumn: boolean; onSetDoneColumn: () => void;
   onRenameColumn: () => void; onDeleteColumn: () => void;
   showProjectPill?: boolean;
@@ -303,18 +136,13 @@ function KanbanColumnPanel({
       <div className="space-y-4 flex-1 px-0.5 min-h-[200px]">
         <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
           {tasks.map(task => (
-            <TaskCard
-              key={task.id} task={task}
+            <SortableTaskCard
+              key={task.id}
+              task={task}
               onClick={() => onTaskClick(task)}
               showApprove={isManager && isDoneColumn}
               onApprove={() => onApprove(task.id)}
               approving={approvingId === task.id}
-              canDrag={isTaskAssignedTo(task, currentUserId)}
-              isTimerActive={!!activeTimers[task.id]}
-              timerEpochStart={activeTimers[task.id] ?? null}
-              canStartTimer={isTaskAssignedTo(task, currentUserId)}
-              onStartTimer={() => onStartTimer(task.id)}
-              onStopTimer={() => onStopTimer(task.id)}
               showProjectPill={showProjectPill}
             />
           ))}
@@ -347,9 +175,9 @@ function MascotDropZone() {
 
 const DashboardPage = () => {
   const {
-    currentUser, projects, selectProject, tasks, selectedProjectId,
+    currentUser, projects, selectProject, tasks, selectedProjectId, users,
     moveTask, kanbanColumns, approveTask,
-    activeTimers, startTimer, stopTimer,
+    activeTimers,
     addColumn, renameColumn, removeColumn, reorderColumns,
     mascotsEnabled, setMascotDrag, setMascotDropTask,
   } = useAppStore();
@@ -404,6 +232,9 @@ const DashboardPage = () => {
 
   const [dashPriorityFilter, setDashPriorityFilter] = useState<Set<Priority>>(() => new Set());
   const [dashDueFilter, setDashDueFilter] = useState<DashboardDueFilter>('all');
+  const [dashDateFrom, setDashDateFrom] = useState('');
+  const [dashDateTo, setDashDateTo] = useState('');
+  const [dashAssigneeFilter, setDashAssigneeFilter] = useState<Set<string>>(() => new Set());
 
   const toggleDashPriority = useCallback((p: Priority) => {
     setDashPriorityFilter(prev => {
@@ -414,12 +245,40 @@ const DashboardPage = () => {
     });
   }, []);
 
+  const toggleDashAssignee = useCallback((userId: string) => {
+    setDashAssigneeFilter(prev => {
+      const n = new Set(prev);
+      if (n.has(userId)) n.delete(userId);
+      else n.add(userId);
+      return n;
+    });
+  }, []);
+
+  const dashFilterableMembers = useMemo(() => {
+    const memberIds = new Set<string>();
+    if (isAllProjects) {
+      for (const p of userProjects) {
+        for (const id of p.members) memberIds.add(id);
+      }
+    } else if (selectedProjectId) {
+      const p = userProjects.find(pr => pr.id === selectedProjectId);
+      if (p) for (const id of p.members) memberIds.add(id);
+    }
+    return users
+      .filter(u => memberIds.has(u.id))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [users, userProjects, isAllProjects, selectedProjectId]);
+
   const filteredProjectTasks = useMemo(
     () =>
       projectTasks.filter(
-        t => taskMatchesPriorityFilter(t, dashPriorityFilter) && taskMatchesDashboardDueFilter(t, dashDueFilter),
+        t =>
+          taskMatchesPriorityFilter(t, dashPriorityFilter) &&
+          taskMatchesDashboardDueFilter(t, dashDueFilter) &&
+          taskMatchesDueDateRange(t, dashDateFrom, dashDateTo) &&
+          taskMatchesAssigneeFilter(t, dashAssigneeFilter),
       ),
-    [projectTasks, dashPriorityFilter, dashDueFilter],
+    [projectTasks, dashPriorityFilter, dashDueFilter, dashDateFrom, dashDateTo, dashAssigneeFilter],
   );
 
   const handleSetDoneColumn = (colId: string) => {
@@ -604,6 +463,47 @@ const DashboardPage = () => {
           <Popover>
             <PopoverTrigger asChild>
               <Button type="button" variant="outline" size="sm" className="rounded-xl gap-2 h-9 border-border/80">
+                <Users className="h-4 w-4 shrink-0" />
+                Person
+                {dashAssigneeFilter.size > 0 && (
+                  <span className="text-[10px] font-semibold tabular-nums px-1.5 py-0.5 rounded-md bg-primary/15 text-primary">
+                    {dashAssigneeFilter.size}
+                  </span>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-72">
+              <p className="text-xs font-semibold text-foreground mb-1">Filter by person</p>
+              <p className="text-[10px] text-muted-foreground mb-3">Show tasks assigned to selected people. Leave all off to show everyone.</p>
+              <div className="space-y-1 max-h-56 overflow-y-auto">
+                {dashFilterableMembers.map(u => (
+                  <label key={u.id} className="flex items-center gap-2.5 py-1.5 cursor-pointer rounded-lg hover:bg-muted/50 px-1 -mx-1">
+                    <Checkbox
+                      checked={dashAssigneeFilter.has(u.id)}
+                      onCheckedChange={() => toggleDashAssignee(u.id)}
+                    />
+                    <UserAvatar name={u.name} avatar={u.avatar} size="xs" />
+                    <span className="text-sm text-foreground truncate">{u.name}</span>
+                  </label>
+                ))}
+                {dashFilterableMembers.length === 0 && (
+                  <p className="text-xs text-muted-foreground py-2">No team members in this view.</p>
+                )}
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="w-full mt-3 rounded-lg text-xs"
+                onClick={() => setDashAssigneeFilter(new Set())}
+              >
+                Clear person filter
+              </Button>
+            </PopoverContent>
+          </Popover>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button type="button" variant="outline" size="sm" className="rounded-xl gap-2 h-9 border-border/80">
                 <ListFilter className="h-4 w-4 shrink-0" />
                 Priority
                 {dashPriorityFilter.size > 0 && (
@@ -653,6 +553,33 @@ const DashboardPage = () => {
               <option value="later">Due in 7+ days</option>
             </select>
           </div>
+          <div className="flex flex-col gap-1 min-w-[10rem]">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Due from</span>
+            <DatePickerInput
+              value={dashDateFrom}
+              onChange={setDashDateFrom}
+              aria-label="Due from"
+            />
+          </div>
+          <div className="flex flex-col gap-1 min-w-[10rem]">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Due to</span>
+            <DatePickerInput
+              value={dashDateTo}
+              onChange={setDashDateTo}
+              aria-label="Due to"
+            />
+          </div>
+          {(dashDateFrom || dashDateTo) && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="rounded-xl text-xs self-end"
+              onClick={() => { setDashDateFrom(''); setDashDateTo(''); }}
+            >
+              Clear dates
+            </Button>
+          )}
         </div>
       </div>
 
@@ -660,7 +587,7 @@ const DashboardPage = () => {
         onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}>
         <SortableContext items={boardColumns.map(c => c.id)} strategy={horizontalListSortingStrategy}>
-          <div className="flex gap-6 flex-1 overflow-x-auto pb-4">
+          <KanbanBoardPan className="flex gap-6 flex-1 pb-4">
             {boardColumns.map(col => (
               <KanbanColumnPanel
                 key={col.id} column={col}
@@ -669,12 +596,8 @@ const DashboardPage = () => {
                 onNewTask={() => setCreateOpen(true)}
                 isDropTarget={overColumnId === col.id}
                 isManager={!!isManager}
-                currentUserId={currentUser.id}
                 approvingId={approvingId}
                 onApprove={handleApprove}
-                activeTimers={activeTimers}
-                onStartTimer={id => { void startTimer(id); }}
-                onStopTimer={id => { void stopTimer(id); }}
                 isDoneColumn={col.id === doneColumnId}
                 onSetDoneColumn={() => handleSetDoneColumn(col.id)}
                 onRenameColumn={() => openRename(col)}
@@ -691,20 +614,13 @@ const DashboardPage = () => {
                 <Plus className="h-4 w-4" /> Add Column
               </motion.button>
             </div>
-          </div>
+          </KanbanBoardPan>
         </SortableContext>
 
         <DragOverlay dropAnimation={null}>
           {activeTask && (
-            <div
-              className="rounded-2xl border-2 border-border/70 bg-card/95 backdrop-blur-sm p-6 shadow-2xl w-[380px] h-[250px] cursor-grabbing rotate-1 scale-[1.02]"
-              style={{ boxShadow: `0 25px 60px -10px ${priorityGlowColor[activeTask.priority]}` }}
-            >
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-mono text-muted-foreground/60">TF-{activeTask.id.replace(/\D/g, '').padStart(3, '0')}</span>
-                <span className={`text-[11px] px-3 py-1 rounded-full font-semibold border ${priorityBadgeStyles[activeTask.priority]}`}>{activeTask.priority}</span>
-              </div>
-              <h4 className="text-base font-bold text-foreground">{activeTask.title}</h4>
+            <div className="w-[380px] cursor-grabbing rotate-1 scale-[1.02] pointer-events-none">
+              <TaskCard task={activeTask} onClick={() => {}} showProjectPill={isAllProjects} />
             </div>
           )}
           {activeColumn && (

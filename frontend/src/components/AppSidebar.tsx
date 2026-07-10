@@ -43,7 +43,15 @@ const AppSidebar = () => {
           )}
           {navItems.map(item => {
             if ('managerOnly' in item && item.managerOnly && currentUser.role !== 'manager' && currentUser.role !== 'admin') return null;
-            const active = location.pathname === item.path;
+            const path = location.pathname;
+            const active =
+              item.path === '/manage'
+                ? path.startsWith('/manage')
+                : item.path === '/users/forecast'
+                  ? path === '/users/forecast'
+                  : item.path === '/users'
+                    ? path === '/users' || (path.startsWith('/users/') && path !== '/users/forecast')
+                    : path === item.path;
             return (
               <Link key={item.path} to={item.path}
                 className={`relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors duration-150 ${

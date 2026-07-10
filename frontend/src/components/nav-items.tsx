@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, ListTodo, Clock, BarChart3, Users, FolderKanban, Sparkles, CalendarDays, CalendarRange } from 'lucide-react';
+import { LayoutDashboard, ListTodo, Clock, BarChart3, Users, FolderKanban, Sparkles, CalendarDays, CalendarRange, LayoutGrid, TrendingUp } from 'lucide-react';
 
 export interface NavItem {
   path: string;
@@ -11,12 +11,14 @@ export interface NavItem {
 
 export const navItems: NavItem[] = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { path: '/overview', label: 'Overview', icon: LayoutGrid, managerOnly: true },
   { path: '/tasks', label: 'My Tasks', icon: ListTodo },
   { path: '/timesheet', label: 'Timesheet', icon: Clock },
   { path: '/calendar', label: 'Calendar', icon: CalendarRange },
   { path: '/meeting-notes', label: 'Meeting notes', icon: CalendarDays },
   { path: '/reports', label: 'Reports', icon: BarChart3 },
   { path: '/users', label: 'Users', icon: Users, managerOnly: true },
+  { path: '/users/forecast', label: 'What Will Happen Next?', icon: TrendingUp, managerOnly: true },
   { path: '/manage', label: 'Manage projects', icon: FolderKanban, managerOnly: true },
   {
     path: '/ai',

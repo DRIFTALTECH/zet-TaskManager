@@ -1,29 +1,36 @@
-from sqlalchemy.orm import Session
+from crud._base import Db, fetch_all, fetch_one, row_to_model, rows_to_models
 
 import realtime
 from database.models import Section
 
 
-def list_for_project(db: Session, project_id: str) -> list[Section]:
-    return db.query(Section).filter(Section.project_id == project_id).order_by(Section.name).all()
+def list_for_project(db: Db, project_id: str) -> list[Section]:
+    rows = fetch_all(
+        db,
+        "SELECT * FROM sections WHERE project_id = %s ORDER BY name",
+        (project_id,),
+    )
+    return rows_to_models(Section, rows)
 
 
-def get_by_id(db: Session, section_id: str) -> Section | None:
-    return db.query(Section).get(section_id)
+def get_by_id(db: Db, section_id: str) -> Section | None:
+    row = fetch_one(db, "SELECT * FROM sections WHERE id = %s", (section_id,))
+    return row_to_model(Section, row)
 
 
-def create_section(db: Session, *, section_id: str, name: str, project_id: str) -> Section:
-    s = Section(id=section_id, name=name, project_id=project_id)
-    db.add(s)
-    db.commit()
-    db.refresh(s)
+def create_section(db: Db, *, section_id: str, name: str, project_id: str) -> Section:
+    db.write(
+        "INSERT INTO sections (id, name, project_id) VALUES (%s, %s, %s)",
+        (section_id, name, project_id),
+    )
     realtime.bump("projects")
-    return s
+    created = get_by_id(db, section_id)
+    assert created is not None
+    return created
 
 
-def delete_section(db: Session, section_id: str) -> None:
-    s = db.query(Section).filter(Section.id == section_id).first()
-    if s:
-        db.delete(s)
-        db.commit()
+def delete_section(db: Db, section_id: str) -> None:
+    row = fetch_one(db, "SELECT id FROM sections WHERE id = %s", (section_id,))
+    if row:
+        db.write("DELETE FROM sections WHERE id = %s", (section_id,))
         realtime.bump("projects")

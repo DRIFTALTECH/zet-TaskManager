@@ -1,5 +1,6 @@
-import type { AuditLog, KanbanColumn, Notification, Project, Role, Task, TaskAttachment, TaskChecklist, TaskFeedback, TimesheetWorkEntry, User } from '@/types';
+import type { AuditLog, Client, KanbanColumn, Notification, Project, Role, Skill, Task, TaskAttachment, TaskChecklist, TaskFeedback, TimesheetSubmission, TimesheetSubmissionReview, TimesheetWorkEntry, User } from '@/types';
 import { getApiUrl } from '@/lib/env';
+import { shiftDate } from '@/lib/utils';
 
 const TOKEN_KEY = 'tm_token';
 
@@ -56,6 +57,75 @@ export function clearStoredToken(): void {
   localStorage.removeItem(TOKEN_KEY);
 }
 
+function mapEntryToLocal(entry: TimesheetWorkEntry): TimesheetWorkEntry {
+  if (!entry.workDate || !entry.timeFrom || !entry.timeTo) {
+    return entry;
+  }
+  try {
+    const startDt = new Date(`${entry.workDate}T${entry.timeFrom}:00Z`);
+    if (Number.isNaN(startDt.getTime())) return entry;
+
+    let endDt = new Date(`${entry.workDate}T${entry.timeTo}:00Z`);
+    if (entry.timeTo < entry.timeFrom) {
+      endDt.setDate(endDt.getDate() + 1);
+    }
+    if (Number.isNaN(endDt.getTime())) return entry;
+
+    const startYear = startDt.getFullYear();
+    const startMonth = String(startDt.getMonth() + 1).padStart(2, '0');
+    const startDate = String(startDt.getDate()).padStart(2, '0');
+    const localWorkDate = `${startYear}-${startMonth}-${startDate}`;
+    
+    const localTimeFrom = `${String(startDt.getHours()).padStart(2, '0')}:${String(startDt.getMinutes()).padStart(2, '0')}`;
+    const localTimeTo = `${String(endDt.getHours()).padStart(2, '0')}:${String(endDt.getMinutes()).padStart(2, '0')}`;
+
+    return {
+      ...entry,
+      workDate: localWorkDate,
+      timeFrom: localTimeFrom,
+      timeTo: localTimeTo,
+    };
+  } catch {
+    return entry;
+  }
+}
+
+function mapEntryToUtc<T extends { workDate: string; timeFrom: string; timeTo: string }>(body: T): T {
+  if (!body.workDate || !body.timeFrom || !body.timeTo) {
+    return body;
+  }
+  try {
+    const [y, m, d] = body.workDate.split('-').map(Number);
+    const [h1, mm1] = body.timeFrom.split(':').map(Number);
+    const [h2, mm2] = body.timeTo.split(':').map(Number);
+
+    const startDt = new Date(y!, m! - 1, d!, h1!, mm1!, 0);
+    let endDt = new Date(y!, m! - 1, d!, h2!, mm2!, 0);
+    if (body.timeTo < body.timeFrom) {
+      endDt.setDate(endDt.getDate() + 1);
+    }
+
+    if (Number.isNaN(startDt.getTime()) || Number.isNaN(endDt.getTime())) return body;
+
+    const utcYear = startDt.getUTCFullYear();
+    const utcMonth = String(startDt.getUTCMonth() + 1).padStart(2, '0');
+    const utcDate = String(startDt.getUTCDate()).padStart(2, '0');
+    const utcWorkDate = `${utcYear}-${utcMonth}-${utcDate}`;
+
+    const utcTimeFrom = `${String(startDt.getUTCHours()).padStart(2, '0')}:${String(startDt.getUTCMinutes()).padStart(2, '0')}`;
+    const utcTimeTo = `${String(endDt.getUTCHours()).padStart(2, '0')}:${String(endDt.getUTCMinutes()).padStart(2, '0')}`;
+
+    return {
+      ...body,
+      workDate: utcWorkDate,
+      timeFrom: utcTimeFrom,
+      timeTo: utcTimeTo,
+    };
+  } catch {
+    return body;
+  }
+}
+
 export const api = {
   async login(email: string, password: string, rememberMe = false): Promise<{ access_token: string; user: User }> {
     return request('/auth/login', {
@@ -108,8 +178,31 @@ export const api = {
     return request('/projects');
   },
 
-  async createProject(name: string, description: string): Promise<Project> {
-    return request('/projects', { method: 'POST', body: JSON.stringify({ name, description }) });
+  async getClients(): Promise<Client[]> {
+    return request('/clients');
+  },
+
+  async getSkills(): Promise<Skill[]> {
+    return request('/skills');
+  },
+
+  async createSkill(name: string): Promise<Skill> {
+    return request('/skills', { method: 'POST', body: JSON.stringify({ name }) });
+  },
+
+  async updateUserSkills(userId: string, skillIds: string[]): Promise<User> {
+    return request(`/users/${userId}/skills`, {
+      method: 'PATCH',
+      body: JSON.stringify({ skillIds }),
+    });
+  },
+
+  async createClient(name: string): Promise<Client> {
+    return request('/clients', { method: 'POST', body: JSON.stringify({ name }) });
+  },
+
+  async createProject(name: string, description: string, clientId: string): Promise<Project> {
+    return request('/projects', { method: 'POST', body: JSON.stringify({ name, description, clientId }) });
   },
 
   async addSection(projectId: string, name: string): Promise<Project> {
@@ -126,6 +219,13 @@ export const api = {
     return request(`/projects/${projectId}/appearance`, {
       method: 'PATCH',
       body: JSON.stringify(body),
+    });
+  },
+
+  async updateProjectClient(projectId: string, clientId: string | null): Promise<Project> {
+    return request(`/projects/${projectId}/client`, {
+      method: 'PATCH',
+      body: JSON.stringify({ clientId }),
     });
   },
 
@@ -270,6 +370,7 @@ export const api = {
       assigneeIds: string[];
       customFields: Record<string, string>;
       dueDate: string;
+      minLogMinutes: number;
     }>,
   ): Promise<Task> {
     return request(`/tasks/${taskId}`, { method: 'PATCH', body: JSON.stringify(patch) });
@@ -334,25 +435,35 @@ export const api = {
   },
 
   async getTimesheetWorkEntries(start: string, end: string): Promise<TimesheetWorkEntry[]> {
-    const q = new URLSearchParams({ start, end });
-    return request(`/timesheet/entries?${q.toString()}`);
+    const fetchStart = shiftDate(start, -1);
+    const fetchEnd = shiftDate(end, 1);
+    const q = new URLSearchParams({ start: fetchStart, end: fetchEnd });
+    const entries = await request<TimesheetWorkEntry[]>(`/timesheet/entries?${q.toString()}`);
+    return entries.map(mapEntryToLocal).filter(e => e.workDate >= start && e.workDate <= end);
   },
 
   /** Manager-only: another user's entries in the date range. */
   async getTimesheetWorkEntriesForUser(userId: string, start: string, end: string): Promise<TimesheetWorkEntry[]> {
-    const q = new URLSearchParams({ start, end });
-    return request(`/timesheet/users/${userId}/entries?${q.toString()}`);
+    const fetchStart = shiftDate(start, -1);
+    const fetchEnd = shiftDate(end, 1);
+    const q = new URLSearchParams({ start: fetchStart, end: fetchEnd });
+    const entries = await request<TimesheetWorkEntry[]>(`/timesheet/users/${userId}/entries?${q.toString()}`);
+    return entries.map(mapEntryToLocal).filter(e => e.workDate >= start && e.workDate <= end);
   },
 
   /** Manager/admin: every member's entries in the date range (visibility-scoped). */
   async getTeamTimesheetEntries(start: string, end: string): Promise<TimesheetWorkEntry[]> {
-    const q = new URLSearchParams({ start, end });
-    return request(`/timesheet/entries/all?${q.toString()}`);
+    const fetchStart = shiftDate(start, -1);
+    const fetchEnd = shiftDate(end, 1);
+    const q = new URLSearchParams({ start: fetchStart, end: fetchEnd });
+    const entries = await request<TimesheetWorkEntry[]>(`/timesheet/entries/all?${q.toString()}`);
+    return entries.map(mapEntryToLocal).filter(e => e.workDate >= start && e.workDate <= end);
   },
 
   /** Manager-only: every timesheet entry logged against a project, across all members. */
   async getProjectTimesheetEntries(projectId: string): Promise<TimesheetWorkEntry[]> {
-    return request(`/timesheet/projects/${projectId}/entries`);
+    const entries = await request<TimesheetWorkEntry[]>(`/timesheet/projects/${projectId}/entries`);
+    return entries.map(mapEntryToLocal);
   },
 
   async createTimesheetWorkEntry(body: {
@@ -364,7 +475,9 @@ export const api = {
     timeTo: string;
     billable?: boolean;
   }): Promise<TimesheetWorkEntry> {
-    return request('/timesheet/entries', { method: 'POST', body: JSON.stringify(body) });
+    const utcBody = mapEntryToUtc(body);
+    const entry = await request<TimesheetWorkEntry>('/timesheet/entries', { method: 'POST', body: JSON.stringify(utcBody) });
+    return mapEntryToLocal(entry);
   },
 
   async patchTimesheetWorkEntry(
@@ -379,11 +492,78 @@ export const api = {
       billable: boolean;
     }>,
   ): Promise<TimesheetWorkEntry> {
-    return request(`/timesheet/entries/${entryId}`, { method: 'PATCH', body: JSON.stringify(body) });
+    const utcBody = (body.workDate && body.timeFrom && body.timeTo)
+      ? mapEntryToUtc(body as any)
+      : body;
+    const entry = await request<TimesheetWorkEntry>(`/timesheet/entries/${entryId}`, { method: 'PATCH', body: JSON.stringify(utcBody) });
+    return mapEntryToLocal(entry);
   },
 
   async deleteTimesheetWorkEntry(entryId: string): Promise<void> {
     await request(`/timesheet/entries/${entryId}`, { method: 'DELETE' });
+  },
+
+  async getTimesheetSubmissionStatus(weekStart: string): Promise<TimesheetSubmission> {
+    const q = new URLSearchParams({ week_start: weekStart });
+    return request(`/timesheet/submissions/status?${q.toString()}`);
+  },
+
+  async submitTimesheetWeek(weekStart: string, dates?: string[]): Promise<TimesheetSubmission> {
+    return request(`/timesheet/submissions/${encodeURIComponent(weekStart)}/submit`, {
+      method: 'POST',
+      body: JSON.stringify({ dates: dates ?? [] }),
+    });
+  },
+
+  async getPendingTimesheetSubmissions(): Promise<TimesheetSubmission[]> {
+    return request('/timesheet/submissions/pending');
+  },
+
+  async getManagerTimesheetSubmissions(params?: {
+    status?: 'submitted' | 'approved' | 'rejected';
+    userId?: string;
+    weekStart?: string;
+  }): Promise<TimesheetSubmission[]> {
+    const q = new URLSearchParams();
+    if (params?.status) q.set('status', params.status);
+    if (params?.userId) q.set('user_id', params.userId);
+    if (params?.weekStart) q.set('week_start', params.weekStart);
+    const qs = q.toString();
+    return request(`/timesheet/submissions${qs ? `?${qs}` : ''}`);
+  },
+
+  async getTimesheetSubmissionReview(submissionId: string): Promise<TimesheetSubmissionReview> {
+    const review = await request<TimesheetSubmissionReview>(`/timesheet/submissions/${submissionId}/review`);
+    if (review && review.days) {
+      review.days = review.days.map(day => {
+        const mappedEntries = day.entries.map(e => {
+          const mapped = mapEntryToLocal(e as any);
+          return mapped as unknown as typeof e;
+        });
+        const localDate = mappedEntries[0]?.workDate || day.workDate;
+        return {
+          ...day,
+          workDate: localDate,
+          entries: mappedEntries,
+        };
+      });
+    }
+    return review;
+  },
+
+  async approveTimesheetSubmission(submissionId: string): Promise<TimesheetSubmission> {
+    return request(`/timesheet/submissions/${submissionId}/approve`, { method: 'POST' });
+  },
+
+  async rejectTimesheetSubmission(submissionId: string, comment = ''): Promise<TimesheetSubmission> {
+    return request(`/timesheet/submissions/${submissionId}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ comment }),
+    });
+  },
+
+  async reopenTimesheetSubmission(submissionId: string): Promise<TimesheetSubmission> {
+    return request(`/timesheet/submissions/${submissionId}/reopen`, { method: 'POST' });
   },
 
   async getKanbanColumns(): Promise<KanbanColumn[]> {

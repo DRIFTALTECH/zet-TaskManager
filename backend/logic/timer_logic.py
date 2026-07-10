@@ -9,37 +9,61 @@ rolled into the task time log (and a timesheet row), the single source of truth.
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
+from database.database import Db
 
+import crud.settings as settings_crud
 import crud.tasks as tasks_crud
 import crud.timelog as timelog_crud
 import crud.timers as timers_crud
-from logic import task_logic, timesheet_logic
-from logic.schemas import TimesheetEntryCreate, TimerRunOut
+from logic import project_logic, task_logic, timesheet_logic
+from logic.schemas import MinTimerPersistOut, TimesheetEntryCreate, TimerRunOut
 
-MIN_PERSIST_SECONDS = 60  # sessions shorter than this aren't logged
+MIN_TIMER_PERSIST_KEY = "min_timer_persist_minutes"
+DEFAULT_MIN_TIMER_PERSIST_MINUTES = 1
 
 
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def get_min_persist_minutes(db: Db) -> int:
+    raw = settings_crud.get(db, MIN_TIMER_PERSIST_KEY)
+    try:
+        minutes = int(raw) if raw is not None else DEFAULT_MIN_TIMER_PERSIST_MINUTES
+    except (TypeError, ValueError):
+        minutes = DEFAULT_MIN_TIMER_PERSIST_MINUTES
+    return max(0, minutes)
+
+
+def set_min_persist_minutes(db: Db, user_id: str, minutes: int) -> MinTimerPersistOut:
+    project_logic.ensure_manager(db, user_id)
+    if minutes < 0:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "minutes must be >= 0")
+    settings_crud.set(db, MIN_TIMER_PERSIST_KEY, str(int(minutes)))
+    db.commit()
+    return MinTimerPersistOut(minutes=int(minutes))
+
+
+def _min_persist_seconds(db: Db) -> int:
+    return get_min_persist_minutes(db) * 60
+
+
 def _to_out(row) -> TimerRunOut:
     return TimerRunOut(taskId=row.task_id, startedAt=row.started_at)
 
 
-def list_active(db: Session, user_id: str) -> list[TimerRunOut]:
+def list_active(db: Db, user_id: str) -> list[TimerRunOut]:
     return [_to_out(r) for r in timers_crud.list_for_user(db, user_id)]
 
 
-def start(db: Session, user_id: str, task_id: str) -> TimerRunOut:
+def start(db: Db, user_id: str, task_id: str) -> TimerRunOut:
     """Mark the task started (perms enforced there) and record a running timer."""
     task_logic.start_task_action(db, user_id, task_id)  # 404/403 + audit + commit
     row = timers_crud.start(db, user_id, task_id, _now_utc().isoformat())
     return _to_out(row)
 
 
-def stop(db: Session, user_id: str, task_id: str, tz_offset_minutes: int = 0):
+def stop(db: Db, user_id: str, task_id: str, tz_offset_minutes: int = 0):
     """Stop the running timer, compute elapsed server-side, and log the time.
 
     `tz_offset_minutes` is the client's Date.getTimezoneOffset() (UTC − local),
@@ -66,7 +90,13 @@ def stop(db: Session, user_id: str, task_id: str, tz_offset_minutes: int = 0):
 
     timers_crud.delete(db, user_id, task_id)
 
-    if elapsed >= MIN_PERSIST_SECONDS and task.status != "completed":
+    try:
+        min_log_minutes = int(getattr(task, "min_log_minutes", 1) or 1)
+    except (TypeError, ValueError):
+        min_log_minutes = 1
+    min_log_minutes = max(0, min_log_minutes)
+
+    if elapsed >= min_log_minutes * 60 and task.status != "completed":
         # Wall-clock times in the user's local zone for the timesheet row.
         local_start = started - timedelta(minutes=tz_offset_minutes)
         local_end = ended - timedelta(minutes=tz_offset_minutes)

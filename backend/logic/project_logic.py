@@ -3,15 +3,17 @@ from datetime import date
 from pathlib import Path
 
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
+from database.database import Db
 
+import crud.clients as clients_crud
 import crud.projects as projects_crud
 import crud.sections as sections_crud
 import crud.tasks as tasks_crud
 import crud.timesheet_entries as timesheet_entries_crud
 from database.models import Project
 from database.init_db import new_id
-from logic.schemas import ProjectAppearancePatch, ProjectCreate, ProjectOut, SectionCreate, SectionOut
+from logic.schemas import ProjectAppearancePatch, ProjectClientPatch, ProjectCreate, ProjectOut, SectionCreate, SectionOut
+from logic import client_logic
 
 # Project background / photo files live on disk and are served statically at
 # /project-media — keeps the (frequently fetched) /projects payload tiny.
@@ -34,13 +36,19 @@ def _section_out(s) -> SectionOut:
     return SectionOut(id=s.id, name=s.name, projectId=s.project_id)
 
 
-def to_project_out(db: Session, p: Project) -> ProjectOut:
+def to_project_out(db: Db, p: Project) -> ProjectOut:
     members = projects_crud.member_ids(db, p.id)
     secs = sections_crud.list_for_project(db, p.id)
+    client_name = None
+    if p.client_id:
+        client = clients_crud.get_by_id(db, p.client_id)
+        client_name = client.name if client else None
     return ProjectOut(
         id=p.id,
         name=p.name,
         description=p.description,
+        clientId=p.client_id,
+        clientName=client_name,
         createdBy=p.created_by,
         members=members,
         sections=[_section_out(s) for s in secs],
@@ -51,7 +59,7 @@ def to_project_out(db: Session, p: Project) -> ProjectOut:
     )
 
 
-def is_managerial(db: Session, user_id: str) -> bool:
+def is_managerial(db: Db, user_id: str) -> bool:
     """True for manager and admin — both have full access to every project."""
     from logic import user_logic
 
@@ -59,7 +67,7 @@ def is_managerial(db: Session, user_id: str) -> bool:
     return u.role in ("manager", "admin")
 
 
-def ensure_project_member(db: Session, project_id: str, user_id: str) -> None:
+def ensure_project_member(db: Db, project_id: str, user_id: str) -> None:
     p = projects_crud.get_by_id(db, project_id)
     if not p:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
@@ -71,18 +79,18 @@ def ensure_project_member(db: Session, project_id: str, user_id: str) -> None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a member of this project")
 
 
-def ensure_manager(db: Session, user_id: str) -> None:
+def ensure_manager(db: Db, user_id: str) -> None:
     if not is_managerial(db, user_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Manager only")
 
 
-def is_admin(db: Session, user_id: str) -> bool:
+def is_admin(db: Db, user_id: str) -> bool:
     from logic import user_logic
 
     return user_logic.get_user_or_404(db, user_id).role == "admin"
 
 
-def list_projects(db: Session, current_user_id: str) -> list[ProjectOut]:
+def list_projects(db: Db, current_user_id: str) -> list[ProjectOut]:
     # Only admins see every project; managers and employees see the projects
     # they have been added to (filtered in SQL by the CRUD layer).
     projects = (
@@ -93,9 +101,13 @@ def list_projects(db: Session, current_user_id: str) -> list[ProjectOut]:
     return [to_project_out(db, p) for p in projects]
 
 
-def create_project(db: Session, current_user_id: str, body: ProjectCreate) -> ProjectOut:
+def create_project(db: Db, current_user_id: str, body: ProjectCreate) -> ProjectOut:
     # Only managers and admins may create projects — employees cannot.
     ensure_manager(db, current_user_id)
+    client_id = body.clientId.strip()
+    if not client_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Client is required")
+    client_logic.ensure_client_id(db, client_id)
     pid = new_id("p")
     today = date.today().isoformat()
     p = projects_crud.create_project(
@@ -103,6 +115,7 @@ def create_project(db: Session, current_user_id: str, body: ProjectCreate) -> Pr
         project_id=pid,
         name=body.name.strip(),
         description=body.description.strip(),
+        client_id=client_id,
         created_by=current_user_id,
         created_at=today,
     )
@@ -110,7 +123,7 @@ def create_project(db: Session, current_user_id: str, body: ProjectCreate) -> Pr
     return to_project_out(db, p)
 
 
-def add_section(db: Session, current_user_id: str, project_id: str, body: SectionCreate) -> ProjectOut:
+def add_section(db: Db, current_user_id: str, project_id: str, body: SectionCreate) -> ProjectOut:
     ensure_project_member(db, project_id, current_user_id)
     p = projects_crud.get_by_id(db, project_id)
     if not p:
@@ -120,7 +133,7 @@ def add_section(db: Session, current_user_id: str, project_id: str, body: Sectio
     return to_project_out(db, p)
 
 
-def delete_section(db: Session, user_id: str, project_id: str, section_id: str) -> ProjectOut:
+def delete_section(db: Db, user_id: str, project_id: str, section_id: str) -> ProjectOut:
     p = projects_crud.get_by_id(db, project_id)
     if not p:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
@@ -144,7 +157,22 @@ def delete_section(db: Session, user_id: str, project_id: str, section_id: str) 
     return to_project_out(db, p)
 
 
-def set_appearance(db: Session, user_id: str, project_id: str, body: ProjectAppearancePatch) -> ProjectOut:
+def set_client(db: Db, user_id: str, project_id: str, body: ProjectClientPatch) -> ProjectOut:
+    """Managers/admins assign or change the client on an existing project."""
+    p = projects_crud.get_by_id(db, project_id)
+    if not p:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+    ensure_manager(db, user_id)
+    ensure_project_member(db, project_id, user_id)
+    raw = body.clientId
+    client_id = raw.strip() if raw else None
+    if client_id:
+        client_logic.ensure_client_id(db, client_id)
+    projects_crud.update_client(db, project_id, client_id)
+    return to_project_out(db, projects_crud.get_by_id(db, project_id))
+
+
+def set_appearance(db: Db, user_id: str, project_id: str, body: ProjectAppearancePatch) -> ProjectOut:
     """Managers/admins set a project's background image + accent palette colour."""
     p = projects_crud.get_by_id(db, project_id)
     if not p:
@@ -166,7 +194,7 @@ def set_appearance(db: Session, user_id: str, project_id: str, body: ProjectAppe
 
 
 def upload_media(
-    db: Session, user_id: str, project_id: str, kind: str,
+    db: Db, user_id: str, project_id: str, kind: str,
     filename: str | None, content_type: str | None, content: bytes, accent_color: str = "",
 ) -> ProjectOut:
     """Save an uploaded background/project image to disk; store only its served URL."""
@@ -201,7 +229,7 @@ def upload_media(
     return to_project_out(db, projects_crud.get_by_id(db, project_id))
 
 
-def add_member(db: Session, manager_id: str, project_id: str, user_id: str) -> ProjectOut:
+def add_member(db: Db, manager_id: str, project_id: str, user_id: str) -> ProjectOut:
     ensure_manager(db, manager_id)
     p = projects_crud.get_by_id(db, project_id)
     if not p:
@@ -213,7 +241,7 @@ def add_member(db: Session, manager_id: str, project_id: str, user_id: str) -> P
     return to_project_out(db, p)
 
 
-def remove_member(db: Session, manager_id: str, project_id: str, user_id: str) -> ProjectOut:
+def remove_member(db: Db, manager_id: str, project_id: str, user_id: str) -> ProjectOut:
     ensure_manager(db, manager_id)
     p = projects_crud.get_by_id(db, project_id)
     if not p:
@@ -222,7 +250,7 @@ def remove_member(db: Session, manager_id: str, project_id: str, user_id: str) -
     return to_project_out(db, p)
 
 
-def delete_project(db: Session, user_id: str, project_id: str) -> None:
+def delete_project(db: Db, user_id: str, project_id: str) -> None:
     """Delete a project and all its data. Employees can't; a manager may delete
     only projects they belong to; admins may delete any."""
     p = projects_crud.get_by_id(db, project_id)

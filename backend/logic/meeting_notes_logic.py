@@ -4,11 +4,10 @@ Each scrum stores raw text + a parsed {members, summary} breakdown. Saving raw
 text auto-parses via the AI agent; the parsed result can also be hand-edited."""
 
 import json
-import logging
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
+from database.database import Db
 
 import crud.meeting_notes as scrums_crud
 import crud.users as users_crud
@@ -40,14 +39,34 @@ def _members_from(data: dict) -> list[MomMemberOut]:
     return out
 
 
-def _name_for(db: Session, user_id: str | None) -> str:
+def _filter_parsed_json(db: Db, parsed_json: str, parse_status: str) -> tuple[str, str, list[MomMemberOut]]:
+    """Drop AI-invented speakers; keep only registered app users."""
+    if parse_status != "ok":
+        return parsed_json, parse_status, []
+    try:
+        data = json.loads(parsed_json or "{}")
+    except (ValueError, TypeError):
+        return parsed_json, parse_status, []
+    if not isinstance(data, dict):
+        return parsed_json, parse_status, []
+    raw_members = _members_from(data)
+    app_users = timesheet_logic._active_users(db)
+    filtered = timesheet_logic.filter_scrum_members(raw_members, app_users)
+    data["members"] = [{"name": m.name, "items": m.items} for m in filtered]
+    status = "ok" if filtered else "failed"
+    return json.dumps(data), status, filtered
+
+
+def _name_for(db: Db, user_id: str | None, names: dict[str, str] | None = None) -> str:
     if not user_id:
         return ""
+    if names is not None:
+        return names.get(user_id, "")
     u = users_crud.get_by_id(db, user_id)
     return u.name if u else ""
 
 
-def to_out(db: Session, scrum: Scrum) -> ScrumOut:
+def to_out(db: Db, scrum: Scrum, *, names: dict[str, str] | None = None) -> ScrumOut:
     data = _parsed(scrum)
     return ScrumOut(
         id=scrum.id,
@@ -58,17 +77,27 @@ def to_out(db: Session, scrum: Scrum) -> ScrumOut:
         summary=str(data.get("summary", "") or ""),
         parseStatus=scrum.parse_status or "empty",
         updatedBy=scrum.updated_by,
-        updatedByName=_name_for(db, scrum.updated_by),
+        updatedByName=_name_for(db, scrum.updated_by, names=names),
         updatedAt=scrum.updated_at or "",
     )
 
 
-def list_for_date(db: Session, work_date: str) -> list[ScrumOut]:
-    return [to_out(db, s) for s in scrums_crud.list_for_date(db, work_date)]
+def _maybe_generate_timesheets(db: Db, work_date: str, members: list[MomMemberOut]) -> None:
+    if members:
+        timesheet_logic.generate_timesheets_from_scrum_members(db, work_date, members)
 
 
-def list_range(db: Session, start: str, end: str) -> list[ScrumDaySummary]:
+def list_for_date(db: Db, work_date: str) -> list[ScrumOut]:
+    scrums = scrums_crud.list_for_date(db, work_date)
+    ids = {s.updated_by for s in scrums if s.updated_by}
+    names = users_crud.names_for_ids(db, list(ids))
+    return [to_out(db, s, names=names) for s in scrums]
+
+
+def list_range(db: Db, start: str, end: str) -> list[ScrumDaySummary]:
     rows = scrums_crud.list_for_range(db, start, end)
+    ids = {s.updated_by for s in rows if s.updated_by}
+    names = users_crud.names_for_ids(db, list(ids))
     by_date: dict[str, list[Scrum]] = {}
     for s in rows:
         by_date.setdefault(s.work_date, []).append(s)
@@ -83,7 +112,7 @@ def list_range(db: Session, start: str, end: str) -> list[ScrumDaySummary]:
             memberCount=member_total,
             summary=first_summary,
             parseStatus=status_val,
-            updatedByName=_name_for(db, scrums[-1].updated_by),
+            updatedByName=_name_for(db, scrums[-1].updated_by, names=names),
         ))
     out.sort(key=lambda x: x.date)
     return out
@@ -126,9 +155,10 @@ def _parse_to_json(raw_text: str) -> tuple[str, str]:
         return json.dumps({"members": [], "summary": ""}), "failed"
 
 
-def create_scrum(db: Session, work_date: str, body: ScrumCreate, user_id: str) -> ScrumOut:
+def create_scrum(db: Db, work_date: str, body: ScrumCreate, user_id: str) -> ScrumOut:
     raw = (body.rawText or "").strip()
     parsed_json, status_val = _parse_to_json(raw)
+    parsed_json, status_val, filtered_members = _filter_parsed_json(db, parsed_json, status_val)
     now = datetime.now(timezone.utc).isoformat()
     scrum = scrums_crud.create(
         db,
@@ -144,25 +174,20 @@ def create_scrum(db: Session, work_date: str, body: ScrumCreate, user_id: str) -
         created_at=now,
     )
     out = to_out(db, scrum)
-    logging.getLogger().info(
-        "create_scrum parseStatus=%s member_count=%d",
-        out.parseStatus,
-        len(out.members),
-    )
-    if out.parseStatus == "ok" and out.members:
-        logging.getLogger().info("TIMESHEET GENERATION START")
-        timesheet_logic.generate_timesheets_from_scrum_members(db, work_date, out.members)
-        logging.getLogger().info("TIMESHEET GENERATION END")
+    if status_val == "ok" and filtered_members:
+        _maybe_generate_timesheets(db, work_date, filtered_members)
     log_audit(db, user_id, "mom.created", "scrum", out.id, f"{out.title} · {work_date}",
               {"parseStatus": out.parseStatus, "members": len(out.members)})
     db.commit()
     return out
 
 
-def update_scrum(db: Session, scrum_id: str, body: ScrumUpdate, user_id: str) -> ScrumOut:
+def update_scrum(db: Db, scrum_id: str, body: ScrumUpdate, user_id: str) -> ScrumOut:
     scrum = scrums_crud.get_by_id(db, scrum_id)
     if scrum is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Scrum not found")
+
+    timesheet_members: list[MomMemberOut] = []
 
     if body.title is not None:
         scrum.title = body.title.strip() or "Scrum"
@@ -170,11 +195,14 @@ def update_scrum(db: Session, scrum_id: str, body: ScrumUpdate, user_id: str) ->
     if body.members is not None or body.summary is not None:
         # Manual edit of the parsed breakdown — no re-parsing.
         current = _parsed(scrum)
-        members = (
-            [{"name": m.name, "items": m.items} for m in body.members]
-            if body.members is not None
-            else current.get("members", [])
-        )
+        if body.members is not None:
+            raw_m = [MomMemberOut(name=m.name, items=m.items) for m in body.members]
+            timesheet_members = timesheet_logic.filter_scrum_members(
+                raw_m, timesheet_logic._active_users(db)
+            )
+            members = [{"name": m.name, "items": m.items} for m in timesheet_members]
+        else:
+            members = current.get("members", [])
         summary = body.summary if body.summary is not None else current.get("summary", "")
         scrum.parsed_json = json.dumps({"members": members, "summary": summary})
         scrum.parse_status = "ok"
@@ -182,31 +210,43 @@ def update_scrum(db: Session, scrum_id: str, body: ScrumUpdate, user_id: str) ->
         # Raw text changed → re-parse with the AI agent.
         scrum.raw_text = body.rawText.strip()
         scrum.parsed_json, scrum.parse_status = _parse_to_json(scrum.raw_text)
+        scrum.parsed_json, scrum.parse_status, timesheet_members = _filter_parsed_json(
+            db, scrum.parsed_json, scrum.parse_status
+        )
 
     scrum.updated_by = user_id
     scrum.updated_at = datetime.now(timezone.utc).isoformat()
     scrums_crud.update(db, scrum)
     out = to_out(db, scrum)
+    if timesheet_members:
+        _maybe_generate_timesheets(db, scrum.work_date, timesheet_members)
     log_audit(db, user_id, "mom.updated", "scrum", out.id, f"{out.title} · {out.date}",
               {"parseStatus": out.parseStatus, "members": len(out.members)})
     db.commit()
     return out
 
 
-def reparse_scrum(db: Session, scrum_id: str, user_id: str) -> ScrumOut:
+def reparse_scrum(db: Db, scrum_id: str, user_id: str) -> ScrumOut:
     scrum = scrums_crud.get_by_id(db, scrum_id)
     if scrum is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Scrum not found")
     scrum.parsed_json, scrum.parse_status = _parse_to_json(scrum.raw_text)
+    scrum.parsed_json, scrum.parse_status, timesheet_members = _filter_parsed_json(
+        db, scrum.parsed_json, scrum.parse_status
+    )
     scrum.updated_by = user_id
     scrum.updated_at = datetime.now(timezone.utc).isoformat()
     scrums_crud.update(db, scrum)
+    if timesheet_members:
+        _maybe_generate_timesheets(db, scrum.work_date, timesheet_members)
+    db.commit()
     return to_out(db, scrum)
 
 
-def delete_scrum(db: Session, scrum_id: str, user_id: str) -> None:
+def delete_scrum(db: Db, scrum_id: str, user_id: str) -> None:
     if scrums_crud.get_by_id(db, scrum_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Scrum not found")
     scrums_crud.delete(db, scrum_id)
     log_audit(db, user_id, "mom.deleted", "scrum", scrum_id, scrum_id, {})
     db.commit()
+

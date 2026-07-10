@@ -99,6 +99,13 @@ export const adminApi = {
     });
   },
 
+  setManager(userId: string, managerId: string | null): Promise<User> {
+    return request(`/admin/users/${userId}/manager`, {
+      method: 'PATCH',
+      body: JSON.stringify({ managerId }),
+    });
+  },
+
   resetPassword(userId: string, newPassword: string): Promise<{ ok: boolean }> {
     return request(`/admin/users/${userId}/password`, {
       method: 'POST',

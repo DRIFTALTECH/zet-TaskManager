@@ -9,7 +9,7 @@ import secrets
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
+from database.database import Db
 
 import crud.access_tokens as tokens_crud
 from database.init_db import new_id
@@ -29,7 +29,7 @@ def _to_out(t: PersonalAccessToken) -> PersonalAccessTokenOut:
     )
 
 
-def create_token(db: Session, user_id: str, name: str) -> PersonalAccessTokenCreated:
+def create_token(db: Db, user_id: str, name: str) -> PersonalAccessTokenCreated:
     raw = TOKEN_PREFIX + secrets.token_urlsafe(32)
     now = datetime.now(timezone.utc).isoformat()
     row = PersonalAccessToken(
@@ -47,11 +47,11 @@ def create_token(db: Session, user_id: str, name: str) -> PersonalAccessTokenCre
     return PersonalAccessTokenCreated(**out.model_dump(), token=raw)
 
 
-def list_tokens(db: Session, user_id: str) -> list[PersonalAccessTokenOut]:
+def list_tokens(db: Db, user_id: str) -> list[PersonalAccessTokenOut]:
     return [_to_out(t) for t in tokens_crud.list_for_user(db, user_id)]
 
 
-def revoke_token(db: Session, user_id: str, token_id: str) -> None:
+def revoke_token(db: Db, user_id: str, token_id: str) -> None:
     t = tokens_crud.get_for_user(db, token_id, user_id)
     if not t:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Token not found")
@@ -59,7 +59,7 @@ def revoke_token(db: Session, user_id: str, token_id: str) -> None:
     tokens_crud.update(db, t)
 
 
-def revoke_raw(db: Session, raw_token: str) -> None:
+def revoke_raw(db: Db, raw_token: str) -> None:
     """Revoke a token by its raw value (used by OAuth token revocation)."""
     if not raw_token or not raw_token.startswith(TOKEN_PREFIX):
         return
@@ -69,7 +69,7 @@ def revoke_raw(db: Session, raw_token: str) -> None:
         tokens_crud.update(db, row)
 
 
-def resolve_user_id(db: Session, raw_token: str) -> str | None:
+def resolve_user_id(db: Db, raw_token: str) -> str | None:
     """Return the owning user id for a presented PAT, or None if invalid/revoked.
     Also stamps last_used_at."""
     if not raw_token or not raw_token.startswith(TOKEN_PREFIX):

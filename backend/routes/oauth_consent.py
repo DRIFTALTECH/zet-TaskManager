@@ -7,16 +7,15 @@ code and redirect back to the client."""
 from fastapi import APIRouter, Depends, Form
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
 
-from database.database import get_db
+from database.database import Db, get_db
 from logic import auth_logic
 from logic.schemas import LoginBody, MicrosoftAuthBody
 from oauth_provider import oauth_provider
 
 router = APIRouter()
 
-# Microsoft is offered when the backend has a client id configured (it does by default).
+# Microsoft is offered when MICROSOFT_CLIENT_ID is set in backend/.env.
 _MS_CLIENT_ID = auth_logic.MICROSOFT_CLIENT_ID
 _MS_AUTHORITY = f"https://login.microsoftonline.com/{auth_logic.MICROSOFT_TENANT_ID or 'common'}"
 
@@ -114,7 +113,7 @@ def consent_submit(
     request_id: str = Form(...),
     email: str = Form(...),
     password: str = Form(...),
-    db: Session = Depends(get_db),
+    db: Db = Depends(get_db),
 ):
     name = oauth_provider.pending_client_name(request_id) or "the application"
     try:
@@ -134,7 +133,7 @@ class _MsConsentBody(BaseModel):
 
 
 @router.post("/consent/microsoft")
-def consent_microsoft(body: _MsConsentBody, db: Session = Depends(get_db)):
+def consent_microsoft(body: _MsConsentBody, db: Db = Depends(get_db)):
     """Validate a Microsoft id_token, then complete the OAuth authorization. Returns
     the client redirect URL for the browser to follow."""
     try:

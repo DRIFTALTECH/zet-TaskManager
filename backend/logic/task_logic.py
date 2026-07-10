@@ -2,7 +2,7 @@ import json
 from datetime import date, datetime, timezone
 
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
+from database.database import Db
 
 import crud.projects as projects_crud
 import crud.sections as sections_crud
@@ -17,13 +17,24 @@ from logic import project_logic, user_logic, notification_logic
 from logic.audit import log_audit
 
 
-def _actor_name(db: Session, user_id: str, default: str = "Someone") -> str:
+def _actor_name(db: Db, user_id: str, default: str = "Someone") -> str:
     u = users_crud.get_by_id(db, user_id)
     return u.name if u else default
 
 
-def _commit(db: Session) -> None:
+def _commit(db: Db) -> None:
     db.commit()
+
+
+_PRIORITIES = frozenset({"Low", "Medium", "High", "Urgent"})
+_PRIORITY_ALIASES = {"low": "Low", "medium": "Medium", "high": "High", "urgent": "Urgent"}
+
+
+def _normalize_priority(value: str | None) -> str:
+    s = (value or "Medium").strip()
+    if s in _PRIORITIES:
+        return s
+    return _PRIORITY_ALIASES.get(s.lower(), "Medium")
 
 
 def _unique_ordered(ids: list[str]) -> list[str]:
@@ -40,7 +51,7 @@ def _is_task_creator(t: Task, user_id: str) -> bool:
     return t.created_by == user_id
 
 
-def _can_move_task_on_board(db: Session, t: Task, user_id: str) -> bool:
+def _can_move_task_on_board(db: Db, t: Task, user_id: str) -> bool:
     """Only the task's assignees may move it between columns — no exceptions."""
     if assignees_crud.is_assignee(db, t.id, user_id):
         return True
@@ -72,13 +83,14 @@ def _build_task_out(t: Task, assignee_ids: list[str], time_log: dict[str, int]) 
         assignedBy=t.assigned_by,
         createdBy=t.created_by,
         dueDate=t.due_date,
-        priority=t.priority,
+        priority=_normalize_priority(t.priority),
         status=t.status,
         isStarted=t.is_started,
         startedAt=t.started_at,
         completedAt=t.completed_at,
         approvedByManager=t.approved_by_manager,
         timeTracked=t.time_tracked,
+        minLogMinutes=max(0, int(getattr(t, "min_log_minutes", 1) or 1)),
         tags=tags if isinstance(tags, list) else [],
         createdAt=t.created_at,
         timeLog=time_log,
@@ -86,7 +98,7 @@ def _build_task_out(t: Task, assignee_ids: list[str], time_log: dict[str, int]) 
     )
 
 
-def to_task_out(db: Session, t: Task, viewer_user_id: str) -> TaskOut:
+def to_task_out(db: Db, t: Task, viewer_user_id: str) -> TaskOut:
     cf = json.loads(t.custom_fields_json or "{}")
     tags = json.loads(t.tags_json or "[]")
     assignee_ids = assignees_crud.list_user_ids_ordered(db, t.id)
@@ -104,13 +116,14 @@ def to_task_out(db: Session, t: Task, viewer_user_id: str) -> TaskOut:
         assignedBy=t.assigned_by,
         createdBy=t.created_by,
         dueDate=t.due_date,
-        priority=t.priority,
+        priority=_normalize_priority(t.priority),
         status=t.status,
         isStarted=t.is_started,
         startedAt=t.started_at,
         completedAt=t.completed_at,
         approvedByManager=t.approved_by_manager,
         timeTracked=t.time_tracked,
+        minLogMinutes=max(0, int(getattr(t, "min_log_minutes", 1) or 1)),
         tags=tags if isinstance(tags, list) else [],
         createdAt=t.created_at,
         timeLog=timelog_crud.time_log_map_for_user(db, t.id, viewer_user_id),
@@ -118,7 +131,7 @@ def to_task_out(db: Session, t: Task, viewer_user_id: str) -> TaskOut:
     )
 
 
-def list_tasks(db: Session, current_user_id: str) -> list[TaskOut]:
+def list_tasks(db: Db, current_user_id: str) -> list[TaskOut]:
     # Only admins see every task; managers and employees see tasks in the
     # projects they belong to (filtered in SQL by the CRUD layer).
     actor = user_logic.get_user_or_404(db, current_user_id)
@@ -136,7 +149,7 @@ def list_tasks(db: Session, current_user_id: str) -> list[TaskOut]:
     ]
 
 
-def get_task(db: Session, current_user_id: str, task_id: str) -> TaskOut:
+def get_task(db: Db, current_user_id: str, task_id: str) -> TaskOut:
     t = tasks_crud.get_by_id(db, task_id)
     if not t:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Task not found")
@@ -144,7 +157,7 @@ def get_task(db: Session, current_user_id: str, task_id: str) -> TaskOut:
     return to_task_out(db, t, current_user_id)
 
 
-def create_task(db: Session, current_user_id: str, body: TaskCreate) -> TaskOut:
+def create_task(db: Db, current_user_id: str, body: TaskCreate) -> TaskOut:
     if body.createdBy != current_user_id or body.assignedBy != current_user_id:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
@@ -168,6 +181,12 @@ def create_task(db: Session, current_user_id: str, body: TaskCreate) -> TaskOut:
     created_at = datetime.now(timezone.utc).isoformat()
     due = (body.dueDate or "").strip() or today
     primary = assignee_ids[0]
+    min_log = 1
+    if body.minLogMinutes is not None:
+        project_logic.ensure_manager(db, current_user_id)
+        if body.minLogMinutes < 0 or body.minLogMinutes > 180:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "minLogMinutes must be 0–180")
+        min_log = int(body.minLogMinutes)
     t = tasks_crud.create_task(
         db,
         task_id=tid,
@@ -186,12 +205,13 @@ def create_task(db: Session, current_user_id: str, body: TaskCreate) -> TaskOut:
         time_tracked=0,
         tags=body.tags,
         created_at=created_at,
+        min_log_minutes=min_log,
     )
     assignees_crud.set_assignees(db, tid, assignee_ids)
     return to_task_out(db, t, current_user_id)
 
 
-def patch_task(db: Session, current_user_id: str, task_id: str, body: TaskPatch) -> TaskOut:
+def patch_task(db: Db, current_user_id: str, task_id: str, body: TaskPatch) -> TaskOut:
     t = tasks_crud.get_by_id(db, task_id)
     if not t:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Task not found")
@@ -214,11 +234,17 @@ def patch_task(db: Session, current_user_id: str, task_id: str, body: TaskPatch)
             or body.sectionId is not None
             or body.customFields is not None
             or body.dueDate is not None
+            or body.minLogMinutes is not None
         ):
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,
                 "Completed tasks are read-only",
             )
+    if body.minLogMinutes is not None:
+        project_logic.ensure_manager(db, current_user_id)
+        if body.minLogMinutes < 0 or body.minLogMinutes > 180:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "minLogMinutes must be 0–180")
+        t.min_log_minutes = int(body.minLogMinutes)
     core_fields = (
         body.title is not None
         or body.description is not None
@@ -265,7 +291,7 @@ def patch_task(db: Session, current_user_id: str, task_id: str, body: TaskPatch)
     return to_task_out(db, t, current_user_id)
 
 
-def start_task(db: Session, current_user_id: str, task_id: str) -> TaskOut:
+def start_task(db: Db, current_user_id: str, task_id: str) -> TaskOut:
     t = tasks_crud.get_by_id(db, task_id)
     if not t:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Task not found")
@@ -284,21 +310,14 @@ def start_task(db: Session, current_user_id: str, task_id: str) -> TaskOut:
     return to_task_out(db, t, current_user_id)
 
 
-def move_task(db: Session, current_user_id: str, task_id: str, body: TaskMoveBody) -> TaskOut:
+def move_task(db: Db, current_user_id: str, task_id: str, body: TaskMoveBody) -> TaskOut:
     t = tasks_crud.get_by_id(db, task_id)
     if not t:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Task not found")
+    # Any project member may move tasks between columns on the board.
     project_logic.ensure_project_member(db, t.project_id, current_user_id)
     if t.status == "completed":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Completed tasks cannot be moved on the board")
-    # Assignees can always move their own tasks; managers can move any task on the
-    # board within projects they belong to (used by the manager project dashboard).
-    actor = user_logic.get_user_or_404(db, current_user_id)
-    if not (_can_move_task_on_board(db, t, current_user_id) or actor.role in ("manager", "admin")):
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN,
-            "Only the task's assignees or a manager can move it between columns",
-        )
     t.status = body.status
     # Moving to Done ends any active work session
     if body.status == "done":
@@ -308,7 +327,7 @@ def move_task(db: Session, current_user_id: str, task_id: str, body: TaskMoveBod
     return to_task_out(db, t, current_user_id)
 
 
-def _can_reopen_completed_task(db: Session, t: Task, user_id: str) -> bool:
+def _can_reopen_completed_task(db: Db, t: Task, user_id: str) -> bool:
     if _is_task_creator(t, user_id):
         return True
     if assignees_crud.is_assignee(db, t.id, user_id):
@@ -317,7 +336,7 @@ def _can_reopen_completed_task(db: Session, t: Task, user_id: str) -> bool:
     return actor.role in ("manager", "admin")
 
 
-def reopen_completed_to_backlog(db: Session, current_user_id: str, task_id: str) -> TaskOut:
+def reopen_completed_to_backlog(db: Db, current_user_id: str, task_id: str) -> TaskOut:
     t = tasks_crud.get_by_id(db, task_id)
     if not t:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Task not found")
@@ -338,7 +357,7 @@ def reopen_completed_to_backlog(db: Session, current_user_id: str, task_id: str)
     return to_task_out(db, t, current_user_id)
 
 
-def approve_task(db: Session, current_user_id: str, task_id: str) -> TaskOut:
+def approve_task(db: Db, current_user_id: str, task_id: str) -> TaskOut:
     project_logic.ensure_manager(db, current_user_id)
     t = tasks_crud.get_by_id(db, task_id)
     if not t:
@@ -353,7 +372,7 @@ def approve_task(db: Session, current_user_id: str, task_id: str) -> TaskOut:
     return to_task_out(db, t, current_user_id)
 
 
-def log_time(db: Session, current_user_id: str, task_id: str, body: LogTimeBody) -> TaskOut:
+def log_time(db: Db, current_user_id: str, task_id: str, body: LogTimeBody) -> TaskOut:
     t = tasks_crud.get_by_id(db, task_id)
     if not t:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Task not found")
@@ -368,7 +387,7 @@ def log_time(db: Session, current_user_id: str, task_id: str, body: LogTimeBody)
     return to_task_out(db, t2, current_user_id)
 
 
-def delete_task(db: Session, current_user_id: str, task_id: str) -> None:
+def delete_task(db: Db, current_user_id: str, task_id: str) -> None:
     t = tasks_crud.get_by_id(db, task_id)
     if not t:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Task not found")
@@ -384,7 +403,7 @@ def delete_task(db: Session, current_user_id: str, task_id: str) -> None:
 # ── Orchestration actions (audit + notifications + commit) ────────────────────
 # Routes call these directly; they own the side-effects so endpoints stay thin.
 
-def create_task_action(db: Session, user_id: str, body: TaskCreate) -> TaskOut:
+def create_task_action(db: Db, user_id: str, body: TaskCreate) -> TaskOut:
     result = create_task(db, user_id, body)
     log_audit(db, user_id, "task.created", "task", result.id, result.title,
               {"projectId": result.projectId, "priority": result.priority})
@@ -397,7 +416,7 @@ def create_task_action(db: Session, user_id: str, body: TaskCreate) -> TaskOut:
     return result
 
 
-def patch_task_action(db: Session, user_id: str, task_id: str, body: TaskPatch) -> TaskOut:
+def patch_task_action(db: Db, user_id: str, task_id: str, body: TaskPatch) -> TaskOut:
     old_assignee_ids = set(assignees_crud.list_user_ids_ordered(db, task_id))
     result = patch_task(db, user_id, task_id, body)
     details: dict = {}
@@ -425,7 +444,7 @@ def patch_task_action(db: Session, user_id: str, task_id: str, body: TaskPatch) 
     return result
 
 
-def delete_task_action(db: Session, user_id: str, task_id: str) -> None:
+def delete_task_action(db: Db, user_id: str, task_id: str) -> None:
     t = tasks_crud.get_by_id(db, task_id)
     title = t.title if t else task_id
     delete_task(db, user_id, task_id)
@@ -433,14 +452,14 @@ def delete_task_action(db: Session, user_id: str, task_id: str) -> None:
     _commit(db)
 
 
-def start_task_action(db: Session, user_id: str, task_id: str) -> TaskOut:
+def start_task_action(db: Db, user_id: str, task_id: str) -> TaskOut:
     result = start_task(db, user_id, task_id)
     log_audit(db, user_id, "task.started", "task", task_id, result.title, {})
     _commit(db)
     return result
 
 
-def move_task_action(db: Session, user_id: str, task_id: str, body: TaskMoveBody) -> TaskOut:
+def move_task_action(db: Db, user_id: str, task_id: str, body: TaskMoveBody) -> TaskOut:
     result = move_task(db, user_id, task_id, body)
     log_audit(db, user_id, "task.status_changed", "task", task_id, result.title, {"status": body.status})
     notification_logic.notify_users(
@@ -453,14 +472,14 @@ def move_task_action(db: Session, user_id: str, task_id: str, body: TaskMoveBody
     return result
 
 
-def reopen_to_backlog_action(db: Session, user_id: str, task_id: str) -> TaskOut:
+def reopen_to_backlog_action(db: Db, user_id: str, task_id: str) -> TaskOut:
     result = reopen_completed_to_backlog(db, user_id, task_id)
     log_audit(db, user_id, "task.reopened", "task", task_id, result.title, {})
     _commit(db)
     return result
 
 
-def approve_task_action(db: Session, user_id: str, task_id: str) -> TaskOut:
+def approve_task_action(db: Db, user_id: str, task_id: str) -> TaskOut:
     result = approve_task(db, user_id, task_id)
     log_audit(db, user_id, "task.approved", "task", task_id, result.title, {})
     notification_logic.notify_users(

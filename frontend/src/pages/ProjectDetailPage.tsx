@@ -6,7 +6,7 @@
  */
 import { useAppStore } from '@/stores/appStore';
 import { projectPickerLabel } from '@/lib/project-utils';
-import { isTaskAssignedTo, taskAssigneeIds } from '@/lib/task-utils';
+import { isTaskAssignedTo, taskAssigneeIds, normalizePriority } from '@/lib/task-utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
@@ -19,7 +19,7 @@ import {
   ArrowLeft, Plus, Users, LayoutGrid, ListTodo, Clock, FolderOpen,
   UserPlus, X, Trash2, ChevronLeft, ChevronRight,
   RotateCcw, Check, BarChart2, PieChart as PieIcon, TrendingUp, Search,
-  Camera, Image as ImageIcon, Link2, CalendarRange,
+  Camera, Image as ImageIcon, Link2, CalendarRange, Building2,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -36,6 +36,8 @@ import { downscaleImageToBlob, extractAccentColor } from '@/lib/image-color';
 import { resolveMediaUrl } from '@/lib/env';
 import { api } from '@/lib/api';
 import { Task, TimesheetWorkEntry } from '@/types';
+import { getLocalDateString } from '@/lib/utils';
+import ChangeClientDialog from '@/components/ChangeClientDialog';
 import {
   projectAccent, formatHM, hoursDecimal,
   PRIORITY_STYLES, STATUS_PALETTE, activeTasksForUser,
@@ -131,6 +133,7 @@ const ProjectDetailPage = () => {
   const [savingAppearance, setSavingAppearance] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deletingProject, setDeletingProject] = useState(false);
+  const [changeClientOpen, setChangeClientOpen] = useState(false);
   const [bgUrlInput, setBgUrlInput] = useState('');
   const [projImgUrlInput, setProjImgUrlInput] = useState('');
 
@@ -145,6 +148,8 @@ const ProjectDetailPage = () => {
   const [allTimesheet, setAllTimesheet] = useState<TimesheetWorkEntry[]>([]);
   const [timesheetLoading, setTimesheetLoading] = useState(true);
 
+  const timesheetEpoch = useAppStore(s => s.timesheetEpoch);
+
   useEffect(() => {
     if (!projectId) return;
     let alive = true;
@@ -154,7 +159,7 @@ const ProjectDetailPage = () => {
       .catch(() => { if (alive) setAllTimesheet([]); })
       .finally(() => { if (alive) setTimesheetLoading(false); });
     return () => { alive = false; };
-  }, [projectId]);
+  }, [projectId, timesheetEpoch]);
 
   // Apply the work-date range filter — every chart below reads this filtered view.
   const timesheet = useMemo(
@@ -304,7 +309,7 @@ const ProjectDetailPage = () => {
     });
     for (const t of projectTasks) {
       if (!t.completedAt) continue;
-      const day = t.completedAt.slice(0, 10);
+      const day = getLocalDateString(t.completedAt);
       if (dateFrom && day < dateFrom) continue;
       if (dateTo && day > dateTo) continue;
       const d = new Date(t.completedAt);
@@ -602,7 +607,28 @@ const ProjectDetailPage = () => {
               </div>
               <div className="min-w-0">
                 <h1 className="text-2xl font-bold text-foreground break-words">{projectPickerLabel(project)}</h1>
-                {project.description && <p className="text-sm text-muted-foreground/60 mt-1 max-w-xl">{project.description}</p>}
+                <div className="flex flex-wrap items-center gap-2 mt-2">
+                  {project.clientName ? (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-muted/40 px-2.5 py-0.5 text-xs text-muted-foreground">
+                      <Building2 className="h-3 w-3" />
+                      {project.clientName}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+                      No Client
+                    </span>
+                  )}
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => setChangeClientOpen(true)}
+                      className="text-xs font-medium text-primary hover:underline"
+                    >
+                      Change client
+                    </button>
+                  )}
+                </div>
+                {project.description && <p className="text-sm text-muted-foreground/60 mt-2 max-w-xl">{project.description}</p>}
                 <div className="flex items-center gap-2 mt-3">
                   <div className="flex -space-x-2">
                     {members.slice(0, 6).map(u => (
@@ -903,12 +929,13 @@ const ProjectDetailPage = () => {
                 const busy = movingId === task.id;
                 const assignees = taskAssigneeIds(task).map(id => users.find(u => u.id === id)).filter(Boolean);
                 const section = project.sections.find(s => s.id === task.sectionId);
-                const priStyle = PRIORITY_STYLES[task.priority] ?? PRIORITY_STYLES.Low;
+                const priority = normalizePriority(task.priority);
+                const priStyle = PRIORITY_STYLES[priority] ?? PRIORITY_STYLES.Low;
                 return (
                   <div key={task.id}
                     className={`group flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 rounded-xl border border-border/30 bg-card hover:border-border/60 hover:shadow-sm p-3.5 transition-all ${busy ? 'opacity-60' : ''}`}>
                     <div className="flex items-start gap-2 min-w-0 flex-1">
-                      <span className={`shrink-0 text-[10px] px-2 py-0.5 rounded-full font-bold border ${priStyle}`}>{task.priority}</span>
+                      <span className={`shrink-0 text-[10px] px-2 py-0.5 rounded-full font-bold border ${priStyle}`}>{priority}</span>
                       <button onClick={() => setSelectedTask(task)} className="flex-1 min-w-0 text-left">
                         <h4 className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors break-words [overflow-wrap:anywhere] leading-snug">{task.title}</h4>
                         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 mt-1 text-[11px] text-muted-foreground/55">
@@ -1273,6 +1300,15 @@ const ProjectDetailPage = () => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {canEdit && (
+        <ChangeClientDialog
+          open={changeClientOpen}
+          onOpenChange={setChangeClientOpen}
+          projectId={project.id}
+          currentClientId={project.clientId}
+        />
+      )}
     </motion.div>
   );
 };

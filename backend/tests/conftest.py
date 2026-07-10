@@ -1,17 +1,29 @@
-"""Pytest fixtures: isolated temp SQLite + a TestClient against the real app."""
+"""Pytest fixtures — isolated SQLite only (never Aurora)."""
+
+from __future__ import annotations
 
 import os
 import pathlib
 import sys
-import tempfile
 import uuid
 import warnings
 
-# Point the app at a throwaway DB and dev config BEFORE importing it.
-_TMP = tempfile.mkdtemp(prefix="zet-test-")
-os.environ["TASKMANAGER_SQLITE_PATH"] = str(pathlib.Path(_TMP) / "test.db")
+# ── MUST run before any backend import that touches the database ─────────────
+_TEST_DATA = pathlib.Path(__file__).resolve().parent / "data"
+_TEST_DATA.mkdir(parents=True, exist_ok=True)
+_TEST_DB = _TEST_DATA / "test_taskmanager.db"
+
+if _TEST_DB.exists():
+    _TEST_DB.unlink()
+
+os.environ["ZET_TEST_SQLITE"] = "1"
+os.environ["ZET_SQLITE_PATH"] = str(_TEST_DB)
 os.environ["APP_ENV"] = "development"
 os.environ.setdefault("AI_OLLAMA_FALLBACK", "0")
+# Keep Teams/Graph integration tests hermetic — never use dev .env creds in pytest.
+os.environ["MICROSOFT_CLIENT_ID"] = ""
+os.environ["MICROSOFT_CLIENT_SECRET"] = ""
+os.environ["MICROSOFT_TENANT_ID"] = ""
 
 warnings.filterwarnings("ignore")
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))  # backend/
@@ -19,7 +31,13 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))  # backe
 import pytest
 from fastapi.testclient import TestClient
 
-from main import app
+from db_wrapper import reset_database_singleton
+from db_wrapper.pool import ConnectionPools
+
+reset_database_singleton()
+ConnectionPools.dispose_all()
+
+from main import app  # noqa: E402 — after test DB env is set
 
 _client = TestClient(app)
 
@@ -48,3 +66,63 @@ def manager():
 @pytest.fixture
 def employee():
     return _register("employee")
+
+
+def make_client(api_client, headers, name: str = "Acme"):
+    r = api_client.post("/clients", json={"name": name}, headers=headers)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def make_project(api_client, headers, name: str = "Proj", description: str = "", client_name: str = "Acme"):
+    c = make_client(api_client, headers, client_name)
+    r = api_client.post(
+        "/projects",
+        json={"name": name, "description": description, "clientId": c["id"]},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+# Tables cleared before each test (kanban_columns seed is kept).
+_CLEAR_TABLES = (
+    "teams_transcript_imports",
+    "scrums",
+    "personal_access_tokens",
+    "oauth_grants",
+    "oauth_clients",
+    "notifications",
+    "audit_logs",
+    "task_attachments",
+    "task_checklists",
+    "task_feedback",
+    "timesheet_entries",
+    "timesheet_submissions",
+    "task_time_logs",
+    "task_timer_runs",
+    "task_assignees",
+    "tasks",
+    "sections",
+    "project_members",
+    "projects",
+    "clients",
+    "users",
+    "app_settings",
+)
+
+
+@pytest.fixture(autouse=True)
+def _isolated_db():
+    from database.database import SessionLocal
+
+    db = SessionLocal()
+    db.enter_request_scope()
+    try:
+        db.write("PRAGMA foreign_keys = OFF")
+        for table in _CLEAR_TABLES:
+            db.write(f"DELETE FROM {table}")
+        db.write("PRAGMA foreign_keys = ON")
+    finally:
+        db.close()
+    yield

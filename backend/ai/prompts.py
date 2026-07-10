@@ -314,7 +314,9 @@ DAY_SUMMARY_PROMPT = ChatPromptTemplate.from_messages([
             "4. Close with one short, encouraging line. If there was genuinely no work "
             "logged, gently say the day looks empty and suggest logging time or moving a task.\n"
             "5. Keep it tight: 4-8 lines total. No headers, no preamble like 'Here is'. "
-            "Never fabricate tasks or time that aren't in the data."
+            "Never fabricate tasks or time that aren't in the data.\n"
+            "6. Output ONLY the recap. No reasoning, chain-of-thought, internal planning, "
+            "or prompt instructions."
         ),
     ),
     ("human", "Date: {work_date}\n\nWork log:\n{work_log}"),

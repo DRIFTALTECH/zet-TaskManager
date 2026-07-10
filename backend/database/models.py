@@ -19,6 +19,8 @@ class User(Base):
     joined_at = Column(String, nullable=False, default="")  # ISO datetime of account creation
     # Admin can deactivate accounts: deactivated users keep their data but cannot log in.
     is_active = Column(Boolean, nullable=False, default=True)
+    # Optional line manager for timesheet approval routing.
+    manager_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
 
 
 class AppSetting(Base):
@@ -36,6 +38,7 @@ class Project(Base):
     id = Column(String, primary_key=True)
     name = Column(String, nullable=False)
     description = Column(String, nullable=False, default="")
+    client_id = Column(String, ForeignKey("clients.id", ondelete="RESTRICT"), nullable=True)
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_at = Column(String, nullable=False)
     # Optional background image (URL or data URL) + accent hex derived from it.
@@ -44,8 +47,34 @@ class Project(Base):
     # Optional project image/photo (replaces the folder icon).
     project_image = Column(Text, nullable=False, default="")
 
+    client = relationship("Client", back_populates="projects")
     sections = relationship("Section", back_populates="project", cascade="all, delete-orphan")
     members = relationship("ProjectMember", back_populates="project", cascade="all, delete-orphan")
+
+
+class Client(Base):
+    __tablename__ = "clients"
+
+    id = Column(String, primary_key=True)
+    name = Column(String, nullable=False)
+    created_at = Column(String, nullable=False)
+
+    projects = relationship("Project", back_populates="client")
+
+
+class Skill(Base):
+    __tablename__ = "skills"
+
+    id = Column(String, primary_key=True)
+    name = Column(String, nullable=False)
+    created_at = Column(String, nullable=False)
+
+
+class UserSkill(Base):
+    __tablename__ = "user_skills"
+
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    skill_id = Column(String, ForeignKey("skills.id", ondelete="CASCADE"), primary_key=True)
 
 
 class ProjectMember(Base):
@@ -86,6 +115,7 @@ class Task(Base):
     completed_at = Column(String, nullable=True)
     approved_by_manager = Column(Boolean, nullable=False, default=False)
     time_tracked = Column(Integer, nullable=False, default=0)
+    min_log_minutes = Column(Integer, nullable=False, default=1)
     tags_json = Column(Text, nullable=False, default="[]")
     custom_fields_json = Column(Text, nullable=False, default="{}")
     created_at = Column(String, nullable=False)
@@ -133,6 +163,25 @@ class KanbanColumn(Base):
     id = Column(String, primary_key=True)
     label = Column(String, nullable=False)
     position = Column(Integer, nullable=False, default=0)
+
+
+class TimesheetSubmission(Base):
+    """Weekly timesheet approval state — one row per (user, week). Absence = draft."""
+
+    __tablename__ = "timesheet_submissions"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    week_start = Column(String, nullable=False, index=True)  # Monday YYYY-MM-DD
+    status = Column(String, nullable=False)  # submitted | approved | rejected
+    submitted_at = Column(String, nullable=False)
+    reviewer_id = Column(String, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    reviewed_at = Column(String, nullable=True)
+    rejection_note = Column(Text, nullable=False, default="")
+    # JSON array of ISO work dates (YYYY-MM-DD) included in this submission batch.
+    submitted_dates = Column(Text, nullable=False, default="[]")
+
+    __table_args__ = (UniqueConstraint("user_id", "week_start", name="uq_timesheet_submission_user_week"),)
 
 
 class TimesheetEntry(Base):

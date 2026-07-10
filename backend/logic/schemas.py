@@ -63,6 +63,22 @@ class UserOut(BaseModel):
     joinedAt: str = ""
     currentExperienceMonths: int = 0
     isActive: bool = True
+    managerId: str | None = None
+    skills: list[str] = Field(default_factory=list)
+
+
+class SkillOut(BaseModel):
+    id: str
+    name: str
+    createdAt: str
+
+
+class SkillCreate(BaseModel):
+    name: str
+
+
+class UserSkillsUpdate(BaseModel):
+    skillIds: list[str] = Field(default_factory=list)
 
 
 class LoginResponse(BaseModel):
@@ -99,6 +115,10 @@ class AdminProjectsUpdate(BaseModel):
     project_ids: list[str] = Field(default_factory=list)
 
 
+class AdminManagerUpdate(BaseModel):
+    managerId: str | None = None
+
+
 class AdminUserDelete(BaseModel):
     # When the user owns work (tasks/assignments/timesheets), a reassign target is
     # required; otherwise the delete is rejected so nothing is silently orphaned.
@@ -132,10 +152,22 @@ class SectionOut(BaseModel):
     projectId: str
 
 
+class ClientOut(BaseModel):
+    id: str
+    name: str
+    createdAt: str
+
+
+class ClientCreate(BaseModel):
+    name: str
+
+
 class ProjectOut(BaseModel):
     id: str
     name: str
     description: str
+    clientId: str | None = None
+    clientName: str | None = None
     createdBy: str
     members: list[str]
     sections: list[SectionOut]
@@ -149,12 +181,17 @@ class ProjectOut(BaseModel):
 class ProjectCreate(BaseModel):
     name: str
     description: str = ""
+    clientId: str
 
 
 class ProjectAppearancePatch(BaseModel):
     backgroundImage: str | None = None
     accentColor: str | None = None
     projectImage: str | None = None
+
+
+class ProjectClientPatch(BaseModel):
+    clientId: str | None = None
 
 
 class SectionCreate(BaseModel):
@@ -183,6 +220,7 @@ class TaskOut(BaseModel):
     completedAt: str | None = None
     approvedByManager: bool
     timeTracked: int
+    minLogMinutes: int = 1
     tags: list[str]
     createdAt: str
     timeLog: dict[str, int] = Field(default_factory=dict)
@@ -200,6 +238,7 @@ class TaskCreate(BaseModel):
     dueDate: str
     priority: str
     tags: list[str] = []
+    minLogMinutes: int | None = None
 
 
 class TaskPatch(BaseModel):
@@ -211,6 +250,7 @@ class TaskPatch(BaseModel):
     assigneeIds: list[str] | None = None
     customFields: dict[str, str] | None = None
     dueDate: str | None = None
+    minLogMinutes: int | None = None
 
 
 class TaskMoveBody(BaseModel):
@@ -230,6 +270,14 @@ class TimerRunOut(BaseModel):
 class TimerStopBody(BaseModel):
     # Client's Date.getTimezoneOffset() (minutes, UTC − local) for local wall-clock times.
     tzOffset: int = 0
+
+
+class MinTimerPersistOut(BaseModel):
+    minutes: int
+
+
+class MinTimerPersistBody(BaseModel):
+    minutes: int
 
 
 class KanbanColumnOut(BaseModel):
@@ -281,6 +329,56 @@ class TimesheetEntryPatch(BaseModel):
     timeFrom: str | None = None
     timeTo: str | None = None
     billable: bool | None = None
+
+
+class TimesheetSubmissionOut(BaseModel):
+    id: str | None = None
+    userId: str
+    userName: str | None = None
+    weekStart: str
+    weekEnd: str
+    status: Literal["draft", "submitted", "approved", "rejected"]
+    submittedAt: str | None = None
+    submittedDates: list[str] = Field(default_factory=list)
+    reviewerId: str | None = None
+    reviewerName: str | None = None
+    reviewedAt: str | None = None
+    rejectionNote: str | None = None
+
+
+class TimesheetSubmitBody(BaseModel):
+    """ISO work dates to submit. Empty / omitted = all 7 days in the week (legacy)."""
+    dates: list[str] = Field(default_factory=list)
+
+
+class TimesheetRejectBody(BaseModel):
+    comment: str = ""
+
+
+class TimesheetReviewEntryOut(BaseModel):
+    id: str
+    workDate: str
+    projectId: str
+    projectName: str
+    sectionId: str
+    sectionName: str
+    description: str
+    timeFrom: str
+    timeTo: str
+    seconds: int
+    billable: bool
+
+
+class TimesheetReviewDayOut(BaseModel):
+    workDate: str
+    entries: list[TimesheetReviewEntryOut]
+    totalSeconds: int
+
+
+class TimesheetSubmissionReviewOut(BaseModel):
+    submission: TimesheetSubmissionOut
+    days: list[TimesheetReviewDayOut]
+    totalSeconds: int
 
 
 class TaskFeedbackOut(BaseModel):
