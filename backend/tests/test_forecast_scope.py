@@ -74,3 +74,75 @@ def test_forecast_excludes_other_managers_tasks(client, manager):
     assert "Ship the recap" not in task_titles
     assert "Ship the recap" not in delayed_details
     assert "My delayed task" in task_titles or delayed >= 1
+
+
+def test_forecast_excludes_done_and_dedupes_multi_assignee(client, manager):
+    mgr, mh = manager
+    emp_reg = client.post(
+        "/auth/register",
+        json={
+            "name": "EmpFC",
+            "email": f"fc-emp-{mgr['id']}@t.test",
+            "password": "secret123",
+            "role": "employee",
+        },
+    ).json()
+    emp = emp_reg["user"]
+
+    project = make_project(client, mh, name="DedupProj", client_name="DedupCo")
+    pid = project["id"]
+    client.post(f"/projects/{pid}/members", headers=mh, json={"user_id": emp["id"]})
+    sid = client.post(f"/projects/{pid}/sections", json={"name": "Sprint A"}, headers=mh).json()["sections"][0]["id"]
+    due = (date.today() + timedelta(days=4)).isoformat()
+
+    shared = client.post(
+        "/tasks",
+        json={
+            "title": "Shared multi-assignee task",
+            "projectId": pid,
+            "sectionId": sid,
+            "assigneeIds": [mgr["id"], emp["id"]],
+            "assignedBy": mgr["id"],
+            "createdBy": mgr["id"],
+            "dueDate": due,
+            "priority": "Medium",
+            "tags": [],
+        },
+        headers=mh,
+    ).json()
+
+    done_task = client.post(
+        "/tasks",
+        json={
+            "title": "Already done on board",
+            "projectId": pid,
+            "sectionId": sid,
+            "assigneeIds": [mgr["id"]],
+            "assignedBy": mgr["id"],
+            "createdBy": mgr["id"],
+            "dueDate": due,
+            "priority": "High",
+            "tags": [],
+        },
+        headers=mh,
+    ).json()
+    r = client.post(f"/tasks/{done_task['id']}/move", headers=mh, json={"status": "done"})
+    assert r.status_code == 200, r.text
+
+    data = client.get("/analytics/forecast", headers=mh).json()
+    titles = [
+        t["title"]
+        for emp_row in data.get("employees", [])
+        for t in emp_row.get("tasks", [])
+    ]
+    assert "Already done on board" not in titles
+
+    deadline_titles = [
+        t.get("taskName") or t.get("title")
+        for d in data.get("deadlines", [])
+        for t in (d.get("delayedTaskDetails") or d.get("tasks") or [])
+    ]
+    assert deadline_titles.count("Shared multi-assignee task") <= 1
+    assert "Already done on board" not in deadline_titles
+    assert titles.count("Shared multi-assignee task") >= 1
+    assert shared["id"]

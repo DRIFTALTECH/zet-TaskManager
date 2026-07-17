@@ -18,7 +18,7 @@ import { pageEnter } from '@/lib/motion';
 import { useAppStore } from '@/stores/appStore';
 import { api } from '@/lib/api';
 import { isoWeekMonday, timesheetDateLocked } from '@/lib/timesheetSubmission';
-import { isTaskAssignedTo } from '@/lib/task-utils';
+import { isTaskAssignedTo, isTopLevelTask } from '@/lib/task-utils';
 import type { TimesheetSubmission, TimesheetWorkEntry, Task } from '@/types';
 import CalendarWeekView from '@/components/CalendarWeekView';
 import TaskSuggest from '@/components/TaskSuggest';
@@ -78,7 +78,10 @@ export default function CalendarPage() {
     [projects, currentUser],
   );
   const myTasks = useMemo(
-    () => (currentUser ? tasks.filter(t => isTaskAssignedTo(t, currentUser.id)) : []),
+    () =>
+      currentUser
+        ? tasks.filter(t => isTaskAssignedTo(t, currentUser.id) && isTopLevelTask(t))
+        : [],
     [tasks, currentUser],
   );
 

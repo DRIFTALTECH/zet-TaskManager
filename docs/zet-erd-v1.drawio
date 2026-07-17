@@ -1,0 +1,286 @@
+<mxfile host="app.diagrams.net" agent="ZET-ERD-Generator">
+  <diagram id="zet-erd-v1" name="ZET Aurora ERD v1">
+    <mxGraphModel dx="815" dy="523" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="1320" pageHeight="3404" math="0" shadow="0" adaptiveColors="auto">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" parent="1" style="text;html=1;fontSize=18;fontStyle=1;align=left;verticalAlign=middle;" value="ZET Aurora PostgreSQL ERD v1&#xa;Database: postgres @ database-1 (ap-south-2) · 31 tables · 49 FKs · Source: live information_schema" vertex="1">
+          <mxGeometry height="40" width="900" x="40" y="10" as="geometry" />
+        </mxCell>
+        <mxCell id="legend" parent="1" style="text;html=1;fontSize=11;align=left;fontColor=#666666;" value="Legend: PK=Primary Key · FK=Foreign Key · UK=Unique · Crows Foot: || mandatory one · o| optional one · }| one-or-many · }o zero-or-many" vertex="1">
+          <mxGeometry height="20" width="1100" x="40" y="3374" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_0" parent="1" style="swimlane;startSize=36;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;fontSize=13;rounded=0;html=1;container=1;collapsible=0;" value="Users &amp; Auth" vertex="1">
+          <mxGeometry height="290" width="1240" x="40" y="60" as="geometry" />
+        </mxCell>
+        <mxCell id="t_users" parent="lane_0" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#6c8ebf;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;users&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK&lt;/b&gt;&lt;/font&gt; id : varchar&lt;br/&gt;name : varchar&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;UK&lt;/b&gt;&lt;/font&gt; email : varchar&lt;br/&gt;password_hash : varchar&lt;br/&gt;role : varchar&lt;br/&gt;avatar : varchar =&#39;&#39;::character varying&lt;br/&gt;job_title : varchar =&#39;&#39;::character varying&lt;br/&gt;experience_months : int =0&lt;br/&gt;joined_at : varchar =&#39;&#39;::character varying&lt;br/&gt;is_active : boolean =true&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; manager_id : varchar NULL" vertex="1">
+          <mxGeometry height="214" width="260" x="40" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="t_personal_access_tokens" parent="lane_0" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#6c8ebf;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;personal_access_tokens&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK&lt;/b&gt;&lt;/font&gt; id : varchar&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; user_id : varchar&lt;br/&gt;name : varchar =&#39;MCP token&#39;::character va...&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;UK&lt;/b&gt;&lt;/font&gt; token_hash : varchar&lt;br/&gt;prefix : varchar =&#39;&#39;::character varying&lt;br/&gt;created_at : varchar =&#39;&#39;::character varying&lt;br/&gt;last_used_at : varchar NULL&lt;br/&gt;revoked : boolean =false" vertex="1">
+          <mxGeometry height="166" width="260" x="610" y="140" as="geometry" />
+        </mxCell>
+        <mxCell id="t_oauth_clients" parent="lane_0" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#6c8ebf;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;oauth_clients&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK&lt;/b&gt;&lt;/font&gt; client_id : varchar&lt;br/&gt;data : text&lt;br/&gt;created_at : varchar =&#39;&#39;::character varying" vertex="1">
+          <mxGeometry height="86" width="260" x="640" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="t_oauth_grants" parent="lane_0" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#6c8ebf;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;oauth_grants&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK&lt;/b&gt;&lt;/font&gt; key : varchar&lt;br/&gt;kind : varchar&lt;br/&gt;client_id : varchar =&#39;&#39;::character varying&lt;br/&gt;user_id : varchar =&#39;&#39;::character varying&lt;br/&gt;data : text =&#39;{}&#39;::text&lt;br/&gt;expires_at : float8 NULL" vertex="1">
+          <mxGeometry height="134" width="260" x="940" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_1" parent="1" style="swimlane;startSize=36;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;fontSize=13;rounded=0;html=1;container=1;collapsible=0;" value="Organization" vertex="1">
+          <mxGeometry height="258" width="1240" x="40" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="t_clients" parent="lane_1" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#82b366;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;clients&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK&lt;/b&gt;&lt;/font&gt; id : varchar&lt;br/&gt;name : varchar&lt;br/&gt;created_at : varchar" vertex="1">
+          <mxGeometry height="86" width="260" x="40" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="t_projects" parent="lane_1" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#82b366;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;projects&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK&lt;/b&gt;&lt;/font&gt; id : varchar&lt;br/&gt;name : varchar&lt;br/&gt;description : varchar =&#39;&#39;::character varying&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; created_by : varchar&lt;br/&gt;created_at : varchar&lt;br/&gt;background_image : text =&#39;&#39;::text&lt;br/&gt;accent_color : varchar =&#39;&#39;::character varying&lt;br/&gt;project_image : text =&#39;&#39;::text&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; client_id : varchar NULL" vertex="1">
+          <mxGeometry height="182" width="260" x="340" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="t_project_members" parent="lane_1" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#82b366;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;project_members&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK,FK&lt;/b&gt;&lt;/font&gt; project_id : varchar&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK,FK&lt;/b&gt;&lt;/font&gt; user_id : varchar" vertex="1">
+          <mxGeometry height="80" width="260" x="640" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="t_sections" parent="lane_1" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#82b366;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;sections&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK&lt;/b&gt;&lt;/font&gt; id : varchar&lt;br/&gt;name : varchar&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; project_id : varchar" vertex="1">
+          <mxGeometry height="86" width="260" x="940" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_2" parent="1" style="swimlane;startSize=36;fillColor=#ffe6cc;strokeColor=#d79b00;fontStyle=1;fontSize=13;rounded=0;html=1;container=1;collapsible=0;" value="User Stories" vertex="1">
+          <mxGeometry height="370" width="1240" x="40" y="688" as="geometry" />
+        </mxCell>
+        <mxCell id="t_user_stories" parent="lane_2" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#d79b00;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;user_stories&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK&lt;/b&gt;&lt;/font&gt; id : varchar&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; project_id : varchar&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; section_id : varchar&lt;br/&gt;title : varchar&lt;br/&gt;description : text =&#39;&#39;::text&lt;br/&gt;acceptance_criteria : text =&#39;&#39;::text&lt;br/&gt;priority : varchar =&#39;Medium&#39;::character varying&lt;br/&gt;status : varchar =&#39;backlog&#39;::character varying&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; assignee_id : varchar NULL&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; reporter_id : varchar&lt;br/&gt;estimated_hours : varchar NULL&lt;br/&gt;story_points : varchar NULL&lt;br/&gt;start_date : varchar NULL&lt;br/&gt;due_date : varchar NULL&lt;br/&gt;created_at : varchar&lt;br/&gt;updated_at : varchar" vertex="1">
+          <mxGeometry height="294" width="260" x="40" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="t_user_story_assignees" parent="lane_2" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#d79b00;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;user_story_assignees&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK,FK&lt;/b&gt;&lt;/font&gt; user_story_id : varchar&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK,FK&lt;/b&gt;&lt;/font&gt; user_id : varchar&lt;br/&gt;position : int =0" vertex="1">
+          <mxGeometry height="86" width="260" x="340" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="t_user_story_attachments" parent="lane_2" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#d79b00;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;user_story_attachments&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK&lt;/b&gt;&lt;/font&gt; id : varchar&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; user_story_id : varchar&lt;br/&gt;filename : varchar&lt;br/&gt;stored_name : varchar&lt;br/&gt;content_type : varchar =&#39;application/octet-stream...&lt;br/&gt;size_bytes : int =0&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; uploaded_by : varchar&lt;br/&gt;created_at : varchar" vertex="1">
+          <mxGeometry height="166" width="260" x="640" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_3" parent="1" style="swimlane;startSize=36;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;fontSize=13;rounded=0;html=1;container=1;collapsible=0;" value="Tasks" vertex="1">
+          <mxGeometry height="662" width="1240" x="40" y="1098" as="geometry" />
+        </mxCell>
+        <mxCell id="t_tasks" parent="lane_3" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#d6b656;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;tasks&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK&lt;/b&gt;&lt;/font&gt; id : varchar&lt;br/&gt;title : varchar&lt;br/&gt;description : varchar =&#39;&#39;::character varying&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; project_id : varchar&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; section_id : varchar&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; assigned_to : varchar&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; assigned_by : varchar&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; created_by : varchar&lt;br/&gt;due_date : varchar&lt;br/&gt;priority : varchar&lt;br/&gt;status : varchar&lt;br/&gt;is_started : boolean =false&lt;br/&gt;started_at : varchar NULL&lt;br/&gt;completed_at : varchar NULL&lt;br/&gt;approved_by_manager : boolean =false&lt;br/&gt;time_tracked : int =0&lt;br/&gt;tags_json : text =&#39;[]&#39;::text&lt;br/&gt;custom_fields_json : text =&#39;{}&#39;::text&lt;br/&gt;created_at : varchar&lt;br/&gt;min_log_minutes : int =1&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; user_story_id : varchar NULL&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; parent_task_id : varchar NULL" vertex="1">
+          <mxGeometry height="390" width="260" x="40" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="t_task_assignees" parent="lane_3" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#d6b656;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;task_assignees&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK,FK&lt;/b&gt;&lt;/font&gt; task_id : varchar&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK,FK&lt;/b&gt;&lt;/font&gt; user_id : varchar&lt;br/&gt;position : int =0" vertex="1">
+          <mxGeometry height="86" width="260" x="340" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="t_task_checklists" parent="lane_3" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#d6b656;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;task_checklists&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK&lt;/b&gt;&lt;/font&gt; id : varchar&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; task_id : varchar&lt;br/&gt;title : varchar&lt;br/&gt;priority : varchar =&#39;Medium&#39;::character varying&lt;br/&gt;is_done : boolean =false&lt;br/&gt;position : int =0&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; created_by : varchar&lt;br/&gt;created_at : varchar" vertex="1">
+          <mxGeometry height="166" width="260" x="640" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="t_task_feedback" parent="lane_3" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#d6b656;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;task_feedback&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK&lt;/b&gt;&lt;/font&gt; id : varchar&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; task_id : varchar&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; user_id : varchar&lt;br/&gt;message : text&lt;br/&gt;created_at : varchar&lt;br/&gt;updated_at : varchar" vertex="1">
+          <mxGeometry height="134" width="260" x="940" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="t_task_attachments" parent="lane_3" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#d6b656;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;task_attachments&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK&lt;/b&gt;&lt;/font&gt; id : varchar&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; task_id : varchar&lt;br/&gt;filename : varchar&lt;br/&gt;stored_name : varchar&lt;br/&gt;content_type : varchar =&#39;application/octet-stream...&lt;br/&gt;size_bytes : int =0&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; uploaded_by : varchar&lt;br/&gt;created_at : varchar" vertex="1">
+          <mxGeometry height="166" width="260" x="40" y="476" as="geometry" />
+        </mxCell>
+        <mxCell id="t_task_skills" parent="lane_3" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#d6b656;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;task_skills&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK,FK&lt;/b&gt;&lt;/font&gt; task_id : varchar&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK,FK&lt;/b&gt;&lt;/font&gt; skill_id : varchar" vertex="1">
+          <mxGeometry height="80" width="260" x="340" y="476" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_4" parent="1" style="swimlane;startSize=36;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;fontSize=13;rounded=0;html=1;container=1;collapsible=0;" value="Skills" vertex="1">
+          <mxGeometry height="162" width="1240" x="40" y="1800" as="geometry" />
+        </mxCell>
+        <mxCell id="t_skills" parent="lane_4" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#9673a6;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;skills&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK&lt;/b&gt;&lt;/font&gt; id : varchar&lt;br/&gt;name : varchar&lt;br/&gt;created_at : varchar" vertex="1">
+          <mxGeometry height="86" width="260" x="40" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="t_user_skills" parent="lane_4" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#9673a6;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;user_skills&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK,FK&lt;/b&gt;&lt;/font&gt; user_id : varchar&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK,FK&lt;/b&gt;&lt;/font&gt; skill_id : varchar" vertex="1">
+          <mxGeometry height="80" width="260" x="340" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_5" parent="1" style="swimlane;startSize=36;fillColor=#f8cecc;strokeColor=#b85450;fontStyle=1;fontSize=13;rounded=0;html=1;container=1;collapsible=0;" value="Time Tracking" vertex="1">
+          <mxGeometry height="290" width="1240" x="40" y="2002" as="geometry" />
+        </mxCell>
+        <mxCell id="t_task_time_logs" parent="lane_5" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#b85450;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;task_time_logs&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK&lt;/b&gt;&lt;/font&gt; id : int&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; task_id : varchar&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; user_id : varchar&lt;br/&gt;log_date : varchar&lt;br/&gt;seconds : int =0&lt;br/&gt;&lt;i&gt;UK(task_id, log_date, user_id)&lt;/i&gt;" vertex="1">
+          <mxGeometry height="134" width="260" x="40" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="t_task_timer_runs" parent="lane_5" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#b85450;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;task_timer_runs&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK,FK&lt;/b&gt;&lt;/font&gt; user_id : varchar&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK,FK&lt;/b&gt;&lt;/font&gt; task_id : varchar&lt;br/&gt;started_at : varchar" vertex="1">
+          <mxGeometry height="86" width="260" x="340" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="t_timesheet_entries" parent="lane_5" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#b85450;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;timesheet_entries&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK&lt;/b&gt;&lt;/font&gt; id : varchar&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; user_id : varchar&lt;br/&gt;work_date : varchar&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; project_id : varchar&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; section_id : varchar&lt;br/&gt;description : text =&#39;&#39;::text&lt;br/&gt;time_from : varchar&lt;br/&gt;time_to : varchar&lt;br/&gt;seconds : int&lt;br/&gt;billable : boolean =true&lt;br/&gt;created_at : varchar" vertex="1">
+          <mxGeometry height="214" width="260" x="640" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="t_timesheet_submissions" parent="lane_5" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#b85450;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;timesheet_submissions&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK&lt;/b&gt;&lt;/font&gt; id : varchar&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; user_id : varchar&lt;br/&gt;week_start : varchar&lt;br/&gt;status : varchar&lt;br/&gt;submitted_at : varchar&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; reviewer_id : varchar NULL&lt;br/&gt;reviewed_at : varchar NULL&lt;br/&gt;rejection_note : text =&#39;&#39;::text&lt;br/&gt;submitted_dates : text =&#39;[]&#39;::text&lt;br/&gt;&lt;i&gt;UK(user_id, week_start)&lt;/i&gt;" vertex="1">
+          <mxGeometry height="198" width="260" x="940" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_6" parent="1" style="swimlane;startSize=36;fillColor=#e8f4f8;strokeColor=#5b9bd5;fontStyle=1;fontSize=13;rounded=0;html=1;container=1;collapsible=0;" value="Kanban" vertex="1">
+          <mxGeometry height="162" width="1240" x="40" y="2332" as="geometry" />
+        </mxCell>
+        <mxCell id="t_kanban_columns" parent="lane_6" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#5b9bd5;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;kanban_columns&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK&lt;/b&gt;&lt;/font&gt; id : varchar&lt;br/&gt;label : varchar&lt;br/&gt;position : int =0" vertex="1">
+          <mxGeometry height="86" width="260" x="40" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_7" parent="1" style="swimlane;startSize=36;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;fontSize=13;rounded=0;html=1;container=1;collapsible=0;" value="Notifications &amp; Audit" vertex="1">
+          <mxGeometry height="274" width="1240" x="40" y="2534" as="geometry" />
+        </mxCell>
+        <mxCell id="t_notifications" parent="lane_7" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#666666;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;notifications&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK&lt;/b&gt;&lt;/font&gt; id : int&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; user_id : varchar&lt;br/&gt;type : varchar&lt;br/&gt;title : varchar =&#39;&#39;::character varying&lt;br/&gt;message : varchar =&#39;&#39;::character varying&lt;br/&gt;entity_type : varchar =&#39;task&#39;::character varying&lt;br/&gt;entity_id : varchar =&#39;&#39;::character varying&lt;br/&gt;is_read : boolean =false&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; triggered_by : varchar&lt;br/&gt;created_at : varchar" vertex="1">
+          <mxGeometry height="198" width="260" x="40" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="t_audit_logs" parent="lane_7" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#666666;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;audit_logs&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK&lt;/b&gt;&lt;/font&gt; id : int&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; user_id : varchar&lt;br/&gt;action : varchar&lt;br/&gt;entity_type : varchar&lt;br/&gt;entity_id : varchar&lt;br/&gt;entity_name : varchar =&#39;&#39;::character varying&lt;br/&gt;details : text =&#39;{}&#39;::text&lt;br/&gt;created_at : varchar" vertex="1">
+          <mxGeometry height="166" width="260" x="340" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_8" parent="1" style="swimlane;startSize=36;fillColor=#fce4ec;strokeColor=#c2185b;fontStyle=1;fontSize=13;rounded=0;html=1;container=1;collapsible=0;" value="Meeting Notes" vertex="1">
+          <mxGeometry height="274" width="1240" x="40" y="2848" as="geometry" />
+        </mxCell>
+        <mxCell id="t_scrums" parent="lane_8" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#c2185b;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;scrums&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK&lt;/b&gt;&lt;/font&gt; id : varchar&lt;br/&gt;work_date : varchar&lt;br/&gt;title : varchar =&#39;Scrum&#39;::character varying&lt;br/&gt;position : int =0&lt;br/&gt;raw_text : text =&#39;&#39;::text&lt;br/&gt;parsed_json : text =&#39;&#39;::text&lt;br/&gt;parse_status : varchar =&#39;empty&#39;::character varying&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; updated_by : varchar NULL&lt;br/&gt;updated_at : varchar =&#39;&#39;::character varying&lt;br/&gt;created_at : varchar =&#39;&#39;::character varying" vertex="1">
+          <mxGeometry height="198" width="260" x="40" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="t_teams_transcript_imports" parent="lane_8" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#c2185b;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;teams_transcript_imports&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK&lt;/b&gt;&lt;/font&gt; transcript_id : varchar&lt;br/&gt;meeting_id : varchar =&#39;&#39;::character varying&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; scrum_id : varchar NULL&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;FK&lt;/b&gt;&lt;/font&gt; imported_by : varchar NULL&lt;br/&gt;imported_at : varchar =&#39;&#39;::character varying" vertex="1">
+          <mxGeometry height="118" width="260" x="340" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="lane_9" parent="1" style="swimlane;startSize=36;fillColor=#efebe9;strokeColor=#795548;fontStyle=1;fontSize=13;rounded=0;html=1;container=1;collapsible=0;" value="Settings &amp; System" vertex="1">
+          <mxGeometry height="162" width="1240" x="40" y="3162" as="geometry" />
+        </mxCell>
+        <mxCell id="t_app_settings" parent="lane_9" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#795548;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;app_settings&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK&lt;/b&gt;&lt;/font&gt; key : varchar&lt;br/&gt;value : text =&#39;&#39;::text" vertex="1">
+          <mxGeometry height="80" width="260" x="40" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="t_test" parent="lane_9" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#795548;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;test&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK&lt;/b&gt;&lt;/font&gt; id : int&lt;br/&gt;message : varchar(100) NULL&lt;br/&gt;created_at : timestamp NULL =CURRENT_TIMESTAMP" vertex="1">
+          <mxGeometry height="86" width="260" x="340" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="t_zet_wrapper_demo" parent="lane_9" style="verticalAlign=top;align=left;overflow=fill;fontSize=10;fontFamily=Courier New;fillColor=#ffffff;strokeColor=#795548;strokeWidth=1.5;rounded=0;shadow=0;html=1;spacingLeft=6;spacingRight=6;spacingTop=4;" value="&lt;b&gt;zet_wrapper_demo&lt;/b&gt;&lt;hr/&gt;&lt;br/&gt;&lt;font color=&quot;#b35900&quot;&gt;&lt;b&gt;PK&lt;/b&gt;&lt;/font&gt; id : int&lt;br/&gt;message : text&lt;br/&gt;created_at : timestamptz NULL =now()" vertex="1">
+          <mxGeometry height="86" width="260" x="640" y="56" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_0" edge="1" parent="1" source="t_audit_logs" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_users" value="user_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_1" edge="1" parent="1" source="t_notifications" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_users" value="triggered_by">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_2" edge="1" parent="1" source="t_notifications" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_users" value="user_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_3" edge="1" parent="1" source="t_personal_access_tokens" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_users" value="user_id ON DELETE CASCADE">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_4" edge="1" parent="1" source="t_project_members" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_projects" value="project_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_5" edge="1" parent="1" source="t_project_members" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_users" value="user_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_6" edge="1" parent="1" source="t_projects" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERzeroToMany;startFill=0;endArrow=ERzeroToOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_clients" value="client_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_7" edge="1" parent="1" source="t_projects" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_users" value="created_by">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_8" edge="1" parent="1" source="t_scrums" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERzeroToMany;startFill=0;endArrow=ERzeroToOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_users" value="updated_by">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_9" edge="1" parent="1" source="t_sections" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_projects" value="project_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_10" edge="1" parent="1" source="t_task_assignees" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_tasks" value="task_id ON DELETE CASCADE">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_11" edge="1" parent="1" source="t_task_assignees" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_users" value="user_id ON DELETE CASCADE">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_12" edge="1" parent="1" source="t_task_attachments" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_tasks" value="task_id ON DELETE CASCADE">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_13" edge="1" parent="1" source="t_task_attachments" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_users" value="uploaded_by">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_14" edge="1" parent="1" source="t_task_checklists" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_users" value="created_by">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_15" edge="1" parent="1" source="t_task_checklists" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_tasks" value="task_id ON DELETE CASCADE">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_16" edge="1" parent="1" source="t_task_feedback" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_tasks" value="task_id ON DELETE CASCADE">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_17" edge="1" parent="1" source="t_task_feedback" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_users" value="user_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_18" edge="1" parent="1" source="t_task_skills" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_skills" value="skill_id ON DELETE CASCADE">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_19" edge="1" parent="1" source="t_task_skills" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_tasks" value="task_id ON DELETE CASCADE">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_20" edge="1" parent="1" source="t_task_time_logs" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_tasks" value="task_id ON DELETE CASCADE">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_21" edge="1" parent="1" source="t_task_time_logs" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_users" value="user_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_22" edge="1" parent="1" source="t_task_timer_runs" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_tasks" value="task_id ON DELETE CASCADE">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_23" edge="1" parent="1" source="t_task_timer_runs" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_users" value="user_id ON DELETE CASCADE">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_24" edge="1" parent="1" source="t_tasks" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERzeroToMany;startFill=0;endArrow=ERzeroToOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_tasks" value="parent_task_id ON DELETE CASCADE">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_25" edge="1" parent="1" source="t_tasks" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERzeroToMany;startFill=0;endArrow=ERzeroToOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_user_stories" value="user_story_id ON DELETE SET NULL">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_26" edge="1" parent="1" source="t_tasks" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_users" value="assigned_by">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_27" edge="1" parent="1" source="t_tasks" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_users" value="assigned_to">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_28" edge="1" parent="1" source="t_tasks" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_users" value="created_by">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_29" edge="1" parent="1" source="t_tasks" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_projects" value="project_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_30" edge="1" parent="1" source="t_tasks" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_sections" value="section_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_31" edge="1" parent="1" source="t_teams_transcript_imports" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERzeroToMany;startFill=0;endArrow=ERzeroToOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_users" value="imported_by">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_32" edge="1" parent="1" source="t_teams_transcript_imports" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERzeroToMany;startFill=0;endArrow=ERzeroToOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_scrums" value="scrum_id ON DELETE SET NULL">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_33" edge="1" parent="1" source="t_timesheet_entries" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_projects" value="project_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_34" edge="1" parent="1" source="t_timesheet_entries" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_sections" value="section_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_35" edge="1" parent="1" source="t_timesheet_entries" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_users" value="user_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_36" edge="1" parent="1" source="t_timesheet_submissions" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERzeroToMany;startFill=0;endArrow=ERzeroToOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_users" value="reviewer_id ON DELETE SET NULL">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_37" edge="1" parent="1" source="t_timesheet_submissions" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_users" value="user_id ON DELETE CASCADE">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_38" edge="1" parent="1" source="t_user_skills" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_skills" value="skill_id ON DELETE CASCADE">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_39" edge="1" parent="1" source="t_user_skills" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_users" value="user_id ON DELETE CASCADE">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_40" edge="1" parent="1" source="t_user_stories" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERzeroToMany;startFill=0;endArrow=ERzeroToOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_users" value="assignee_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_41" edge="1" parent="1" source="t_user_stories" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_projects" value="project_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_42" edge="1" parent="1" source="t_user_stories" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_users" value="reporter_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_43" edge="1" parent="1" source="t_user_stories" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_sections" value="section_id">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_44" edge="1" parent="1" source="t_user_story_assignees" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_users" value="user_id ON DELETE CASCADE">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_45" edge="1" parent="1" source="t_user_story_assignees" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_user_stories" value="user_story_id ON DELETE CASCADE">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_46" edge="1" parent="1" source="t_user_story_attachments" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_users" value="uploaded_by">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_47" edge="1" parent="1" source="t_user_story_attachments" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERoneToMany;startFill=0;endArrow=ERmandOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_user_stories" value="user_story_id ON DELETE CASCADE">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="fk_48" edge="1" parent="1" source="t_users" style="edgeStyle=entityRelationEdgeStyle;html=1;rounded=0;orthogonalLoop=1;startArrow=ERzeroToMany;startFill=0;endArrow=ERzeroToOne;endFill=0;strokeColor=#666666;fontSize=9;fontColor=#666666;" target="t_users" value="manager_id ON DELETE SET NULL">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

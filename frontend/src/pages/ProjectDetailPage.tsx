@@ -38,6 +38,8 @@ import { api } from '@/lib/api';
 import { Task, TimesheetWorkEntry } from '@/types';
 import { getLocalDateString } from '@/lib/utils';
 import ChangeClientDialog from '@/components/ChangeClientDialog';
+import UserStoriesPanel from '@/components/UserStoriesPanel';
+import SplitRequirementsPanel from '@/components/SplitRequirementsPanel';
 import {
   projectAccent, formatHM, hoursDecimal,
   PRIORITY_STYLES, STATUS_PALETTE, activeTasksForUser,
@@ -169,8 +171,10 @@ const ProjectDetailPage = () => {
     [allTimesheet, dateFrom, dateTo],
   );
 
+  // Top-level tasks only on the board (nested subtasks via parentTaskId stay under stories).
+  // Legacy tasks have no parentTaskId — behaviour unchanged.
   const projectTasks = useMemo(
-    () => (project ? tasks.filter(t => t.projectId === project.id) : []),
+    () => (project ? tasks.filter(t => t.projectId === project.id && !t.parentTaskId) : []),
     [project, tasks],
   );
 
@@ -860,6 +864,14 @@ const ProjectDetailPage = () => {
           )}
         </section>
 
+        {/* ── Split requirements → stories + tasks ─────────────────────── */}
+        <SplitRequirementsPanel
+          projectId={project.id}
+          sections={project.sections}
+          members={users.filter(u => project.members.includes(u.id))}
+          accentClass={accent.text}
+        />
+
         {/* ── Sections ──────────────────────────────────────────────────── */}
         <section className="rounded-2xl border border-border/35 bg-card/40 p-6">
           <div className="flex items-center justify-between mb-4">
@@ -876,24 +888,40 @@ const ProjectDetailPage = () => {
           {project.sections.length === 0 ? (
             <div className="py-6 text-center text-sm text-muted-foreground/40 italic border border-dashed border-border/30 rounded-xl">No sections yet</div>
           ) : (
-            <div className="flex flex-wrap gap-2">
-              <AnimatePresence>
-                {project.sections.map(s => {
-                  const secTasks = projectTasks.filter(t => t.sectionId === s.id).length;
-                  return (
-                    <motion.span key={s.id} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
-                      className="inline-flex items-center gap-2 text-xs px-3.5 py-2 rounded-xl border border-border/40 bg-muted/30 font-medium group hover:border-border/60 transition-all">
-                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${accent.bg}`} />
-                      <span className="break-words [overflow-wrap:anywhere]">{s.name}</span>
-                      <span className="text-[10px] text-muted-foreground/45">{secTasks}</span>
-                      <button type="button" onClick={() => setSectionToDelete({ id: s.id, name: s.name })}
-                        className="p-0.5 rounded-md opacity-0 group-hover:opacity-100 hover:bg-red-500/15 text-muted-foreground/40 hover:text-red-400 transition-all" aria-label={`Delete section ${s.name}`}>
-                        <Trash2 className="h-3 w-3" />
-                      </button>
-                    </motion.span>
-                  );
-                })}
-              </AnimatePresence>
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                <AnimatePresence>
+                  {project.sections.map(s => {
+                    const secTasks = projectTasks.filter(t => t.sectionId === s.id).length;
+                    return (
+                      <motion.span key={s.id} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
+                        className="inline-flex items-center gap-2 text-xs px-3.5 py-2 rounded-xl border border-border/40 bg-muted/30 font-medium group hover:border-border/60 transition-all">
+                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${accent.bg}`} />
+                        <span className="break-words [overflow-wrap:anywhere]">{s.name}</span>
+                        <span className="text-[10px] text-muted-foreground/45">{secTasks}</span>
+                        <button type="button" onClick={() => setSectionToDelete({ id: s.id, name: s.name })}
+                          className="p-0.5 rounded-md opacity-0 group-hover:opacity-100 hover:bg-red-500/15 text-muted-foreground/40 hover:text-red-400 transition-all" aria-label={`Delete section ${s.name}`}>
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </motion.span>
+                    );
+                  })}
+                </AnimatePresence>
+              </div>
+              {project.sections.map(s => {
+                const sectionMembers = users.filter(u => project.members.includes(u.id));
+                return (
+                  <div key={`stories-${s.id}`} className="rounded-xl border border-border/30 p-3">
+                    <p className="text-xs font-semibold text-foreground mb-1">{s.name}</p>
+                    <UserStoriesPanel
+                      projectId={project.id}
+                      sectionId={s.id}
+                      sectionName={s.name}
+                      members={sectionMembers}
+                    />
+                  </div>
+                );
+              })}
             </div>
           )}
         </section>

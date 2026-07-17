@@ -1,8 +1,8 @@
 /**
  * TimesheetAnalyticsPanel.tsx — Analytics panel embedded in the Timesheet page.
  *
- * Shows: weekly trend, billable vs non-billable breakdown, day-of-week heatmap,
- * project contribution, overtime detection, and AI insights.
+ * Shows: weekly trend, billable vs non-billable breakdown,
+ * overtime detection, and AI insights.
  * All data computed server-side from ZET's TimesheetEntry records.
  */
 
@@ -176,22 +176,6 @@ export function TimesheetAnalyticsPanel({ userId }: { userId?: string }) {
               <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-violet-500" />Billable</span>
               <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-indigo-500" />Non-Billable</span>
             </div>
-          </section>
-
-          {/* Day of week distribution */}
-          <section className="rounded-2xl border border-border/30 bg-card p-5 space-y-3">
-            <h3 className="text-sm font-semibold text-foreground">Daily Work Distribution</h3>
-            <ResponsiveContainer width="100%" height={160}>
-              <BarChart data={data.dowDistribution} barSize={24} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
-                <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#94a3b8' }} />
-                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} width={28} />
-                <Tooltip
-                  contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 12, fontSize: 12 }}
-                  formatter={(v: number) => [`${v}h`, 'Hours']}
-                />
-                <Bar dataKey="hours" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
           </section>
 
           {/* Overtime detection */}

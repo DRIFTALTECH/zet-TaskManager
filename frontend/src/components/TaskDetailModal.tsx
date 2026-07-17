@@ -1,5 +1,5 @@
 import { useAppStore } from '@/stores/appStore';
-import { Task, Priority, TaskStatus, TaskAttachment, TaskFeedback } from '@/types';
+import { Task, Priority, TaskStatus, TaskAttachment, TaskFeedback, UserStory } from '@/types';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
@@ -11,11 +11,12 @@ import { toast } from 'sonner';
 import {
   Calendar, Tag, Clock, AlertTriangle, Plus, X, Trash2,
   FolderOpen, Layers, Mail, UserCircle, CircleDot,
-  MessageSquare, Send, User2,   CheckCircle2, RotateCcw, ChevronRight,
-  Paperclip, Download, Upload, Sparkles, Eye, FileText,
+  MessageSquare, Send, User2, CheckCircle2, RotateCcw, ChevronRight,
+  Paperclip, Download, Upload, Sparkles, Eye, FileText, BookOpen,
+  CheckSquare, Square,
 } from 'lucide-react';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { taskAssigneeIds, isTaskAssignedTo, normalizePriority } from '@/lib/task-utils';
+import { taskAssigneeIds, isTaskAssignedTo, normalizePriority, childTasksOf, isTaskDone } from '@/lib/task-utils';
 import UserAvatar from '@/components/UserAvatar';
 import { AdjustMinDurationSection } from '@/components/AdjustMinDurationSection';
 import { SubtaskManager } from '@/components/SubtaskSection';
@@ -24,7 +25,13 @@ import { dueBucketDateTextClass, getDueBucket } from '@/lib/due-date-utils';
 import { api } from '@/lib/api';
 import { formatLocalDateTime } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
-
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 interface Props { task: Task | null; open: boolean; onOpenChange: (open: boolean) => void; }
 type CustomFieldRow = { localId: string; key: string; value: string };
 
@@ -137,14 +144,20 @@ function Avatar({ name, avatar, size = 'md' }: { name: string; avatar?: string; 
 const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
   const {
     users, projects, kanbanColumns, updateTask, currentUser, deleteTask, reopenTaskToBacklog,
-    activeTimers, startTimer, stopTimer,
+    activeTimers, startTimer, stopTimer, tasks: allTasks, moveTask,
   } = useAppStore();
-
+  const nestedChildren = useMemo(
+    () => (task ? childTasksOf(allTasks, task.id) : []),
+    [task, allTasks],
+  );
   const [draftTitle, setDraftTitle] = useState('');
   const [draftDescription, setDraftDescription] = useState('');
   const [draftPriority, setDraftPriority] = useState<Priority>('Medium');
   const [draftAssigneeIds, setDraftAssigneeIds] = useState<string[]>([]);
   const [draftCustomRows, setDraftCustomRows] = useState<CustomFieldRow[]>([]);
+  const [draftUserStoryId, setDraftUserStoryId] = useState<string>('');
+  const [sectionStories, setSectionStories] = useState<UserStory[]>([]);
+  const [storiesLoading, setStoriesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const [feedbackList, setFeedbackList] = useState<TaskFeedback[]>([]);
@@ -220,6 +233,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
     setDraftPriority(normalizePriority(t.priority));
     setDraftAssigneeIds([...taskAssigneeIds(t)]);
     setDraftCustomRows(rowsFromTask(t.customFields));
+    setDraftUserStoryId(t.userStoryId ?? '');
   }, []);
 
   const loadFeedback = useCallback(async () => {
@@ -247,6 +261,26 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
     setAiSummary(null); setShowAiSummary(false);
   }, [open, task?.id, loadFeedback, loadAttachments]);
 
+  useEffect(() => {
+    if (!open || !task?.sectionId) {
+      setSectionStories([]);
+      return;
+    }
+    let cancelled = false;
+    setStoriesLoading(true);
+    void (async () => {
+      try {
+        const rows = await api.listSectionUserStories(task.sectionId);
+        if (!cancelled) setSectionStories(rows);
+      } catch {
+        if (!cancelled) setSectionStories([]);
+      } finally {
+        if (!cancelled) setStoriesLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open, task?.sectionId, task?.id]);
+
   const isDirty = useMemo(() => {
     if (!task) return false;
     const cfMatch = cfSig(recordFromRows(draftCustomRows)) === cfSig(task.customFields);
@@ -254,9 +288,11 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
       draftTitle !== task.title || draftDescription !== (task.description ?? '') ||
       draftPriority !== task.priority || !cfMatch
     );
+    const storyDirty = (canEditTaskFields || canManageAssignees) &&
+      (draftUserStoryId || '') !== (task.userStoryId || '');
     const assigneeDirty = canManageAssignees && sortedKey(draftAssigneeIds) !== sortedKey(taskAssigneeIds(task));
-    return contentDirty || assigneeDirty;
-  }, [task, draftTitle, draftDescription, draftPriority, draftAssigneeIds, draftCustomRows, canEditTaskFields, canManageAssignees]);
+    return contentDirty || assigneeDirty || storyDirty;
+  }, [task, draftTitle, draftDescription, draftPriority, draftAssigneeIds, draftCustomRows, draftUserStoryId, canEditTaskFields, canManageAssignees]);
 
   const timerEpochStart = task ? (activeTimers[task.id] ?? null) : null;
   const elapsed = useElapsedTime(timerEpochStart);
@@ -301,11 +337,23 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
     const title = draftTitle.trim();
     if (canEditTaskFields && !title) { toast.error('Title is required'); return; }
     const ids = [...new Set(draftAssigneeIds)];
-    if (canManageAssignees && ids.length === 0) { toast.error('At least one assignee is required'); return; }
+    const linkedToStory = Boolean(draftUserStoryId || task.userStoryId);
+    if (canManageAssignees && ids.length === 0 && !linkedToStory) {
+      toast.error('At least one assignee is required');
+      return;
+    }
     setSaving(true);
     try {
       const patch: Parameters<typeof updateTask>[1] = {};
-      if (canEditTaskFields) { patch.title = title; patch.description = draftDescription; patch.priority = draftPriority; patch.customFields = recordFromRows(draftCustomRows); }
+      if (canEditTaskFields) {
+        patch.title = title;
+        patch.description = draftDescription;
+        patch.priority = draftPriority;
+        patch.customFields = recordFromRows(draftCustomRows);
+      }
+      if (canEditTaskFields || canManageAssignees) {
+        patch.userStoryId = draftUserStoryId || null;
+      }
       if (canManageAssignees) patch.assigneeIds = ids;
       if (Object.keys(patch).length === 0) { setSaving(false); return; }
       await updateTask(task.id, patch);
@@ -588,6 +636,11 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
               {canManageAssignees && (
                 <section>
                   <SectionLabel icon={User2} label="Manage Assignees" accent="text-violet-400/70" />
+                  {(draftUserStoryId || task.userStoryId) && (
+                    <p className="text-[11px] text-muted-foreground/60 mb-2">
+                      Linked to a user story — you can leave assignees empty; the task stays under the story.
+                    </p>
+                  )}
                   <div className="rounded-xl border border-border/40 overflow-hidden divide-y divide-border/25 bg-card max-h-[280px] overflow-y-auto">
                     {projectMembers.map(u => (
                       <label
@@ -657,6 +710,83 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                   )}
                 </section>
               )}
+
+              {nestedChildren.length > 0 && (() => {
+                const nestedDone = nestedChildren.filter(isTaskDone).length;
+                const nestedTotal = nestedChildren.length;
+                const nestedPct = nestedTotal ? Math.round((nestedDone / nestedTotal) * 100) : 0;
+                return (
+                  <section>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground/60">
+                        <CheckSquare className="h-3.5 w-3.5 shrink-0" />
+                        <span>Subtasks ({nestedDone}/{nestedTotal} completed)</span>
+                      </div>
+                    </div>
+                    <div className="mb-3">
+                      <div className="flex items-center justify-between text-[10px] text-muted-foreground/50 mb-1">
+                        <span>Progress</span>
+                        <span className={nestedPct === 100 ? 'text-emerald-400 font-bold' : ''}>
+                          {nestedDone}/{nestedTotal} · {nestedPct}%
+                        </span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-muted/40 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-500 ${nestedPct === 100 ? 'bg-emerald-500' : 'bg-primary'}`}
+                          style={{ width: `${nestedPct}%` }}
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      {nestedChildren.map(st => {
+                        const done = isTaskDone(st);
+                        return (
+                          <div
+                            key={st.id}
+                            className="flex items-center gap-2.5 group rounded-xl px-2 py-1.5 hover:bg-muted/30 transition-colors"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void (async () => {
+                                  try {
+                                    if (done) {
+                                      // moveTask → done; reopen API only accepts completed — undo via backlog move
+                                      if (st.status === 'completed') await reopenTaskToBacklog(st.id);
+                                      else await moveTask(st.id, 'backlog');
+                                    } else {
+                                      await moveTask(st.id, 'done');
+                                    }
+                                  } catch (e) {
+                                    toast.error(e instanceof Error ? e.message : 'Could not update subtask');
+                                  }
+                                })();
+                              }}
+                              className="shrink-0 text-muted-foreground/50 hover:text-primary transition-colors"
+                              title={done ? 'Mark as not completed' : 'Mark as completed'}
+                              aria-label={done ? 'Mark as not completed' : 'Mark as completed'}
+                            >
+                              {done
+                                ? <CheckSquare className="h-4 w-4 text-emerald-400" />
+                                : <Square className="h-4 w-4" />}
+                            </button>
+                            <span
+                              className={`flex-1 text-sm min-w-0 truncate ${
+                                done ? 'line-through text-muted-foreground/40' : 'text-foreground'
+                              }`}
+                            >
+                              {st.title}
+                            </span>
+                            {done && (
+                              <span className="text-[10px] font-semibold text-emerald-500 shrink-0">Completed</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                );
+              })()}
 
               <SubtaskManager taskId={task.id} />
 
@@ -988,6 +1118,33 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                     <span className={`w-2 h-2 rounded-full ${priCfg.dot}`} />
                     {displayPriority}
                   </span>
+                )}
+              </section>
+
+              {/* User story */}
+              <section>
+                <SectionLabel icon={BookOpen} label="User story" accent="text-violet-400/70" />
+                {(canEditTaskFields || canManageAssignees) ? (
+                  <Select
+                    value={draftUserStoryId || '__none__'}
+                    onValueChange={v => setDraftUserStoryId(v === '__none__' ? '' : v)}
+                    disabled={storiesLoading}
+                  >
+                    <SelectTrigger className="w-full text-xs h-9">
+                      <SelectValue placeholder={storiesLoading ? 'Loading…' : 'No user story'} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">No user story</SelectItem>
+                      {sectionStories.map(s => (
+                        <SelectItem key={s.id} value={s.id}>{s.title}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    {sectionStories.find(s => s.id === (task.userStoryId || ''))?.title
+                      || (task.userStoryId ? 'Linked story' : 'None')}
+                  </p>
                 )}
               </section>
 

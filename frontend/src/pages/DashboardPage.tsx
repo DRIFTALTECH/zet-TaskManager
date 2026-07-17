@@ -29,7 +29,7 @@ import { CSS } from '@dnd-kit/utilities';
 import {
   Plus, GripVertical,
   MoreHorizontal, Pencil, Trash2, Flag, Check,
-  ListFilter, Users,
+  ListFilter, Users, BookOpen,
 } from 'lucide-react';
 import { KanbanBoardPan } from '@/components/KanbanBoardPan';
 import TaskDetailModal from '@/components/TaskDetailModal';
@@ -52,11 +52,14 @@ import {
   taskMatchesPriorityFilter,
   type DashboardDueFilter,
 } from '@/lib/due-date-utils';
-import { taskMatchesAssigneeFilter } from '@/lib/task-utils';
+import { isTopLevelTask, storyAssigneeIds, taskMatchesAssigneeFilter } from '@/lib/task-utils';
 import UserAvatar from '@/components/UserAvatar';
 import { DatePickerInput } from '@/components/DatePickerInput';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
+import AssigneeMultiSelect from '@/components/AssigneeMultiSelect';
+import { api } from '@/lib/api';
+import type { UserStory } from '@/types';
 
 const PROTECTED_IDS = new Set(['backlog', 'in_progress', 'in_review', 'done']);
 const DONE_COL_KEY = 'tm_done_col';
@@ -72,6 +75,7 @@ function KanbanColumnPanel({
   column, tasks, onTaskClick, onNewTask, isDropTarget, isManager,
   approvingId, onApprove,
   isDoneColumn, onSetDoneColumn, onRenameColumn, onDeleteColumn, showProjectPill,
+  storyTitleById,
 }: {
   column: KanbanColumn; tasks: Task[];
   onTaskClick: (t: Task) => void; onNewTask: () => void;
@@ -80,6 +84,7 @@ function KanbanColumnPanel({
   isDoneColumn: boolean; onSetDoneColumn: () => void;
   onRenameColumn: () => void; onDeleteColumn: () => void;
   showProjectPill?: boolean;
+  storyTitleById?: Record<string, string>;
 }) {
   const { setNodeRef, transform, transition, attributes, listeners, isDragging } = useSortable({
     id: column.id, data: { type: 'column' as const },
@@ -144,6 +149,7 @@ function KanbanColumnPanel({
               onApprove={() => onApprove(task.id)}
               approving={approvingId === task.id}
               showProjectPill={showProjectPill}
+              userStoryTitle={task.userStoryId ? storyTitleById?.[task.userStoryId] : null}
             />
           ))}
         </SortableContext>
@@ -224,10 +230,11 @@ const DashboardPage = () => {
   const projectSelected = isAllProjects || (!!selectedProjectId && userProjects.some(p => p.id === selectedProjectId));
   const projectTasks = useMemo(() => {
     if (!projectSelected) return [];
-    if (isAllProjects) {
-      return tasks.filter(t => userProjects.some(p => p.id === t.projectId) && t.status !== 'completed');
-    }
-    return tasks.filter(t => t.projectId === selectedProjectId && t.status !== 'completed');
+    const base = isAllProjects
+      ? tasks.filter(t => userProjects.some(p => p.id === t.projectId) && t.status !== 'completed')
+      : tasks.filter(t => t.projectId === selectedProjectId && t.status !== 'completed');
+    // Nested story subtasks stay under their parent — never as top-level cards.
+    return base.filter(isTopLevelTask);
   }, [projectSelected, isAllProjects, tasks, userProjects, selectedProjectId]);
 
   const [dashPriorityFilter, setDashPriorityFilter] = useState<Set<Priority>>(() => new Set());
@@ -235,6 +242,100 @@ const DashboardPage = () => {
   const [dashDateFrom, setDashDateFrom] = useState('');
   const [dashDateTo, setDashDateTo] = useState('');
   const [dashAssigneeFilter, setDashAssigneeFilter] = useState<Set<string>>(() => new Set());
+  const [dashStories, setDashStories] = useState<UserStory[]>([]);
+  const [assignStory, setAssignStory] = useState<UserStory | null>(null);
+  const [assignIds, setAssignIds] = useState<Set<string>>(new Set());
+  const [assignSaving, setAssignSaving] = useState(false);
+  const [createStoryOpen, setCreateStoryOpen] = useState(false);
+  const [newStoryTitle, setNewStoryTitle] = useState('');
+  const [newStorySectionId, setNewStorySectionId] = useState('');
+  const [creatingStory, setCreatingStory] = useState(false);
+
+  const storyTitleById = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const s of dashStories) m[s.id] = s.title;
+    return m;
+  }, [dashStories]);
+
+  useEffect(() => {
+    if (!selectedProjectId || selectedProjectId === 'all') {
+      setDashStories([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const rows = await api.listProjectUserStories(selectedProjectId);
+        if (!cancelled) setDashStories(rows);
+      } catch {
+        if (!cancelled) setDashStories([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProjectId]);
+
+  const dashStoryMembers = useMemo(() => {
+    if (!selectedProjectId || selectedProjectId === 'all') return [];
+    const p = userProjects.find(pr => pr.id === selectedProjectId);
+    if (!p) return [];
+    return users.filter(u => p.members.includes(u.id)).sort((a, b) => a.name.localeCompare(b.name));
+  }, [selectedProjectId, userProjects, users]);
+
+  const selectedProjectSections = useMemo(() => {
+    if (!selectedProjectId || selectedProjectId === 'all') return [];
+    return userProjects.find(p => p.id === selectedProjectId)?.sections ?? [];
+  }, [selectedProjectId, userProjects]);
+
+  const openAssignStory = (s: UserStory) => {
+    setAssignStory(s);
+    setAssignIds(new Set(storyAssigneeIds(s)));
+  };
+
+  const saveAssignStory = async () => {
+    if (!assignStory) return;
+    setAssignSaving(true);
+    try {
+      const updated = await api.patchUserStory(assignStory.id, { assigneeIds: [...assignIds] });
+      setDashStories(prev => prev.map(x => (x.id === updated.id ? updated : x)));
+      toast.success('User story assignees updated');
+      setAssignStory(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not update assignees');
+    } finally {
+      setAssignSaving(false);
+    }
+  };
+
+  const openCreateStory = () => {
+    setNewStoryTitle('');
+    setNewStorySectionId(selectedProjectSections[0]?.id ?? '');
+    setCreateStoryOpen(true);
+  };
+
+  const saveNewStory = async () => {
+    if (!selectedProjectId || selectedProjectId === 'all') return;
+    if (!newStoryTitle.trim() || !newStorySectionId) {
+      toast.error('Title and section are required');
+      return;
+    }
+    setCreatingStory(true);
+    try {
+      const story = await api.createUserStory({
+        projectId: selectedProjectId,
+        sectionId: newStorySectionId,
+        title: newStoryTitle.trim(),
+      });
+      setDashStories(prev => [story, ...prev]);
+      toast.success('User story created');
+      setCreateStoryOpen(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not create user story');
+    } finally {
+      setCreatingStory(false);
+    }
+  };
 
   const toggleDashPriority = useCallback((p: Priority) => {
     setDashPriorityFilter(prev => {
@@ -583,6 +684,64 @@ const DashboardPage = () => {
         </div>
       </div>
 
+      {!isAllProjects && selectedProjectId && (
+        <div className="mb-4 shrink-0 rounded-xl border border-border/40 bg-card/40 p-3">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+              <BookOpen className="h-3.5 w-3.5 text-primary" />
+              User Stories
+              <span className="font-normal text-muted-foreground/60">({dashStories.length})</span>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 text-[11px] gap-1"
+              onClick={openCreateStory}
+              disabled={selectedProjectSections.length === 0}
+            >
+              <Plus className="h-3 w-3" /> Add story
+            </Button>
+          </div>
+          {dashStories.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground/55">
+              No user stories yet. Add one here, or open a task card to link an existing story.
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {dashStories.map(s => {
+                const aids = storyAssigneeIds(s);
+                return (
+                  <div
+                    key={s.id}
+                    className="inline-flex items-center gap-2 rounded-lg border border-border/35 bg-background/60 px-2.5 py-1.5 text-xs"
+                  >
+                    <span className="font-medium max-w-[14rem] truncate">{s.title}</span>
+                    <span className="flex -space-x-1">
+                      {aids.slice(0, 3).map(id => {
+                        const u = users.find(x => x.id === id);
+                        return u ? (
+                          <UserAvatar key={id} name={u.name} avatar={u.avatar} size="xs" />
+                        ) : null;
+                      })}
+                    </span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-6 text-[10px] px-2"
+                      onClick={() => openAssignStory(s)}
+                    >
+                      Assign
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       <DndContext sensors={sensors} collisionDetection={collisionDetection}
         onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}>
@@ -603,6 +762,7 @@ const DashboardPage = () => {
                 onRenameColumn={() => openRename(col)}
                 onDeleteColumn={() => { void handleDeleteColumn(col.id); }}
                 showProjectPill={isAllProjects}
+                storyTitleById={storyTitleById}
               />
             ))}
 
@@ -677,6 +837,66 @@ const DashboardPage = () => {
 
       <TaskDetailModal task={selectedTask} open={!!selectedTask} onOpenChange={o => !o && setSelectedTask(null)} />
       <CreateTaskModal open={createOpen} onOpenChange={setCreateOpen} />
+
+      <Dialog open={!!assignStory} onOpenChange={o => !o && setAssignStory(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Assign user story</DialogTitle>
+          </DialogHeader>
+          {assignStory && (
+            <div className="space-y-3">
+              <p className="text-sm font-medium">{assignStory.title}</p>
+              <AssigneeMultiSelect
+                members={dashStoryMembers}
+                selectedIds={assignIds}
+                onChange={setAssignIds}
+              />
+              <Button type="button" className="w-full" disabled={assignSaving} onClick={() => void saveAssignStory()}>
+                Save assignees
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={createStoryOpen} onOpenChange={setCreateStoryOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>New user story</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Section</label>
+              <select
+                value={newStorySectionId}
+                onChange={e => setNewStorySectionId(e.target.value)}
+                className="w-full rounded-xl border bg-muted/50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+              >
+                {selectedProjectSections.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Title</label>
+              <input
+                value={newStoryTitle}
+                onChange={e => setNewStoryTitle(e.target.value)}
+                placeholder="As a user, I want…"
+                className="w-full rounded-xl border bg-muted/50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+              />
+            </div>
+            <Button
+              type="button"
+              className="w-full"
+              disabled={creatingStory || !newStoryTitle.trim()}
+              onClick={() => void saveNewStory()}
+            >
+              {creatingStory ? 'Creating…' : 'Create user story'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </motion.div>
   );
 };

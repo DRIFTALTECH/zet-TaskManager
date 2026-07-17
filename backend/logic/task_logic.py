@@ -70,8 +70,13 @@ def _build_task_out(t: Task, assignee_ids: list[str], time_log: dict[str, int]) 
     cf = json.loads(t.custom_fields_json or "{}")
     tags = json.loads(t.tags_json or "[]")
     if not assignee_ids:
-        assignee_ids = [t.assigned_to]
-    primary = assignee_ids[0] if assignee_ids else t.assigned_to
+        # Story-linked tasks may be intentionally unassigned (empty assignee rows).
+        # Legacy standalone tasks still fall back to denormalized assigned_to.
+        if getattr(t, "user_story_id", None):
+            assignee_ids = []
+        else:
+            assignee_ids = [t.assigned_to]
+    primary = assignee_ids[0] if assignee_ids else (t.assigned_to or t.created_by)
     return TaskOut(
         id=t.id,
         title=t.title,
@@ -95,6 +100,8 @@ def _build_task_out(t: Task, assignee_ids: list[str], time_log: dict[str, int]) 
         createdAt=t.created_at,
         timeLog=time_log,
         customFields=cf if isinstance(cf, dict) else {},
+        userStoryId=getattr(t, "user_story_id", None) or None,
+        parentTaskId=getattr(t, "parent_task_id", None) or None,
     )
 
 
@@ -103,8 +110,11 @@ def to_task_out(db: Db, t: Task, viewer_user_id: str) -> TaskOut:
     tags = json.loads(t.tags_json or "[]")
     assignee_ids = assignees_crud.list_user_ids_ordered(db, t.id)
     if not assignee_ids:
-        assignee_ids = [t.assigned_to]
-    primary = assignee_ids[0] if assignee_ids else t.assigned_to
+        if getattr(t, "user_story_id", None):
+            assignee_ids = []
+        else:
+            assignee_ids = [t.assigned_to]
+    primary = assignee_ids[0] if assignee_ids else (t.assigned_to or t.created_by)
     return TaskOut(
         id=t.id,
         title=t.title,
@@ -128,6 +138,8 @@ def to_task_out(db: Db, t: Task, viewer_user_id: str) -> TaskOut:
         createdAt=t.created_at,
         timeLog=timelog_crud.time_log_map_for_user(db, t.id, viewer_user_id),
         customFields=cf if isinstance(cf, dict) else {},
+        userStoryId=getattr(t, "user_story_id", None) or None,
+        parentTaskId=getattr(t, "parent_task_id", None) or None,
     )
 
 
@@ -176,6 +188,25 @@ def create_task(db: Db, current_user_id: str, body: TaskCreate) -> TaskOut:
     for uid in assignee_ids:
         if uid not in mids:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Every assignee must be a project member")
+    user_story_id = (body.userStoryId or "").strip() or None
+    parent_task_id = (body.parentTaskId or "").strip() or None
+    if user_story_id:
+        from crud import user_stories as stories_crud
+
+        story = stories_crud.get_by_id(db, user_story_id)
+        if not story or story.project_id != body.projectId:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid userStoryId for project")
+        if story.section_id != body.sectionId:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "userStoryId section must match task sectionId")
+    if parent_task_id:
+        parent = tasks_crud.get_by_id(db, parent_task_id)
+        if not parent or parent.project_id != body.projectId:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid parentTaskId")
+        if getattr(parent, "parent_task_id", None):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Subtasks cannot nest more than one level")
+        # Inherit story from parent when not explicitly set
+        if not user_story_id:
+            user_story_id = getattr(parent, "user_story_id", None) or None
     tid = new_id("t")
     today = date.today().isoformat()
     created_at = datetime.now(timezone.utc).isoformat()
@@ -206,6 +237,8 @@ def create_task(db: Db, current_user_id: str, body: TaskCreate) -> TaskOut:
         tags=body.tags,
         created_at=created_at,
         min_log_minutes=min_log,
+        user_story_id=user_story_id,
+        parent_task_id=parent_task_id,
     )
     assignees_crud.set_assignees(db, tid, assignee_ids)
     return to_task_out(db, t, current_user_id)
@@ -275,18 +308,43 @@ def patch_task(db: Db, current_user_id: str, task_id: str, body: TaskPatch) -> T
         mids = projects_crud.member_ids(db, t.project_id)
         assignee_ids = _unique_ordered(body.assigneeIds)
         if not assignee_ids:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "At least one assignee is required")
-        for uid in assignee_ids:
-            if uid not in mids:
-                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Every assignee must be a project member")
-        assignees_crud.set_assignees(db, t.id, assignee_ids)
-        t.assigned_to = assignee_ids[0]
+            # Story-linked tasks may be left unassigned (still under the story).
+            if not getattr(t, "user_story_id", None):
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "At least one assignee is required")
+            assignees_crud.set_assignees(db, t.id, [])
+            t.assigned_to = t.created_by
+        else:
+            for uid in assignee_ids:
+                if uid not in mids:
+                    raise HTTPException(status.HTTP_400_BAD_REQUEST, "Every assignee must be a project member")
+            assignees_crud.set_assignees(db, t.id, assignee_ids)
+            t.assigned_to = assignee_ids[0]
     if body.customFields is not None:
         t.custom_fields_json = json.dumps(body.customFields)
     # Rescheduling: any project member (assignee) may change the due date — not just
     # the creator — so drag-and-drop on the calendar works for everyone on the task.
     if body.dueDate is not None:
         t.due_date = (body.dueDate or "").strip() or t.due_date
+    if body.userStoryId is not None:
+        usid = (body.userStoryId or "").strip() or None
+        if usid:
+            from crud import user_stories as stories_crud
+
+            story = stories_crud.get_by_id(db, usid)
+            if not story or story.project_id != t.project_id:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid userStoryId")
+        t.user_story_id = usid
+    if body.parentTaskId is not None:
+        pid = (body.parentTaskId or "").strip() or None
+        if pid:
+            if pid == t.id:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Task cannot be its own parent")
+            parent = tasks_crud.get_by_id(db, pid)
+            if not parent or parent.project_id != t.project_id:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid parentTaskId")
+            if getattr(parent, "parent_task_id", None):
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Subtasks cannot nest more than one level")
+        t.parent_task_id = pid
     tasks_crud.update_task(db, t)
     return to_task_out(db, t, current_user_id)
 

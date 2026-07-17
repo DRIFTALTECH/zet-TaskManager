@@ -1,9 +1,33 @@
-import type { Task } from '@/types';
+import type { Task, UserStory } from '@/types';
+
+/** Nested AI/story subtasks must not appear as top-level board/dashboard cards. */
+export function isTopLevelTask(task: Task): boolean {
+  return !task.parentTaskId;
+}
+
+/** Child tasks nested under a parent (user-story / AI subtasks). */
+export function childTasksOf(tasks: Task[], parentId: string): Task[] {
+  return tasks.filter(t => t.parentTaskId === parentId);
+}
+
+export function isTaskDone(task: Task): boolean {
+  return task.status === 'completed' || task.status === 'done';
+}
 
 /** All user IDs assigned to the task (API sends assigneeIds; fallback for older clients). */
 export function taskAssigneeIds(task: Task): string[] {
-  if (task.assigneeIds && task.assigneeIds.length > 0) return task.assigneeIds;
+  if (Array.isArray(task.assigneeIds)) {
+    if (task.assigneeIds.length > 0) return task.assigneeIds;
+    // Empty list is authoritative for story-linked tasks (unassigned until assigned).
+    if (task.userStoryId) return [];
+  }
   return task.assignedTo ? [task.assignedTo] : [];
+}
+
+/** Story assignees — mirrors taskAssigneeIds. */
+export function storyAssigneeIds(story: UserStory): string[] {
+  if (story.assigneeIds && story.assigneeIds.length > 0) return story.assigneeIds;
+  return story.assigneeId ? [story.assigneeId] : [];
 }
 
 export function isTaskAssignedTo(task: Task, userId: string): boolean {

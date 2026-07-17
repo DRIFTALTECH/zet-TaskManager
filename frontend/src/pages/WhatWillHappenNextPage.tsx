@@ -1,15 +1,17 @@
 /**
  * WhatWillHappenNextPage — full-page deadline forecast and capacity recommendations.
+ * Task-level and user-story-level forecasts are separate toggles (same conditions, different work unit).
  */
 
 import { useCallback, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowLeft, RefreshCw, Loader2, TrendingUp } from 'lucide-react';
+import { ArrowLeft, BookOpen, CheckSquare, RefreshCw, Loader2, TrendingUp } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
-import { ForecastPanel, type ForecastRefreshControls } from '@/components/analytics/ForecastPanel';
+import { ForecastPanel, type ForecastLevel, type ForecastRefreshControls } from '@/components/analytics/ForecastPanel';
 import { ANALYTICS_LABELS } from '@/lib/analyticsLabels';
 import { pageEnter } from '@/lib/motion';
+import { cn } from '@/lib/utils';
 
 function defaultForecastRange() {
   const start = new Date();
@@ -28,12 +30,15 @@ export default function WhatWillHappenNextPage() {
   const isManager = currentUser?.role === 'manager' || currentUser?.role === 'admin';
   const [forecastRefresh, setForecastRefresh] = useState<ForecastRefreshControls | null>(null);
   const [range, setRange] = useState(defaultForecastRange);
+  const [level, setLevel] = useState<ForecastLevel>('task');
 
   const handleRefresh = useCallback(() => {
     void forecastRefresh?.refresh();
   }, [forecastRefresh]);
 
   if (!isManager) return <Navigate to="/" replace />;
+
+  const isStory = level === 'user_story';
 
   return (
     <motion.div
@@ -64,9 +69,39 @@ export default function WhatWillHappenNextPage() {
                 {ANALYTICS_LABELS.whatWillHappenNext}
               </h1>
               <p className="text-sm text-muted-foreground/70 mt-1.5 max-w-2xl leading-relaxed">
-                See which deadlines are at risk, who has free time, and who we suggest for help.
-                Suggestions only — you choose who takes each task.
+                {isStory
+                  ? 'See which user-story deadlines are at risk, who has free time, and who we suggest for help. Suggestions only — you choose who takes each user story.'
+                  : 'See which deadlines are at risk, who has free time, and who we suggest for help. Suggestions only — you choose who takes each task.'}
               </p>
+            </div>
+
+            <div className="flex items-center gap-1 bg-muted/30 rounded-xl p-1 w-fit border border-border/30">
+              <button
+                type="button"
+                onClick={() => setLevel('task')}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all',
+                  level === 'task'
+                    ? 'bg-card text-foreground shadow-sm border border-border/40'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <CheckSquare className="h-3.5 w-3.5" />
+                {ANALYTICS_LABELS.forecastByTasks}
+              </button>
+              <button
+                type="button"
+                onClick={() => setLevel('user_story')}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-all',
+                  level === 'user_story'
+                    ? 'bg-card text-foreground shadow-sm border border-border/40'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <BookOpen className="h-3.5 w-3.5" />
+                {ANALYTICS_LABELS.forecastByUserStories}
+              </button>
             </div>
           </div>
 
@@ -107,7 +142,14 @@ export default function WhatWillHappenNextPage() {
       </div>
 
       <div className="px-4 sm:px-8 py-6 max-w-6xl mx-auto w-full">
-        <ForecastPanel variant="page" enabled dateRange={range} onRefreshControls={setForecastRefresh} />
+        <ForecastPanel
+          key={level}
+          variant="page"
+          enabled
+          level={level}
+          dateRange={range}
+          onRefreshControls={setForecastRefresh}
+        />
       </div>
     </motion.div>
   );

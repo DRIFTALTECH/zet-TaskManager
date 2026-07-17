@@ -89,6 +89,7 @@ interface AppState {
       assigneeIds: string[];
       assignedBy: string;
       createdBy: string;
+      userStoryId?: string | null;
     },
   ) => Promise<Task>;
   updateTask: (id: string, updates: Partial<Task>) => Promise<void>;
@@ -470,6 +471,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       dueDate: taskData.dueDate,
       priority: taskData.priority,
       tags: taskData.tags,
+      userStoryId: taskData.userStoryId ?? null,
     });
     set({ tasks: [...get().tasks, t] });
     get().emitAgentEvent('task_created');
@@ -489,6 +491,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (updates.customFields !== undefined) patch.customFields = updates.customFields;
     if (updates.dueDate !== undefined) patch.dueDate = updates.dueDate;
     if (updates.minLogMinutes !== undefined) patch.minLogMinutes = updates.minLogMinutes;
+    if (updates.userStoryId !== undefined) patch.userStoryId = updates.userStoryId;
     const t = await api.patchTask(id, patch);
     set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
     // Moved to a new section → Tasker "moved" animation.

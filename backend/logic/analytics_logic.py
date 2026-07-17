@@ -70,7 +70,9 @@ def _parse_task_due(due_val: Any) -> date | None:
 
 
 def _is_active_task(task: Task) -> bool:
-    return task.status not in ("completed", "cancelled")
+    # Match board: "done" (Done column) and "completed" (manager-approved) are finished.
+    status_lower = (task.status or "").strip().lower()
+    return status_lower not in ("completed", "cancelled", "done", "archived", "closed")
 
 
 def _is_overdue_task(task: Task, today: date) -> bool:

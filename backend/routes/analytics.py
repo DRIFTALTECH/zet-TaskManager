@@ -15,7 +15,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from database.database import Db, get_db
-from logic import analytics_logic, task_forecast_logic
+from logic import analytics_logic, task_forecast_logic, user_story_forecast_logic
 from routes.deps import get_current_user_id
 import crud.users as users_crud
 
@@ -153,6 +153,21 @@ def get_forecast(
     return task_forecast_logic.get_task_due_forecast(db, current_user, start_date, end_date)
 
 
+@router.get("/forecast/user-stories")
+def get_user_story_forecast(
+    start_date: str | None = Query(None, alias="startDate"),
+    end_date: str | None = Query(None, alias="endDate"),
+    current_user=Depends(_get_current_user),
+    db: Db = Depends(get_db),
+):
+    """User-story due-date forecast — same conditions as task forecast, separate work unit."""
+    if current_user.role == "employee":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Manager or admin access required")
+    return user_story_forecast_logic.get_user_story_due_forecast(
+        db, current_user, start_date, end_date
+    )
+
+
 @router.get("/smart-reassignment")
 def get_smart_reassignment(
     current_user=Depends(_get_current_user),
@@ -173,3 +188,35 @@ def get_delivery_risk(
     if current_user.role == "employee":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Manager or admin access required")
     return analytics_logic.get_delivery_risk(db, current_user)
+
+
+from pydantic import BaseModel, Field
+from datetime import datetime, timezone
+
+class ForecastVisibilityPayload(BaseModel):
+    entityType: str
+    entityId: str
+    hidden: bool
+
+
+@router.post("/forecast/visibility", status_code=status.HTTP_204_NO_CONTENT)
+def post_forecast_visibility(
+    payload: ForecastVisibilityPayload,
+    current_user=Depends(_get_current_user),
+    db: Db = Depends(get_db),
+):
+    """Set visibility (hidden/completed state) of a task or user story in forecast views."""
+    if current_user.role == "employee":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Manager or admin access required")
+    
+    import crud.forecast_visibility as fv_crud
+    now_str = datetime.now(timezone.utc).isoformat()
+    fv_crud.set_visibility(
+        db,
+        user_id=current_user.id,
+        entity_type=payload.entityType,
+        entity_id=payload.entityId,
+        hidden=payload.hidden,
+        timestamp=now_str,
+    )
+    db.commit()

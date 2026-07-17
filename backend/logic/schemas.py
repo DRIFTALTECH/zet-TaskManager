@@ -81,6 +81,11 @@ class UserSkillsUpdate(BaseModel):
     skillIds: list[str] = Field(default_factory=list)
 
 
+class CvSkillsOut(BaseModel):
+    """Returned by the CV-parse endpoint — preview only, nothing is persisted."""
+    skills: list[str] = Field(default_factory=list)
+
+
 class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -225,6 +230,9 @@ class TaskOut(BaseModel):
     createdAt: str
     timeLog: dict[str, int] = Field(default_factory=dict)
     customFields: dict[str, str] | None = None
+    # Additive hierarchy (optional — NULL/omitted for legacy tasks)
+    userStoryId: str | None = None
+    parentTaskId: str | None = None
 
 
 class TaskCreate(BaseModel):
@@ -239,6 +247,8 @@ class TaskCreate(BaseModel):
     priority: str
     tags: list[str] = []
     minLogMinutes: int | None = None
+    userStoryId: str | None = None
+    parentTaskId: str | None = None
 
 
 class TaskPatch(BaseModel):
@@ -251,6 +261,116 @@ class TaskPatch(BaseModel):
     customFields: dict[str, str] | None = None
     dueDate: str | None = None
     minLogMinutes: int | None = None
+    userStoryId: str | None = None
+    parentTaskId: str | None = None
+
+
+class UserStoryOut(BaseModel):
+    id: str
+    projectId: str
+    sectionId: str
+    title: str
+    description: str
+    acceptanceCriteria: str
+    priority: str
+    status: str
+    assigneeId: str | None = None
+    assigneeIds: list[str] = Field(default_factory=list)
+    reporterId: str
+    estimatedHours: float | None = None
+    storyPoints: float | None = None
+    startDate: str | None = None
+    dueDate: str | None = None
+    createdAt: str
+    updatedAt: str
+    progressPercent: float = 0.0
+    taskCount: int = 0
+    completedTaskCount: int = 0
+    subtaskCount: int = 0
+    completedSubtaskCount: int = 0
+
+
+class UserStoryCreate(BaseModel):
+    projectId: str
+    sectionId: str
+    title: str
+    description: str = ""
+    acceptanceCriteria: str = ""
+    priority: str = "Medium"
+    status: str = "backlog"
+    assigneeId: str | None = None
+    assigneeIds: list[str] | None = None
+    estimatedHours: float | None = None
+    storyPoints: float | None = None
+    startDate: str | None = None
+    dueDate: str | None = None
+
+
+class UserStoryPatch(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    acceptanceCriteria: str | None = None
+    priority: str | None = None
+    status: str | None = None
+    sectionId: str | None = None
+    assigneeId: str | None = None
+    assigneeIds: list[str] | None = None
+    estimatedHours: float | None = None
+    storyPoints: float | None = None
+    startDate: str | None = None
+    dueDate: str | None = None
+
+
+class UserStoryGenerateBody(BaseModel):
+    """Optional: used when confirming creation after preview."""
+    replaceGenerated: bool = False
+
+
+class GeneratedSubtaskPreview(BaseModel):
+    key: str
+    title: str
+    description: str = ""
+
+
+class GeneratedTaskPreview(BaseModel):
+    key: str
+    title: str
+    description: str = ""
+    priority: str = "Medium"
+    subtasks: list[GeneratedSubtaskPreview] = Field(default_factory=list)
+    # When False, task is still created under the story but left unassigned.
+    assign: bool = False
+
+
+class UserStoryGeneratePreviewOut(BaseModel):
+    storyId: str
+    tasks: list[GeneratedTaskPreview] = Field(default_factory=list)
+
+
+class UserStoryConfirmGenerateBody(BaseModel):
+    replaceGenerated: bool = False
+    tasks: list[GeneratedTaskPreview] = Field(default_factory=list)
+
+
+class ExtractedStoryPreview(BaseModel):
+    key: str
+    title: str
+    description: str = ""
+    acceptanceCriteria: str = ""
+    priority: str = "Medium"
+    assigneeIds: list[str] = Field(default_factory=list)
+    # Nested work items from document split (created on bulk confirm).
+    tasks: list[GeneratedTaskPreview] = Field(default_factory=list)
+
+
+class ExtractStoriesPreviewOut(BaseModel):
+    stories: list[ExtractedStoryPreview] = Field(default_factory=list)
+
+
+class BulkCreateStoriesBody(BaseModel):
+    projectId: str
+    sectionId: str
+    stories: list[ExtractedStoryPreview] = Field(default_factory=list)
 
 
 class TaskMoveBody(BaseModel):
@@ -429,6 +549,17 @@ class TaskChecklistPatch(BaseModel):
 class TaskAttachmentOut(BaseModel):
     id: str
     taskId: str
+    filename: str
+    contentType: str
+    sizeBytes: int
+    uploadedBy: str
+    uploaderName: str
+    createdAt: str
+
+
+class UserStoryAttachmentOut(BaseModel):
+    id: str
+    userStoryId: str
     filename: str
     contentType: str
     sizeBytes: int

@@ -3,19 +3,20 @@
  * Used by Dashboard (sortable) and My Tasks (static list).
  */
 
-import { useEffect, useState, type CSSProperties, type HTMLAttributes } from 'react';
+import { useEffect, useState, type CSSProperties, type HTMLAttributes, type MouseEvent } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { CheckCircle, CheckCircle2, RotateCcw } from 'lucide-react';
+import { CheckCircle, CheckCircle2, CheckSquare, RotateCcw, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import UserAvatar from '@/components/UserAvatar';
 import { useAppStore } from '@/stores/appStore';
-import { isTaskAssignedTo, taskAssigneeIds, normalizePriority } from '@/lib/task-utils';
+import { isTaskAssignedTo, taskAssigneeIds, normalizePriority, childTasksOf, isTaskDone } from '@/lib/task-utils';
 import {
   dueBucketDateTextClass,
   getDueBucket,
 } from '@/lib/due-date-utils';
 import type { Priority, Task } from '@/types';
+import { toast } from 'sonner';
 
 const priorityBadgeStyles: Record<Priority, string> = {
   Urgent: 'bg-red-500/15 text-red-400 border-red-500/20',
@@ -79,6 +80,8 @@ export type TaskCardProps = {
   task: Task;
   onClick: () => void;
   showProjectPill?: boolean;
+  /** When set, shows a user-story chip on the card */
+  userStoryTitle?: string | null;
   showApprove?: boolean;
   onApprove?: () => void;
   approving?: boolean;
@@ -98,6 +101,7 @@ export function TaskCard({
   task,
   onClick,
   showProjectPill = false,
+  userStoryTitle = null,
   showApprove = false,
   onApprove,
   approving = false,
@@ -111,10 +115,25 @@ export function TaskCard({
   dragListeners,
   isDragging = false,
 }: TaskCardProps) {
-  const { users, projects, currentUser, activeTimers, startTimer, stopTimer } = useAppStore();
+  const { users, projects, currentUser, activeTimers, startTimer, stopTimer, tasks: allTasks, moveTask, reopenTaskToBacklog } = useAppStore();
   const taskProject = projects.find(p => p.id === task.projectId);
   const taskSection = taskProject?.sections.find(s => s.id === task.sectionId);
   const assigneeList = taskAssigneeIds(task).map(id => users.find(u => u.id === id)).filter(Boolean) as typeof users;
+  const nestedSubtasks = childTasksOf(allTasks, task.id);
+
+  const toggleNestedSubtask = async (st: Task, e: MouseEvent) => {
+    e.stopPropagation();
+    try {
+      if (isTaskDone(st)) {
+        if (st.status === 'completed') await reopenTaskToBacklog(st.id);
+        else await moveTask(st.id, 'backlog');
+      } else {
+        await moveTask(st.id, 'done');
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not update subtask');
+    }
+  };
 
   const isTimerActive = !!activeTimers[task.id];
   const elapsed = useElapsedTime(activeTimers[task.id] ?? null);
@@ -205,6 +224,49 @@ export function TaskCard({
           </span>
         </div>
         <h4 className="text-base font-bold leading-snug mb-2 text-foreground line-clamp-2 shrink-0">{task.title}</h4>
+        {userStoryTitle && (
+          <span className="mb-2 inline-flex max-w-full items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border border-violet-500/25 bg-violet-500/10 text-violet-400 font-semibold truncate">
+            {userStoryTitle}
+          </span>
+        )}
+        {nestedSubtasks.length > 0 && (
+          <div className="mb-2 rounded-lg border border-border/40 bg-muted/20 px-2.5 py-2 space-y-1 shrink-0">
+            <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+              <CheckSquare className="h-3 w-3" />
+              Subtasks ({nestedSubtasks.filter(isTaskDone).length}/{nestedSubtasks.length})
+            </div>
+            <ul className="space-y-0.5 max-h-[72px] overflow-y-auto">
+              {nestedSubtasks.map(st => {
+                const done = isTaskDone(st);
+                return (
+                  <li
+                    key={st.id}
+                    className="flex items-center gap-1.5 text-[11px] leading-snug"
+                  >
+                    <button
+                      type="button"
+                      onClick={e => void toggleNestedSubtask(st, e)}
+                      className="shrink-0 text-muted-foreground/50 hover:text-primary transition-colors"
+                      title={done ? 'Mark as not completed' : 'Mark as completed'}
+                      aria-label={done ? 'Mark as not completed' : 'Mark as completed'}
+                    >
+                      {done
+                        ? <CheckSquare className="h-3.5 w-3.5 text-emerald-400" />
+                        : <Square className="h-3.5 w-3.5" />}
+                    </button>
+                    <span
+                      className={`min-w-0 truncate ${
+                        done ? 'text-muted-foreground/50 line-through' : 'text-muted-foreground/85'
+                      }`}
+                    >
+                      {st.title}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
         <div className="flex-1 min-h-0 min-w-0" aria-hidden />
         <div className="pt-2 mt-auto space-y-2 shrink-0">
           {((showProjectPill && taskProject) || taskSection || showTimer) && (

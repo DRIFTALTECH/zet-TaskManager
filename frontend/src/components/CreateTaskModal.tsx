@@ -5,8 +5,8 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DateInput } from '@/components/ui/date-input';
 import { toast } from 'sonner';
-import type { Priority } from '@/types';
-import { Users, Layers, Tag, Sparkles } from 'lucide-react';
+import type { Priority, UserStory } from '@/types';
+import { Users, Layers, Tag, Sparkles, BookOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { localTodayISO, localTomorrowISO } from '@/lib/due-date-utils';
 import { api } from '@/lib/api';
@@ -14,6 +14,13 @@ import ProjectSectionPicker from '@/components/ProjectSectionPicker';
 import { SubtaskDraftSection } from '@/components/SubtaskSection';
 import { collectSubtaskTitles, newSubtaskDraftRow, type SubtaskDraftRow } from '@/lib/subtask-utils';
 import type { TaskPrefill } from '@/pages/AIPage';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 interface Props {
   open: boolean;
@@ -45,6 +52,9 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
   const [creatingSec, setCreatingSec] = useState(false);
   const [generatingDesc, setGeneratingDesc] = useState(false);
   const [subtaskRows, setSubtaskRows] = useState<SubtaskDraftRow[]>(() => [newSubtaskDraftRow()]);
+  const [userStoryId, setUserStoryId] = useState('');
+  const [sectionStories, setSectionStories] = useState<UserStory[]>([]);
+  const [storiesLoading, setStoriesLoading] = useState(false);
 
   const userProjects = currentUser ? projects.filter(p => currentUser.projectIds.includes(p.id)) : [];
 
@@ -84,6 +94,35 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
     if (prefill.tags?.length) setTagsStr(prefill.tags.join(', '));
   }, [prefill, open]);
 
+  useEffect(() => {
+    if (!open || !sectionId) {
+      setSectionStories([]);
+      setUserStoryId('');
+      return;
+    }
+    let cancelled = false;
+    setStoriesLoading(true);
+    void (async () => {
+      try {
+        const rows = await api.listSectionUserStories(sectionId);
+        if (!cancelled) {
+          setSectionStories(rows);
+          setUserStoryId(prev => (prev && rows.some(s => s.id === prev) ? prev : ''));
+        }
+      } catch {
+        if (!cancelled) {
+          setSectionStories([]);
+          setUserStoryId('');
+        }
+      } finally {
+        if (!cancelled) setStoriesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, sectionId]);
+
   const handleGenerateDescription = async () => {
     if (!title.trim()) return toast.error('Enter a title first');
     setGeneratingDesc(true);
@@ -117,6 +156,8 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
     setShowNewSection(false);
     setNewSectionName('');
     setSubtaskRows([newSubtaskDraftRow()]);
+    setUserStoryId('');
+    setSectionStories([]);
   };
 
   const handleCreateSection = async () => {
@@ -164,6 +205,7 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
       setManualProjectId(projId);
       setAssigneeIds(new Set(currentUser ? [currentUser.id] : []));
     }
+    if (secId !== sectionId) setUserStoryId('');
     setSectionId(secId);
   };
 
@@ -196,6 +238,7 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
         dueDate: dueDate.trim() || localTodayISO(),
         priority,
         tags: tagsStr.split(',').map(t => t.trim()).filter(Boolean),
+        userStoryId: userStoryId || null,
       });
       try {
         for (const subtaskTitle of subtasks.titles) {
@@ -284,6 +327,39 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
                 onCreateSection={createSectionReturningId}
               />
             </div>
+
+            {sectionId && (
+              <div className="rounded-xl border border-border/60 p-4 space-y-3">
+                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <BookOpen className="h-3.5 w-3.5" /> User story
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Optionally link this task to a user story in the selected section.
+                </p>
+                <Select
+                  value={userStoryId || '__none__'}
+                  onValueChange={v => setUserStoryId(v === '__none__' ? '' : v)}
+                  disabled={storiesLoading}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder={storiesLoading ? 'Loading stories…' : 'No user story'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No user story</SelectItem>
+                    {sectionStories.map(s => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {!storiesLoading && sectionStories.length === 0 && (
+                  <p className="text-[11px] text-muted-foreground/60">
+                    No stories in this section yet — create them from Manage Projects.
+                  </p>
+                )}
+              </div>
+            )}
 
             {selectedProject && (
               <div className="rounded-xl border border-border/60 p-4 space-y-3">

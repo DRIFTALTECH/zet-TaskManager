@@ -7,7 +7,7 @@ import TaskDetailModal from '@/components/TaskDetailModal';
 import CreateTaskModal from '@/components/CreateTaskModal';
 import { TaskCard } from '@/components/TaskCard';
 import { toast } from 'sonner';
-import { isTaskAssignedTo } from '@/lib/task-utils';
+import { isTaskAssignedTo, isTopLevelTask } from '@/lib/task-utils';
 import { snappy, snappyLayout, pageEnter, cardMotion } from '@/lib/motion';
 
 /** 0 = exact, 1 = prefix, 2 = contains, 3 = fuzzy; null = no match */
@@ -63,13 +63,17 @@ const MyTasksPage = () => {
   }, []);
 
   const userId = currentUser?.id ?? '';
-  const userProjectIds = currentUser?.projectIds ?? [];
+  const userProjectIds = useMemo(
+    () => currentUser?.projectIds ?? [],
+    [currentUser?.projectIds],
+  );
   const isManager = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+
 
   const assignedTasks = useMemo(() => {
     if (!userId) return [];
     return tasks.filter(t =>
-      userProjectIds.includes(t.projectId) && isTaskAssignedTo(t, userId),
+      userProjectIds.includes(t.projectId) && isTaskAssignedTo(t, userId) && isTopLevelTask(t),
     );
   }, [tasks, userId, userProjectIds]);
 

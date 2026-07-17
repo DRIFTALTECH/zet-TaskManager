@@ -30,11 +30,13 @@ async def sync_ws(websocket: WebSocket, token: str | None = Query(default=None))
     Auth is via `?token=` (browsers can't set headers on a WebSocket). The token
     is the same app JWT / PAT used for REST calls.
     """
+    await websocket.accept()
+
     if not token:
         await websocket.close(code=4401)
         return
 
-    # Validate the token before accepting the socket.
+    # Validate the token after accepting the socket.
     db = SessionLocal()
     try:
         auth_logic.resolve_user_id(db, token)
@@ -43,8 +45,6 @@ async def sync_ws(websocket: WebSocket, token: str | None = Query(default=None))
         return
     finally:
         db.close()
-
-    await websocket.accept()
     realtime.set_loop(asyncio.get_running_loop())
     realtime.add_subscriber(websocket)
     try:

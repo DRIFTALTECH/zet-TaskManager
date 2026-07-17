@@ -96,6 +96,50 @@ class Section(Base):
     project = relationship("Project", back_populates="sections")
 
 
+class UserStory(Base):
+    """Additive epic-style work item: Section → User Story → Task → Subtask."""
+
+    __tablename__ = "user_stories"
+
+    id = Column(String, primary_key=True)
+    project_id = Column(String, ForeignKey("projects.id"), nullable=False, index=True)
+    section_id = Column(String, ForeignKey("sections.id"), nullable=False, index=True)
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=False, default="")
+    acceptance_criteria = Column(Text, nullable=False, default="")
+    priority = Column(String, nullable=False, default="Medium")
+    status = Column(String, nullable=False, default="backlog")
+    # Denormalized primary assignee (first of user_story_assignees); kept for backward compat.
+    assignee_id = Column(String, ForeignKey("users.id"), nullable=True)
+    reporter_id = Column(String, ForeignKey("users.id"), nullable=False)
+    estimated_hours = Column(String, nullable=True)  # store as string for dialect simplicity
+    story_points = Column(String, nullable=True)
+    start_date = Column(String, nullable=True)
+    due_date = Column(String, nullable=True)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+
+    assignees = relationship(
+        "UserStoryAssignee", back_populates="story", cascade="all, delete-orphan"
+    )
+
+
+class UserStoryAssignee(Base):
+    """Mirrors task_assignees — multi-assignee for user stories."""
+
+    __tablename__ = "user_story_assignees"
+
+    user_story_id = Column(
+        String, ForeignKey("user_stories.id", ondelete="CASCADE"), primary_key=True, nullable=False
+    )
+    user_id = Column(
+        String, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, nullable=False
+    )
+    position = Column(Integer, nullable=False, default=0)
+
+    story = relationship("UserStory", back_populates="assignees")
+
+
 class Task(Base):
     __tablename__ = "tasks"
 
@@ -104,6 +148,10 @@ class Task(Base):
     description = Column(String, nullable=False, default="")
     project_id = Column(String, ForeignKey("projects.id"), nullable=False)
     section_id = Column(String, ForeignKey("sections.id"), nullable=False)
+    # Additive: optional link to a user story (NULL = legacy / standalone task).
+    user_story_id = Column(String, ForeignKey("user_stories.id", ondelete="SET NULL"), nullable=True, index=True)
+    # Additive: self-referencing subtask parent (NULL = top-level task). Checklists unchanged.
+    parent_task_id = Column(String, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=True, index=True)
     assigned_to = Column(String, ForeignKey("users.id"), nullable=False)
     assigned_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
@@ -240,6 +288,23 @@ class TaskAttachment(Base):
     created_at = Column(String, nullable=False)
 
 
+class UserStoryAttachment(Base):
+    """Same storage layout as task_attachments; files share ATTACHMENTS_DIR on disk."""
+
+    __tablename__ = "user_story_attachments"
+
+    id = Column(String, primary_key=True)
+    user_story_id = Column(
+        String, ForeignKey("user_stories.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    filename = Column(String, nullable=False)
+    stored_name = Column(String, nullable=False)
+    content_type = Column(String, nullable=False, default="application/octet-stream")
+    size_bytes = Column(Integer, nullable=False, default=0)
+    uploaded_by = Column(String, ForeignKey("users.id"), nullable=False)
+    created_at = Column(String, nullable=False)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 
@@ -339,3 +404,15 @@ class TeamsTranscriptImport(Base):
     scrum_id = Column(String, ForeignKey("scrums.id", ondelete="SET NULL"), nullable=True)
     imported_by = Column(String, ForeignKey("users.id"), nullable=True)
     imported_at = Column(String, nullable=False, default="")
+
+
+class ForecastVisibility(Base):
+    __tablename__ = "forecast_visibility"
+
+    id = Column(String, primary_key=True)
+    entity_type = Column(String, nullable=False)
+    entity_id = Column(String, nullable=False)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    hidden = Column(Boolean, nullable=False, default=False)
+    hidden_at = Column(String, nullable=True)
+    restored_at = Column(String, nullable=True)

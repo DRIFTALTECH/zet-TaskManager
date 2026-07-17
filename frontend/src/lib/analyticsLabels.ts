@@ -40,6 +40,8 @@ export const ANALYTICS_LABELS = {
   highPriorityTasks: 'High Priority Tasks',
   deliveryRisk: 'Will We Be Late?',
   whatWillHappenNext: 'What Will Happen Next?',
+  forecastByTasks: 'Task forecast',
+  forecastByUserStories: 'User story forecast',
   timeWeHave: 'Time We Have',
   workPlanned: 'Work Planned',
   freeTime: 'Free Time',

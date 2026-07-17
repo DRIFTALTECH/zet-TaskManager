@@ -1,0 +1,5 @@
+User story zettyy
+finish task f , finish task k and finish task q
+
+user story analytics 
+merge overview from ananlytics to zet , add clockify sync from analytics ( sub task -> get clockify api key from clockify) 

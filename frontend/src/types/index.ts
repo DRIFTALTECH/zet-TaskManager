@@ -88,6 +88,68 @@ export interface Task {
   createdAt: string;
   timeLog: Record<string, number>; // date (YYYY-MM-DD) -> seconds logged by current user
   customFields?: Record<string, string>; // user-defined key-value metadata
+  /** Additive: optional user story link (null/undefined = legacy standalone task) */
+  userStoryId?: string | null;
+  /** Additive: parent task for nested subtasks (null = top-level) */
+  parentTaskId?: string | null;
+}
+
+export interface UserStory {
+  id: string;
+  projectId: string;
+  sectionId: string;
+  title: string;
+  description: string;
+  acceptanceCriteria: string;
+  priority: Priority | string;
+  status: string;
+  assigneeId?: string | null;
+  /** Multi-assignee (mirrors task.assigneeIds); assigneeId is primary/first. */
+  assigneeIds?: string[];
+  reporterId: string;
+  estimatedHours?: number | null;
+  storyPoints?: number | null;
+  startDate?: string | null;
+  dueDate?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  progressPercent: number;
+  taskCount: number;
+  completedTaskCount: number;
+  subtaskCount: number;
+  completedSubtaskCount: number;
+}
+
+export interface GeneratedSubtaskPreview {
+  key: string;
+  title: string;
+  description?: string;
+}
+
+export interface GeneratedTaskPreview {
+  key: string;
+  title: string;
+  description?: string;
+  priority?: string;
+  subtasks: GeneratedSubtaskPreview[];
+  /** When false, task is created under the story but left unassigned. */
+  assign?: boolean;
+}
+
+export interface UserStoryGeneratePreview {
+  storyId: string;
+  tasks: GeneratedTaskPreview[];
+}
+
+export interface ExtractedStoryPreview {
+  key: string;
+  title: string;
+  description?: string;
+  acceptanceCriteria?: string;
+  priority?: string;
+  assigneeIds?: string[];
+  /** Nested work items from document split (created on bulk confirm). */
+  tasks?: GeneratedTaskPreview[];
 }
 
 export interface TaskFeedback {
@@ -114,6 +176,17 @@ export interface TaskChecklist {
 export interface TaskAttachment {
   id: string;
   taskId: string;
+  filename: string;
+  contentType: string;
+  sizeBytes: number;
+  uploadedBy: string;
+  uploaderName: string;
+  createdAt: string;
+}
+
+export interface UserStoryAttachment {
+  id: string;
+  userStoryId: string;
   filename: string;
   contentType: string;
   sizeBytes: number;

@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, UploadFile
 
 from database.database import Db, get_db
-from logic import skill_logic, user_logic
-from logic.schemas import PasswordUpdate, ProfileUpdate, UserOut, UserSkillsUpdate
+from logic import cv_skill_logic, skill_logic, user_logic
+from logic.schemas import CvSkillsOut, PasswordUpdate, ProfileUpdate, UserOut, UserSkillsUpdate
 from routes.deps import get_current_user_id
 
 router = APIRouter()
@@ -49,3 +49,21 @@ def change_password(
 ):
     user_logic.change_password(db, user_id, body)
     return {"ok": True}
+
+
+@router.post("/{target_user_id}/cv-skills", response_model=CvSkillsOut)
+async def extract_skills_from_cv(
+    target_user_id: str,
+    file: UploadFile = File(...),
+    user_id: str = Depends(get_current_user_id),
+    db: Db = Depends(get_db),
+):
+    """Parse a CV/resume and return a preview list of extracted skills.
+    Nothing is persisted — the client confirms which skills to add.
+    Manager/admin only (same guard as skill editing).
+    """
+    content = await file.read()
+    skills = cv_skill_logic.parse_cv_and_extract_skills(
+        db, user_id, file.filename, content
+    )
+    return CvSkillsOut(skills=skills)

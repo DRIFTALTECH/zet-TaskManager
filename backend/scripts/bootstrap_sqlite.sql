@@ -49,12 +49,51 @@ CREATE TABLE IF NOT EXISTS sections (
     project_id VARCHAR NOT NULL REFERENCES projects (id)
 );
 
+CREATE TABLE IF NOT EXISTS user_stories (
+    id VARCHAR PRIMARY KEY,
+    project_id VARCHAR NOT NULL REFERENCES projects (id),
+    section_id VARCHAR NOT NULL REFERENCES sections (id),
+    title VARCHAR NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    acceptance_criteria TEXT NOT NULL DEFAULT '',
+    priority VARCHAR NOT NULL DEFAULT 'Medium',
+    status VARCHAR NOT NULL DEFAULT 'backlog',
+    assignee_id VARCHAR REFERENCES users (id),
+    reporter_id VARCHAR NOT NULL REFERENCES users (id),
+    estimated_hours VARCHAR,
+    story_points VARCHAR,
+    start_date VARCHAR,
+    due_date VARCHAR,
+    created_at VARCHAR NOT NULL,
+    updated_at VARCHAR NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_story_assignees (
+    user_story_id VARCHAR NOT NULL REFERENCES user_stories (id) ON DELETE CASCADE,
+    user_id VARCHAR NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    position INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_story_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS user_story_attachments (
+    id VARCHAR PRIMARY KEY,
+    user_story_id VARCHAR NOT NULL REFERENCES user_stories (id) ON DELETE CASCADE,
+    filename VARCHAR NOT NULL,
+    stored_name VARCHAR NOT NULL,
+    content_type VARCHAR NOT NULL DEFAULT 'application/octet-stream',
+    size_bytes INTEGER NOT NULL DEFAULT 0,
+    uploaded_by VARCHAR NOT NULL REFERENCES users (id),
+    created_at VARCHAR NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS tasks (
     id VARCHAR PRIMARY KEY,
     title VARCHAR NOT NULL,
     description VARCHAR NOT NULL DEFAULT '',
     project_id VARCHAR NOT NULL REFERENCES projects (id),
     section_id VARCHAR NOT NULL REFERENCES sections (id),
+    user_story_id VARCHAR REFERENCES user_stories (id) ON DELETE SET NULL,
+    parent_task_id VARCHAR REFERENCES tasks (id) ON DELETE CASCADE,
     assigned_to VARCHAR NOT NULL REFERENCES users (id),
     assigned_by VARCHAR NOT NULL REFERENCES users (id),
     created_by VARCHAR NOT NULL REFERENCES users (id),
@@ -252,3 +291,14 @@ CREATE INDEX IF NOT EXISTS ix_audit_logs_user_id ON audit_logs (user_id);
 CREATE INDEX IF NOT EXISTS ix_notifications_user_id ON notifications (user_id);
 CREATE INDEX IF NOT EXISTS ix_personal_access_tokens_user_id ON personal_access_tokens (user_id);
 CREATE INDEX IF NOT EXISTS ix_scrums_work_date ON scrums (work_date);
+
+CREATE TABLE IF NOT EXISTS forecast_visibility (
+    id VARCHAR PRIMARY KEY,
+    entity_type VARCHAR NOT NULL,
+    entity_id VARCHAR NOT NULL,
+    user_id VARCHAR NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    hidden BOOLEAN NOT NULL DEFAULT FALSE,
+    hidden_at VARCHAR,
+    restored_at VARCHAR
+);
+CREATE INDEX IF NOT EXISTS ix_forecast_visibility_user_entity ON forecast_visibility (user_id, entity_type, entity_id);

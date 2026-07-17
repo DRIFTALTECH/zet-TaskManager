@@ -5,7 +5,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ChevronDown, Plus, X } from 'lucide-react';
+import { ChevronDown, Paperclip, Plus, X } from 'lucide-react';
+import CvSkillPreviewDialog from '@/components/CvSkillPreviewDialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandSeparator,
@@ -24,15 +25,18 @@ const inputCls =
 type Props = {
   selectedSkillIds: string[];
   onChange: (skillIds: string[]) => void;
+  /** User ID for the CV skill-extraction endpoint. Required to show the CV button. */
+  userId?: string;
   disabled?: boolean;
   className?: string;
 };
 
-export function SkillsPicker({ selectedSkillIds, onChange, disabled, className }: Props) {
+export function SkillsPicker({ selectedSkillIds, onChange, disabled, userId, className }: Props) {
   const { skills, loadSkills, createSkill } = useAppStore();
   const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newSkillName, setNewSkillName] = useState('');
+  const [cvOpen, setCvOpen] = useState(false);
 
   useEffect(() => {
     void loadSkills();
@@ -120,54 +124,78 @@ export function SkillsPicker({ selectedSkillIds, onChange, disabled, className }
       </AnimatePresence>
 
       {!disabled && !creating && (
-        <Popover open={open} onOpenChange={setOpen}>
-          <PopoverTrigger asChild>
-            <Button
-              type="button"
-              variant="outline"
-              role="combobox"
-              aria-expanded={open}
-              className="w-full sm:w-auto min-w-[200px] justify-between gap-2 rounded-xl border-border/50 bg-muted/40 text-sm font-normal"
-            >
-              <span className="text-muted-foreground">Add a skill…</span>
-              <ChevronDown className="size-4 shrink-0 opacity-50" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-[var(--radix-popover-trigger-width)] min-w-[240px] p-0" align="start">
-            <Command>
-              <CommandInput placeholder="Search skills…" className="h-9 text-xs" />
-              <CommandList>
-                <CommandEmpty>No skills found.</CommandEmpty>
-                <CommandGroup>
-                  {available.map(s => (
+        <div className="flex items-center gap-2">
+          <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                role="combobox"
+                aria-expanded={open}
+                className="w-full sm:w-auto min-w-[200px] justify-between gap-2 rounded-xl border-border/50 bg-muted/40 text-sm font-normal"
+              >
+                <span className="text-muted-foreground">Add a skill…</span>
+                <ChevronDown className="size-4 shrink-0 opacity-50" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[var(--radix-popover-trigger-width)] min-w-[240px] p-0" align="start">
+              <Command>
+                <CommandInput placeholder="Search skills…" className="h-9 text-xs" />
+                <CommandList>
+                  <CommandEmpty>No skills found.</CommandEmpty>
+                  <CommandGroup>
+                    {available.map(s => (
+                      <CommandItem
+                        key={s.id}
+                        value={s.name}
+                        onSelect={() => addSkill(s.id)}
+                        className="text-xs"
+                      >
+                        {s.name}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                  <CommandSeparator />
+                  <CommandGroup>
                     <CommandItem
-                      key={s.id}
-                      value={s.name}
-                      onSelect={() => addSkill(s.id)}
-                      className="text-xs"
+                      value="+ Add New Skill"
+                      onSelect={() => {
+                        setOpen(false);
+                        setCreating(true);
+                      }}
+                      className="text-xs text-primary font-semibold"
                     >
-                      {s.name}
+                      <Plus className="h-3.5 w-3.5 mr-1.5" />
+                      + Add New Skill
                     </CommandItem>
-                  ))}
-                </CommandGroup>
-                <CommandSeparator />
-                <CommandGroup>
-                  <CommandItem
-                    value="+ Add New Skill"
-                    onSelect={() => {
-                      setOpen(false);
-                      setCreating(true);
-                    }}
-                    className="text-xs text-primary font-semibold"
-                  >
-                    <Plus className="h-3.5 w-3.5 mr-1.5" />
-                    + Add New Skill
-                  </CommandItem>
-                </CommandGroup>
-              </CommandList>
-            </Command>
-          </PopoverContent>
-        </Popover>
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+
+          {userId && (
+            <button
+              type="button"
+              onClick={() => setCvOpen(true)}
+              title="Extract skills from CV / resume"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border/50 bg-muted/40 text-xs font-medium text-muted-foreground hover:text-primary hover:border-primary/40 hover:bg-primary/5 transition-colors shrink-0"
+            >
+              <Paperclip className="h-3.5 w-3.5" />
+              From CV
+            </button>
+          )}
+        </div>
+      )}
+
+      {userId && (
+        <CvSkillPreviewDialog
+          open={cvOpen}
+          onOpenChange={setCvOpen}
+          userId={userId}
+          selectedSkillIds={selectedSkillIds}
+          onMerge={ids => onChange(ids)}
+        />
       )}
 
       {!disabled && creating && (

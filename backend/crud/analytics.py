@@ -202,9 +202,13 @@ def list_active_tasks_counts_by_user(db: Db) -> dict[str, int]:
     rows = fetch_all(
         db,
         """SELECT user_id, COUNT(DISTINCT task_id) AS active_count FROM (
-            SELECT id AS task_id, assigned_to AS user_id FROM tasks WHERE status NOT IN ('completed', 'cancelled')
+            SELECT id AS task_id, assigned_to AS user_id FROM tasks
+            WHERE LOWER(TRIM(status)) NOT IN ('completed', 'done', 'cancelled', 'archived', 'closed')
             UNION ALL
-            SELECT task_id, user_id FROM task_assignees WHERE task_id IN (SELECT id FROM tasks WHERE status NOT IN ('completed', 'cancelled'))
+            SELECT task_id, user_id FROM task_assignees WHERE task_id IN (
+                SELECT id FROM tasks
+                WHERE LOWER(TRIM(status)) NOT IN ('completed', 'done', 'cancelled', 'archived', 'closed')
+            )
         ) sub
         WHERE user_id IS NOT NULL
         GROUP BY user_id"""
@@ -270,13 +274,18 @@ def get_attention_tasks(db: Db, today: str) -> list[Task]:
 def list_active_tasks(db: Db) -> list[Task]:
     rows = fetch_all(
         db,
-        f"SELECT {_TASK_COLS} FROM tasks WHERE status NOT IN ('completed', 'cancelled')",
+        f"""SELECT {_TASK_COLS} FROM tasks
+            WHERE LOWER(TRIM(status)) NOT IN ('completed', 'done', 'cancelled', 'archived', 'closed')""",
     )
     return rows_to_models(Task, rows)
 
 
 def count_active_tasks(db: Db) -> int:
-    row = fetch_one(db, "SELECT COUNT(*) AS count FROM tasks WHERE status NOT IN ('completed', 'cancelled')")
+    row = fetch_one(
+        db,
+        """SELECT COUNT(*) AS count FROM tasks
+           WHERE LOWER(TRIM(status)) NOT IN ('completed', 'done', 'cancelled', 'archived', 'closed')""",
+    )
     return row["count"] if row else 0
 
 

@@ -818,6 +818,7 @@ export default function UserDetailPage() {
               selectedSkillIds={userSkillIds}
               onChange={ids => void handleSkillsChange(ids)}
               disabled={savingSkills}
+              userId={user.id}
             />
           </motion.div>
         )}

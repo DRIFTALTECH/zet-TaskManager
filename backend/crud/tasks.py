@@ -90,17 +90,21 @@ def create_task(
     min_log_minutes: int = 1,
     time_log: dict[str, int] | None = None,
     custom_fields: dict[str, str] | None = None,
+    user_story_id: str | None = None,
+    parent_task_id: str | None = None,
 ) -> Task:
     db.write(
         """
         INSERT INTO tasks (
             id, title, description, project_id, section_id,
+            user_story_id, parent_task_id,
             assigned_to, assigned_by, created_by, due_date,
             priority, status, is_started, started_at, completed_at,
             approved_by_manager, time_tracked, min_log_minutes,
             tags_json, custom_fields_json, created_at
         ) VALUES (
             %s, %s, %s, %s, %s,
+            %s, %s,
             %s, %s, %s, %s,
             %s, %s, %s, %s, %s,
             %s, %s, %s,
@@ -113,6 +117,8 @@ def create_task(
             description,
             project_id,
             section_id,
+            user_story_id,
+            parent_task_id,
             assigned_to,
             assigned_by,
             created_by,
@@ -142,6 +148,7 @@ def update_task(db: Db, task: Task) -> Task:
         """
         UPDATE tasks SET
             title = %s, description = %s, project_id = %s, section_id = %s,
+            user_story_id = %s, parent_task_id = %s,
             assigned_to = %s, assigned_by = %s, created_by = %s, due_date = %s,
             priority = %s, status = %s, is_started = %s, started_at = %s,
             completed_at = %s, approved_by_manager = %s, time_tracked = %s,
@@ -154,6 +161,8 @@ def update_task(db: Db, task: Task) -> Task:
             task.description,
             task.project_id,
             task.section_id,
+            getattr(task, "user_story_id", None),
+            getattr(task, "parent_task_id", None),
             task.assigned_to,
             task.assigned_by,
             task.created_by,
@@ -174,6 +183,20 @@ def update_task(db: Db, task: Task) -> Task:
     )
     realtime.bump("tasks")
     return row_to_model(Task, fetch_one(db, "SELECT * FROM tasks WHERE id = %s", (task.id,)))  # type: ignore[return-value]
+
+
+def list_for_user_story(db: Db, user_story_id: str) -> list[Task]:
+    return rows_to_models(
+        Task,
+        fetch_all(db, "SELECT * FROM tasks WHERE user_story_id = %s", (user_story_id,)),
+    )
+
+
+def list_children(db: Db, parent_task_id: str) -> list[Task]:
+    return rows_to_models(
+        Task,
+        fetch_all(db, "SELECT * FROM tasks WHERE parent_task_id = %s", (parent_task_id,)),
+    )
 
 
 def delete_task(db: Db, task_id: str) -> None:

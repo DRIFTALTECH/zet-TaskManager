@@ -465,7 +465,12 @@ def _collect_reassignment_candidates(
     return candidates
 
 
-def _predicted_status(due: date, slip: int, today: date) -> str:
+def _predicted_status(due: date, slip: int, today: date, status: str | None = None) -> str:
+    status_lower = (status or "").strip().lower()
+    if status_lower in ("completed", "done", "closed"):
+        return "Completed"
+    if status_lower in ("cancelled", "archived"):
+        return "Cancelled"
     if due < today:
         return _PREDICTED_DELAYED
     if slip > 0:
@@ -593,31 +598,45 @@ def _build_deadline_forecast(
         group_delayed = 0
 
         for tr in rows:
+            status_val = tr.get("status")
             slip = int(tr["slipDays"])
             owner_id = tr["assigneeId"]
             owner_queue = queues.get(owner_id, [])
             blocking = _blocking_titles_before(tr["taskId"], owner_queue)
             queue_size = len(owner_queue)
-            predicted = _predicted_status(due, slip, today)
+            predicted = _predicted_status(due, slip, today, status_val)
 
-            if predicted == _PREDICTED_DELAYED:
-                reason = f"This task is past its due date ({due}) and is still incomplete."
-                group_delayed += 1
-            elif predicted == _PREDICTED_AT_RISK:
-                effective_slip = slip
-                reason = _delay_reason(
-                    tr["assigneeName"],
-                    effective_slip,
-                    due,
-                    today,
-                    tr["status"],
-                    blocking,
-                    queue_size,
-                )
-                group_at_risk += 1
-            else:
-                reason = _on_track_reason(tr["assigneeName"], due, today)
+            if predicted == "Completed":
+                slip = 0
+                tr["slipDays"] = 0
+                tr["risk"] = RISK_HEALTHY
+                reason = "Task is completed."
                 group_on_track += 1
+            elif predicted == "Cancelled":
+                slip = 0
+                tr["slipDays"] = 0
+                tr["risk"] = RISK_HEALTHY
+                reason = "Task is cancelled."
+                group_on_track += 1
+            else:
+                if predicted == _PREDICTED_DELAYED:
+                    reason = f"This task is past its due date ({due}) and is still incomplete."
+                    group_delayed += 1
+                elif predicted == _PREDICTED_AT_RISK:
+                    effective_slip = slip
+                    reason = _delay_reason(
+                        tr["assigneeName"],
+                        effective_slip,
+                        due,
+                        today,
+                        tr["status"],
+                        blocking,
+                        queue_size,
+                    )
+                    group_at_risk += 1
+                else:
+                    reason = _on_track_reason(tr["assigneeName"], due, today)
+                    group_on_track += 1
 
             suggested_name = None
             suggested_id = None
@@ -656,10 +675,13 @@ def _build_deadline_forecast(
                     free_before_due = suggestion.get("recommendedOwnerFreeBeforeDue")
 
             task_details.append({
+                "taskId": tr["taskId"],
                 "taskName": tr["title"],
                 "owner": tr["assigneeName"],
                 "dueDate": due_s,
                 "priority": tr.get("priority"),
+                "projectName": tr.get("projectName"),
+                "sectionName": tr.get("sectionName"),
                 "predictedStatus": predicted,
                 "expectedDelayDays": slip if slip > 0 else max(0, (today - due).days),
                 "reason": reason,
@@ -775,10 +797,24 @@ def _queue_for_user(
             "priority": t.priority,
             "status": t.status,
             "projectId": t.project_id,
+            "sectionId": getattr(t, "section_id", None),
             "assignedTo": t.assigned_to,
         })
     items.sort(key=lambda x: (x["due"], -_priority_weight(x["priority"])))
     return items
+
+
+def _dedupe_rows_by_work_item(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One row per task/story for deadline outlook — keep the worst slip (multi-assignee)."""
+    best: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        wid = row.get("taskId")
+        if not wid:
+            continue
+        prev = best.get(wid)
+        if prev is None or int(row.get("slipDays", 0)) > int(prev.get("slipDays", 0)):
+            best[wid] = row
+    return list(best.values())
 
 
 def _slip_for_task_in_queue(
@@ -978,6 +1014,9 @@ def _build_workload_reassignments(
     assignment_counts: dict[str, int] = defaultdict(int)
 
     for tr in all_task_rows:
+        status_lower = (tr.get("status") or "").strip().lower()
+        if status_lower in ("completed", "done", "cancelled"):
+            continue
         owner_id = tr["assigneeId"]
         profile = profiles.get(owner_id)
         if not profile or not profile["isOverloaded"]:
@@ -1015,6 +1054,7 @@ def _build_workload_reassignments(
             "taskTitle": tr["title"],
             "dueDate": tr["dueDate"],
             "projectName": tr.get("projectName"),
+            "sectionName": tr.get("sectionName"),
             "priority": tr["priority"],
             "risk": tr["risk"],
             "currentAssigneeId": owner_id,
@@ -1261,6 +1301,8 @@ def get_task_due_forecast(
     # Scoped projects query
     active_pids = {t.project_id for t in active_tasks if t.project_id} & visible_pids
     projects = {p.id: p for p in analytics_crud.get_projects_by_ids(db, list(active_pids))}
+    section_ids = list({t.section_id for t in active_tasks if getattr(t, "section_id", None)})
+    sections = {s.id: s for s in analytics_crud.get_sections_by_ids(db, section_ids)}
 
     # Scoped assignees query
     assignee_rows = analytics_crud.list_task_assignees_for_tasks(db, [t.id for t in active_tasks])
@@ -1300,12 +1342,15 @@ def get_task_due_forecast(
         task_rows: list[dict[str, Any]] = []
         for row in simulated:
             proj = projects.get(row["projectId"]) if row.get("projectId") else None
+            sec = sections.get(row["sectionId"]) if row.get("sectionId") else None
             tr = {
                 "taskId": row["taskId"],
                 "title": row["title"],
                 "dueDate": str(row["due"]),
                 "projectId": row.get("projectId"),
                 "projectName": proj.name if proj else None,
+                "sectionId": row.get("sectionId"),
+                "sectionName": sec.name if sec else None,
                 "priority": row["priority"],
                 "status": row["status"],
                 "scheduledStartDate": row["scheduledStartDate"],
@@ -1334,8 +1379,11 @@ def get_task_due_forecast(
             "tasks": task_rows,
         })
 
+    # Deadline / suggestion views: one entry per task (multi-assignee otherwise duplicates).
+    unique_task_rows = _dedupe_rows_by_work_item(all_task_rows)
+
     deadlines, deadline_summary = _build_deadline_forecast(
-        all_task_rows, queues, visible, users, today,
+        unique_task_rows, queues, visible, users, today,
         task_descriptions=task_descriptions,
         task_skills_map=task_skills_map,
         user_skills=user_skills,
@@ -1344,7 +1392,7 @@ def get_task_due_forecast(
 
     available_ids = {uid for uid, p in profiles.items() if p["isAvailable"]}
     reassignments = _build_workload_reassignments(
-        active_tasks, all_task_rows, profiles, available_ids, queues, users, today,
+        active_tasks, unique_task_rows, profiles, available_ids, queues, users, today,
         task_skills_map=task_skills_map,
         user_skills=user_skills,
         known_skills=known_skills,
@@ -1375,18 +1423,27 @@ def get_task_due_forecast(
     ]
 
     counts = {RISK_HEALTHY: 0, RISK_MODERATE: 0, RISK_HIGH: 0, RISK_CRITICAL: 0}
-    for tr in all_task_rows:
+    for tr in unique_task_rows:
         counts[tr["risk"]] = counts.get(tr["risk"], 0) + 1
 
     on_track = deadline_summary["onTrackTasks"]
     at_risk = deadline_summary["atRiskTasks"]
     delayed = deadline_summary["delayedTasks"]
 
+    import crud.forecast_visibility as fv_crud
+    hidden_ids = fv_crud.list_hidden_entities(db, requesting_user.id, "task")
+
+    for d in deadlines:
+        for t in d.get("tasks", []) or d.get("delayedTaskDetails", []):
+            t["hidden"] = t.get("taskId") in hidden_ids
+    for r in reassignments:
+        r["hidden"] = r.get("taskId") in hidden_ids
+
     return {
         "asOf": str(today),
         "dateRange": {"startDate": str(start_dt), "endDate": str(end_dt)},
         "summary": {
-            "totalTasks": len(all_task_rows),
+            "totalTasks": len(unique_task_rows),
             "healthy": counts[RISK_HEALTHY],
             "moderate": counts[RISK_MODERATE],
             "high": counts[RISK_HIGH],
@@ -1440,6 +1497,8 @@ def _demo() -> None:
     assert _predicted_status(date(2026, 5, 1), 0, today) == _PREDICTED_DELAYED
     assert _predicted_status(date(2026, 6, 10), 2, today) == _PREDICTED_AT_RISK
     assert _predicted_status(date(2026, 6, 10), 0, today) == _PREDICTED_ON_TRACK
+    assert _predicted_status(date(2026, 5, 1), 0, today, "Completed") == "Completed"
+    assert _predicted_status(date(2026, 5, 1), 0, today, "cancelled") == "Cancelled"
     reason = _delay_reason("John", 3, date(2026, 6, 10), today, "todo", ["Task A"], 4)
     assert "earlier tasks" in reason
     assert _display_risk(RISK_HIGH) == "High"

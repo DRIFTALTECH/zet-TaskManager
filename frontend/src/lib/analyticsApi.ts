@@ -319,6 +319,8 @@ export interface TaskDueForecastTask {
   dueDate: string;
   projectId?: string | null;
   projectName?: string | null;
+  sectionId?: string | null;
+  sectionName?: string | null;
   priority: string;
   status: string;
   scheduledStartDate: string;
@@ -343,7 +345,7 @@ export interface TaskDueForecastEmployee {
 
 export type DeadlineRiskLabel = 'Healthy' | 'Moderate' | 'High' | 'Critical';
 
-export type TaskForecastStatus = 'On Track' | 'At Risk' | 'Delayed';
+export type TaskForecastStatus = 'On Track' | 'At Risk' | 'Delayed' | 'Completed' | 'Cancelled';
 
 export interface RecommendationFactorScore {
   key: string;
@@ -366,10 +368,13 @@ export interface RecommendationScore {
 }
 
 export interface TaskDueDelayedTask {
+  taskId: string;
   taskName: string;
   owner: string;
   dueDate: string;
   priority?: string;
+  projectName?: string | null;
+  sectionName?: string | null;
   predictedStatus: TaskForecastStatus;
   expectedDelayDays: number;
   reason: string;
@@ -381,6 +386,7 @@ export interface TaskDueDelayedTask {
   matchedSkills?: string[];
   missingSkills?: string[];
   recommendedOwnerFreeBeforeDue?: string | null;
+  hidden?: boolean;
 }
 
 export interface TaskDueDeadline {
@@ -399,6 +405,7 @@ export interface TaskDueReassignment {
   taskTitle: string;
   dueDate: string;
   projectName?: string | null;
+  sectionName?: string | null;
   priority: string;
   risk: TaskDueRisk;
   currentAssigneeId: string;
@@ -415,6 +422,7 @@ export interface TaskDueReassignment {
   whyBullets?: string[];
   skillFitScore?: number;
   recommendedOwnerFreeBeforeDue?: string;
+  hidden?: boolean;
 }
 
 export interface WorkloadEmployeeSummary {
@@ -583,9 +591,23 @@ export const analyticsExtApi = {
     return req(q ? `/analytics/forecast?${q}` : '/analytics/forecast');
   },
 
+  getUserStoryForecast: (range?: DateRange): Promise<TaskDueForecast> => {
+    const params = new URLSearchParams();
+    if (range?.startDate) params.set('startDate', range.startDate);
+    if (range?.endDate) params.set('endDate', range.endDate);
+    const q = params.toString();
+    return req(q ? `/analytics/forecast/user-stories?${q}` : '/analytics/forecast/user-stories');
+  },
+
   getSmartReassignment: (): Promise<SmartTaskReassignment> =>
     req('/analytics/smart-reassignment'),
 
   getDeliveryRisk: (): Promise<DeliveryRisk> =>
     req('/analytics/delivery-risk'),
+
+  setForecastVisibility: (entityType: 'task' | 'user_story', entityId: string, hidden: boolean): Promise<void> =>
+    req('/analytics/forecast/visibility', {
+      method: 'POST',
+      body: JSON.stringify({ entityType, entityId, hidden }),
+    }),
 };
