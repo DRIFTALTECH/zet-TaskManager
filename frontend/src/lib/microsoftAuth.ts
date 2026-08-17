@@ -29,6 +29,13 @@ function getMsalInstance(): PublicClientApplication {
         clientId: clientId(),
         authority: `https://login.microsoftonline.com/${tenantId}`,
         redirectUri: typeof window !== 'undefined' ? `${window.location.origin}/` : '/',
+        // Do NOT let MSAL navigate back to the page that started the login.
+        // It did a full-page GET of that path (e.g. /login), which a static host
+        // 404s unless it rewrites unknown paths to index.html — killing the
+        // sign-in before the app even mounted. We consume the pending token in
+        // MsalRedirectResume and route with React Router instead, which is both
+        // reliable and avoids a second full page load.
+        navigateToLoginRequestUrl: false,
       },
       cache: {
         cacheLocation: 'sessionStorage',
