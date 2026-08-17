@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import UserAvatar from '@/components/UserAvatar';
-import { navItems } from '@/components/nav-items';
+import { isNavItemActive, visibleNavItems } from '@/components/nav-items';
 
 const AppSidebar = () => {
   const [expanded, setExpanded] = useState(false);
@@ -30,7 +30,9 @@ const AppSidebar = () => {
         className={`${expanded ? 'w-60' : 'w-16'} transition-[width] duration-200 ease-out glass border-r border-sidebar-border hidden md:flex flex-col h-screen sticky top-0 shrink-0 z-40 overflow-hidden`}
       >
         {/* Logo */}
-        <div className="flex items-center gap-2 px-4 h-16 border-b border-sidebar-border/70 shrink-0">
+        <div className={`flex items-center h-16 border-b border-sidebar-border/70 shrink-0 ${
+          expanded ? 'gap-2 px-4' : 'justify-center px-0'
+        }`}>
           <ZetLogo iconOnly={!expanded} className="min-w-0" />
         </div>
 
@@ -41,20 +43,14 @@ const AppSidebar = () => {
               Workspace
             </p>
           )}
-          {navItems.map(item => {
-            if ('managerOnly' in item && item.managerOnly && currentUser.role !== 'manager' && currentUser.role !== 'admin') return null;
-            const path = location.pathname;
-            const active =
-              item.path === '/manage'
-                ? path.startsWith('/manage')
-                : item.path === '/users/forecast'
-                  ? path === '/users/forecast'
-                  : item.path === '/users'
-                    ? path === '/users' || (path.startsWith('/users/') && path !== '/users/forecast')
-                    : path === item.path;
+          {visibleNavItems(currentUser.role).map(item => {
+            const active = isNavItemActive(item, location.pathname);
             return (
               <Link key={item.path} to={item.path}
-                className={`relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors duration-150 ${
+                title={expanded ? undefined : item.label}
+                className={`relative flex items-center rounded-xl text-sm font-medium transition-colors duration-150 ${
+                  expanded ? 'gap-3 px-3 py-2.5' : 'mx-auto h-10 w-10 justify-center'
+                } ${
                   active ? 'text-sidebar-primary-foreground' : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground'
                 }`}
               >
@@ -66,10 +62,12 @@ const AppSidebar = () => {
                     aria-hidden
                   />
                 )}
-                <item.icon className="relative z-10 h-4 w-4 shrink-0" />
-                <span className={`relative z-10 whitespace-nowrap transition-opacity duration-150 ${expanded ? 'opacity-100' : 'opacity-0'}`}>
-                  {item.labelNode ?? item.label}
-                </span>
+                <item.icon className="relative z-10 h-[18px] w-[18px] shrink-0" />
+                {expanded && (
+                  <span className="relative z-10 whitespace-nowrap">
+                    {item.labelNode ?? item.label}
+                  </span>
+                )}
               </Link>
             );
           })}
@@ -77,7 +75,7 @@ const AppSidebar = () => {
 
         {/* User section */}
         <div className="border-t border-sidebar-border/70 p-3 shrink-0">
-          <div className="flex items-center gap-2">
+          <div className={`flex gap-2 ${expanded ? 'items-center' : 'flex-col items-center'}`}>
             <Link to="/settings" className="shrink-0 rounded-full ring-2 ring-transparent hover:ring-ring/50 transition-shadow">
               <UserAvatar name={currentUser.name} avatar={currentUser.avatar} size="sm" />
             </Link>
@@ -89,7 +87,7 @@ const AppSidebar = () => {
               </div>
             )}
 
-            <div className={`flex items-center gap-1 shrink-0 ${expanded ? '' : 'flex-col ml-auto'}`}>
+            <div className={`flex gap-1 shrink-0 ${expanded ? 'items-center' : 'flex-col items-center'}`}>
               <Link to="/settings"
                 className={`p-1.5 rounded-lg hover:bg-sidebar-accent/60 transition-colors duration-100 ${
                   location.pathname === '/settings' ? 'text-primary bg-sidebar-accent' : 'text-muted-foreground'

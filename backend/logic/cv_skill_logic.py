@@ -149,7 +149,7 @@ def parse_cv_and_extract_skills(
 ) -> list[str]:
     """Entry point called by the route: validate caller, parse file, extract skills."""
     u = user_logic.get_user_or_404(db, manager_id)
-    if u.role not in ("manager", "admin"):
+    if u.role not in ("manager", "superadmin"):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Manager only")
 
     ext = _ext(filename)

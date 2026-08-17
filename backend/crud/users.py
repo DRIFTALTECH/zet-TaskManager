@@ -24,6 +24,27 @@ def list_all(db: Db) -> list[User]:
     return rows_to_models(User, rows)
 
 
+def list_visible_to(db: Db, user_id: str) -> list[User]:
+    """Directory an employee is allowed to see: themselves, their manager, and
+    everyone who shares at least one project with them. Filtered in SQL — never
+    fetch-everything-then-filter."""
+    rows = fetch_all(
+        db,
+        """SELECT * FROM users u
+           WHERE u.id = %s
+              OR u.id = (SELECT manager_id FROM users WHERE id = %s)
+              OR u.id IN (
+                   SELECT pm.user_id FROM project_members pm
+                   WHERE pm.project_id IN (
+                       SELECT project_id FROM project_members WHERE user_id = %s
+                   )
+              )
+           ORDER BY u.name""",
+        (user_id, user_id, user_id),
+    )
+    return rows_to_models(User, rows)
+
+
 def names_for_ids(db: Db, user_ids: list[str]) -> dict[str, str]:
     """Map of user_id → name for the given ids (one query)."""
     if not user_ids:
@@ -129,15 +150,18 @@ def create_user(
     job_title: str = "",
     experience_months: int = 0,
     joined_at: str = "",
+    is_active: bool = True,
 ) -> User:
     from datetime import datetime, timezone
 
     joined = joined_at or datetime.now(timezone.utc).isoformat()
     db.write(
         """INSERT INTO users (
-               id, name, email, password_hash, role, avatar, job_title, experience_months, joined_at
-           ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-        (user_id, name, email, password_hash, role, avatar, job_title, experience_months, joined),
+               id, name, email, password_hash, role, avatar, job_title, experience_months,
+               joined_at, is_active
+           ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+        (user_id, name, email, password_hash, role, avatar, job_title, experience_months,
+         joined, is_active),
     )
     realtime.bump("users")
     created = get_by_id(db, user_id)

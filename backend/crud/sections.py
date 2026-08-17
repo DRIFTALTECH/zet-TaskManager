@@ -13,6 +13,16 @@ def list_for_project(db: Db, project_id: str) -> list[Section]:
     return rows_to_models(Section, rows)
 
 
+def find_by_name(db: Db, project_id: str, name: str) -> Section | None:
+    """Case-insensitive name lookup inside one project, for name-based imports."""
+    row = fetch_one(
+        db,
+        "SELECT * FROM sections WHERE project_id = %s AND LOWER(TRIM(name)) = %s LIMIT 1",
+        (project_id, name.strip().lower()),
+    )
+    return row_to_model(Section, row)
+
+
 def get_by_id(db: Db, section_id: str) -> Section | None:
     row = fetch_one(db, "SELECT * FROM sections WHERE id = %s", (section_id,))
     return row_to_model(Section, row)

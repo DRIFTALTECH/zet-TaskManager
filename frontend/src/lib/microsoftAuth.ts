@@ -4,9 +4,9 @@ import {
   BrowserAuthErrorCodes,
   PublicClientApplication,
   ServerError,
+  type AuthenticationResult,
   type Configuration,
 } from '@azure/msal-browser';
-import type { Role } from '@/types';
 import {
   getMicrosoftClientId,
   getMicrosoftTenantId,
@@ -47,16 +47,49 @@ const PENDING_KEY = '__zet_msal_pending_token';
 
 export type PendingMicrosoftAuth = {
   idToken: string;
-  flow: 'login' | 'signup' | 'admin';
+  flow: 'login' | 'signup';
   rememberMe: boolean;
-  role?: Role;
   jobTitle?: string;
   experienceMonths?: number;
 };
 
+/** Compact JWT check — Entra ID tokens are long `header.payload.sig` strings. */
+function isOidcJwt(token: string | undefined | null): token is string {
+  const t = token?.trim() ?? '';
+  return t.length >= 100 && t.split('.').length === 3;
+}
+
+/**
+ * Prefer `result.idToken`; if missing/malformed, silently refresh OIDC scopes
+ * so we never POST an access token / auth code to the backend.
+ */
+async function resolveIdToken(
+  pca: PublicClientApplication,
+  result: AuthenticationResult,
+): Promise<string | null> {
+  if (isOidcJwt(result.idToken)) return result.idToken.trim();
+  if (!result.account) return null;
+  try {
+    const silent = await pca.acquireTokenSilent({
+      account: result.account,
+      scopes: ['openid', 'profile', 'email'],
+      forceRefresh: true,
+    });
+    if (isOidcJwt(silent.idToken)) return silent.idToken.trim();
+  } catch (e) {
+    console.error('MSAL acquireTokenSilent for id token failed:', e);
+  }
+  return null;
+}
+
 /**
  * Call once before React mounts. Consumes `#code=...` / hash from the redirect return
  * (main window or popup) before BrowserRouter / Navigate can replace the URL.
+ *
+ * `initialize()` is always awaited, even with no redirect to process: it is cheap
+ * (it sets up storage and crypto — OIDC metadata is fetched lazily during token
+ * requests, not here) and `hasMicrosoftSession()` reads the account cache
+ * synchronously during render, so MSAL must be ready before React mounts.
  */
 export async function initializeMsalBeforeReact(): Promise<void> {
   if (!isMicrosoftAuthConfigured()) return;
@@ -69,21 +102,24 @@ export async function initializeMsalBeforeReact(): Promise<void> {
   try {
     await pca.initialize();
     const result = await pca.handleRedirectPromise();
-    if (!result?.idToken?.trim()) return;
+    if (!result) return;
+
+    const idToken = await resolveIdToken(pca, result);
+    if (!idToken) {
+      console.error('MSAL redirect completed but no usable ID token was returned.');
+      return;
+    }
 
     let flow: PendingMicrosoftAuth['flow'] = 'login';
     let rememberMe = false;
-    let role: Role | undefined;
     let jobTitle: string | undefined;
     let experienceMonths: number | undefined;
     try {
       const raw = sessionStorage.getItem(OPTIONS_KEY);
       if (raw) {
-        const o = JSON.parse(raw) as { flow?: string; rememberMe?: boolean; role?: Role; jobTitle?: string; experienceMonths?: number };
+        const o = JSON.parse(raw) as { flow?: string; rememberMe?: boolean; jobTitle?: string; experienceMonths?: number };
         if (o.flow === 'signup') flow = 'signup';
-        if (o.flow === 'admin') flow = 'admin';
         if (typeof o.rememberMe === 'boolean') rememberMe = o.rememberMe;
-        if (o.role === 'manager' || o.role === 'employee') role = o.role;
         if (typeof o.jobTitle === 'string') jobTitle = o.jobTitle;
         if (typeof o.experienceMonths === 'number') experienceMonths = o.experienceMonths;
       }
@@ -93,10 +129,9 @@ export async function initializeMsalBeforeReact(): Promise<void> {
     sessionStorage.removeItem(OPTIONS_KEY);
 
     const pending: PendingMicrosoftAuth = {
-      idToken: result.idToken.trim(),
+      idToken,
       flow,
       rememberMe,
-      role,
       jobTitle,
       experienceMonths,
     };
@@ -106,6 +141,12 @@ export async function initializeMsalBeforeReact(): Promise<void> {
   }
 }
 
+/** True when a redirect token is waiting to be exchanged — lets the UI keep a
+ *  "signing you in" state up instead of flashing the login page. */
+export function hasPendingMicrosoftAuth(): boolean {
+  return !!sessionStorage.getItem(PENDING_KEY);
+}
+
 /** Pop and parse pending token from redirect completion (main runs `initializeMsalBeforeReact` first). */
 export function consumePendingMicrosoftAuth(): PendingMicrosoftAuth | null {
   const raw = sessionStorage.getItem(PENDING_KEY);
@@ -113,8 +154,8 @@ export function consumePendingMicrosoftAuth(): PendingMicrosoftAuth | null {
   sessionStorage.removeItem(PENDING_KEY);
   try {
     const p = JSON.parse(raw) as PendingMicrosoftAuth;
-    if (!p.idToken?.trim()) return null;
-    return p;
+    if (!isOidcJwt(p.idToken)) return null;
+    return { ...p, idToken: p.idToken.trim() };
   } catch {
     return null;
   }
@@ -136,24 +177,14 @@ export async function signInWithMicrosoftRedirect(rememberMe: boolean): Promise<
   await pca.loginRedirect(redirectRequest());
 }
 
-/** Full-page redirect to Microsoft for the ADMIN console login. */
-export async function signInWithMicrosoftAdminRedirect(): Promise<void> {
-  if (!isMicrosoftAuthConfigured()) return;
-  const pca = getMsalInstance();
-  await pca.initialize();
-  sessionStorage.setItem(OPTIONS_KEY, JSON.stringify({ flow: 'admin', rememberMe: false }));
-  await pca.loginRedirect(redirectRequest());
-}
-
 export async function signUpWithMicrosoftRedirect(
-  role: Role,
   jobTitle = '',
   experienceMonths = 0,
 ): Promise<void> {
   if (!isMicrosoftAuthConfigured()) return;
   const pca = getMsalInstance();
   await pca.initialize();
-  sessionStorage.setItem(OPTIONS_KEY, JSON.stringify({ flow: 'signup', rememberMe: false, role, jobTitle, experienceMonths }));
+  sessionStorage.setItem(OPTIONS_KEY, JSON.stringify({ flow: 'signup', rememberMe: false, jobTitle, experienceMonths }));
   await pca.loginRedirect(redirectRequest());
 }
 

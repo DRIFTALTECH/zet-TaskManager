@@ -7,6 +7,7 @@ from database.database import Db, get_db
 from logic import attachment_logic
 from logic.schemas import TaskAttachmentOut
 from routes.deps import get_current_user_id
+from upload_guard import read_limited
 
 router = APIRouter()
 
@@ -17,7 +18,7 @@ def list_attachments(
     user_id: str = Depends(get_current_user_id),
     db: Db = Depends(get_db),
 ):
-    return attachment_logic.list_for_task(db, task_id)
+    return attachment_logic.list_for_task(db, task_id, user_id)
 
 
 @router.post("", response_model=TaskAttachmentOut, status_code=201)
@@ -27,7 +28,7 @@ async def upload_attachment(
     user_id: str = Depends(get_current_user_id),
     db: Db = Depends(get_db),
 ):
-    content = await file.read()
+    content = await read_limited(file, attachment_logic.MAX_FILE_SIZE, label='Attachment')
     return attachment_logic.upload(db, task_id, user_id, file.filename, file.content_type, content)
 
 
@@ -38,7 +39,7 @@ def download_attachment(
     user_id: str = Depends(get_current_user_id),
     db: Db = Depends(get_db),
 ):
-    file_path, filename, content_type = attachment_logic.resolve_for_download(db, task_id, attachment_id)
+    file_path, filename, content_type = attachment_logic.resolve_for_download(db, task_id, attachment_id, user_id)
     # filename=… forces Content-Disposition: attachment; nosniff blocks MIME-sniffing.
     return FileResponse(
         path=str(file_path),

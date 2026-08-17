@@ -68,7 +68,11 @@ export default function CalendarWeekView({ weekDates, entries, projects, todaySt
   readOnly?: boolean;
 }) {
   const hours = Array.from({ length: 24 }, (_, i) => i);
-  const cols = `52px repeat(${weekDates.length}, minmax(0, 1fr))`;
+  // 110px is the narrowest a column can be and still show "Mon 3" plus a total.
+  const MIN_DAY_COL_PX = 110;
+  const cols = `52px repeat(${weekDates.length}, minmax(${MIN_DAY_COL_PX}px, 1fr))`;
+  // Grid width floor tracks the column count so a long range scrolls rather than squashes.
+  const minGridPx = 52 + weekDates.length * MIN_DAY_COL_PX;
   const projName = (id: string) => projects.find(p => p.id === id)?.name ?? 'Project';
   const sectName = (id: string) => {
     for (const p of projects) { const s = p.sections.find(x => x.id === id); if (s) return s.name; }
@@ -185,7 +189,7 @@ export default function CalendarWeekView({ weekDates, entries, projects, todaySt
         </div>
       )}
     <div className={cn('rounded-2xl border border-border/40 bg-card shadow-sm overflow-x-auto', readOnly && 'pointer-events-none opacity-60')}>
-      <div className="min-w-[760px]">
+      <div style={{ minWidth: `${minGridPx}px` }}>
         {/* Day header */}
         <div className="grid sticky top-0 z-10 bg-card" style={{ gridTemplateColumns: cols }}>
           <div className="border-b border-foreground/20" />

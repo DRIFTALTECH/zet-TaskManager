@@ -1,7 +1,8 @@
 import asyncio
+import json
 import logging
 
-from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
 import realtime
 from database.database import SessionLocal
@@ -22,21 +23,35 @@ def sync_version(user_id: str = Depends(get_current_user_id)):
     return realtime.snapshot()
 
 
+# How long the client has to send its auth frame before we drop the socket.
+_AUTH_TIMEOUT_SECONDS = 10
+
+
 @router.websocket("/ws")
-async def sync_ws(websocket: WebSocket, token: str | None = Query(default=None)):
+async def sync_ws(websocket: WebSocket):
     """Live update stream. The server pushes `{type:"sync", versions:{...}}` on
     every write; the client refetches only the channel whose version changed.
 
-    Auth is via `?token=` (browsers can't set headers on a WebSocket). The token
-    is the same app JWT / PAT used for REST calls.
+    Auth is the FIRST message frame: `{"type":"auth","token":"<jwt-or-pat>"}`.
+    It deliberately is not a `?token=` query parameter — a URL carries the
+    credential into every proxy and load-balancer access log along the path.
     """
     await websocket.accept()
+
+    # Read the auth frame. A client that sends nothing gets dropped rather than
+    # holding an unauthenticated socket open.
+    try:
+        raw = await asyncio.wait_for(websocket.receive_text(), timeout=_AUTH_TIMEOUT_SECONDS)
+        hello = json.loads(raw)
+        token = hello.get("token") if hello.get("type") == "auth" else None
+    except (TimeoutError, asyncio.TimeoutError, json.JSONDecodeError, WebSocketDisconnect, AttributeError):
+        await websocket.close(code=4401)
+        return
 
     if not token:
         await websocket.close(code=4401)
         return
 
-    # Validate the token after accepting the socket.
     db = SessionLocal()
     try:
         auth_logic.resolve_user_id(db, token)

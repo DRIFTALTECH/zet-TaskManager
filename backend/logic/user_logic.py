@@ -58,7 +58,15 @@ def get_user_or_404(db: Db, user_id: str) -> User:
 
 
 def list_users(db: Db, viewer_id: str) -> list[UserOut]:
-    users = users_crud.list_all(db)
+    # Managers and superadmins need the whole roster to assign work; an employee
+    # only sees themselves, their manager, and their project team-mates.
+    from logic import project_logic
+
+    users = (
+        users_crud.list_all(db)
+        if project_logic.is_managerial(db, viewer_id)
+        else users_crud.list_visible_to(db, viewer_id)
+    )
     skills_map = skills_crud.skill_names_by_user_ids(db, [u.id for u in users])
     return [to_user_out(db, u, viewer_id=viewer_id, skills=skills_map.get(u.id, [])) for u in users]
 
@@ -77,6 +85,5 @@ def change_password(db: Db, user_id: str, body: PasswordUpdate) -> None:
     user = get_user_or_404(db, user_id)
     if not auth_logic.verify_password(body.current_password, user.password_hash):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Current password is incorrect")
-    if len(body.new_password) < 6:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "New password must be at least 6 characters")
+    # Strength is enforced by PasswordUpdate at the schema boundary.
     users_crud.update_password(db, user, auth_logic.hash_password(body.new_password))

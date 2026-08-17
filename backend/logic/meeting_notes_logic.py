@@ -15,8 +15,18 @@ from ai import chains, service
 from database.init_db import new_id
 from database.models import Scrum
 from logic import timesheet_logic
+from logic import project_logic
 from logic.audit import log_audit
 from logic.schemas import MomMemberOut, ScrumCreate, ScrumDaySummary, ScrumOut, ScrumUpdate
+
+
+def _ensure_can_write(db: Db, user_id: str, verb: str) -> None:
+    """Minutes are a team record: managers and superadmins maintain them."""
+    if not project_logic.is_managerial(db, user_id):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            f"Only a manager or superadmin can {verb} meeting notes",
+        )
 
 
 def _parsed(scrum: Scrum) -> dict:
@@ -156,6 +166,7 @@ def _parse_to_json(raw_text: str) -> tuple[str, str]:
 
 
 def create_scrum(db: Db, work_date: str, body: ScrumCreate, user_id: str) -> ScrumOut:
+    _ensure_can_write(db, user_id, "create")
     raw = (body.rawText or "").strip()
     parsed_json, status_val = _parse_to_json(raw)
     parsed_json, status_val, filtered_members = _filter_parsed_json(db, parsed_json, status_val)
@@ -183,6 +194,7 @@ def create_scrum(db: Db, work_date: str, body: ScrumCreate, user_id: str) -> Scr
 
 
 def update_scrum(db: Db, scrum_id: str, body: ScrumUpdate, user_id: str) -> ScrumOut:
+    _ensure_can_write(db, user_id, "edit")
     scrum = scrums_crud.get_by_id(db, scrum_id)
     if scrum is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Scrum not found")
@@ -227,6 +239,7 @@ def update_scrum(db: Db, scrum_id: str, body: ScrumUpdate, user_id: str) -> Scru
 
 
 def reparse_scrum(db: Db, scrum_id: str, user_id: str) -> ScrumOut:
+    _ensure_can_write(db, user_id, "re-parse")
     scrum = scrums_crud.get_by_id(db, scrum_id)
     if scrum is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Scrum not found")
@@ -244,6 +257,7 @@ def reparse_scrum(db: Db, scrum_id: str, user_id: str) -> ScrumOut:
 
 
 def delete_scrum(db: Db, scrum_id: str, user_id: str) -> None:
+    _ensure_can_write(db, user_id, "delete")
     if scrums_crud.get_by_id(db, scrum_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Scrum not found")
     scrums_crud.delete(db, scrum_id)

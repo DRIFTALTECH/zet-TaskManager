@@ -15,6 +15,7 @@ from logic.schemas import (
     UserStoryPatch,
 )
 from routes.deps import get_current_user_id
+from upload_guard import read_limited
 
 router = APIRouter()
 
@@ -155,8 +156,7 @@ def list_story_attachments(
     user_id: str = Depends(get_current_user_id),
     db: Db = Depends(get_db),
 ):
-    user_story_logic.get_story(db, user_id, story_id)  # membership check
-    return attachment_logic.list_for_user_story(db, story_id)
+    return attachment_logic.list_for_user_story(db, story_id, user_id)
 
 
 @router.post(
@@ -170,8 +170,7 @@ async def upload_story_attachment(
     user_id: str = Depends(get_current_user_id),
     db: Db = Depends(get_db),
 ):
-    user_story_logic.get_story(db, user_id, story_id)
-    content = await file.read()
+    content = await read_limited(file, attachment_logic.MAX_FILE_SIZE, label='Attachment')
     return attachment_logic.upload_for_user_story(
         db, story_id, user_id, file.filename, file.content_type, content
     )
@@ -184,9 +183,8 @@ def download_story_attachment(
     user_id: str = Depends(get_current_user_id),
     db: Db = Depends(get_db),
 ):
-    user_story_logic.get_story(db, user_id, story_id)
     file_path, filename, content_type = attachment_logic.resolve_story_for_download(
-        db, story_id, attachment_id
+        db, story_id, attachment_id, user_id
     )
     return FileResponse(
         path=str(file_path),

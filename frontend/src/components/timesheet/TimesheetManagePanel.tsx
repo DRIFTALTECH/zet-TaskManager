@@ -38,7 +38,7 @@ function weekLabel(sub: TimesheetSubmission) {
 
 export default function TimesheetManagePanel({ onClose }: { onClose: () => void }) {
   const { users, currentUser } = useAppStore();
-  const isManagerial = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  const isManagerial = currentUser?.role === 'manager' || currentUser?.role === 'superadmin';
   const [rows, setRows] = useState<TimesheetSubmission[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState<StatusFilter>('all');
@@ -67,7 +67,9 @@ export default function TimesheetManagePanel({ onClose }: { onClose: () => void 
     try {
       const weekStart = filterWeek ? isoWeekMonday(filterWeek) : undefined;
       setRows(await api.getManagerTimesheetSubmissions({
-        status: filterStatus === 'all' ? undefined : filterStatus,
+        // 'draft' is never a manager filter (a draft has not been submitted yet),
+        // and the endpoint only accepts the three submitted states.
+        status: filterStatus === 'all' || filterStatus === 'draft' ? undefined : filterStatus,
         userId: filterEmployee === 'all' ? undefined : filterEmployee,
         weekStart,
       }));

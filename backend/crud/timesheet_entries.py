@@ -47,12 +47,17 @@ def list_for_range_in_projects(
     """Rows in a date range scoped to a set of projects (manager team report)."""
     if not project_ids:
         return []
+    # Expanded placeholders rather than `= ANY(%s)`: the array form is Postgres-only
+    # and fails under the SQLite dialect used by dev and the test suite, so the
+    # manager team view could not be exercised outside production.
+    placeholders = ", ".join(["%s"] * len(project_ids))
     rows = fetch_all(
         db,
         f"""{_SELECT}
-            WHERE work_date >= %s AND work_date <= %s AND project_id = ANY(%s)
+            WHERE work_date >= %s AND work_date <= %s
+              AND project_id IN ({placeholders})
             ORDER BY work_date, created_at""",
-        (start_date, end_date, project_ids),
+        (start_date, end_date, *project_ids),
     )
     return rows_to_models(TimesheetEntry, rows)
 
@@ -62,6 +67,22 @@ def get_by_id(db: Db, entry_id: str) -> TimesheetEntry | None:
         TimesheetEntry,
         fetch_one(db, f"{_SELECT} WHERE id = %s", (entry_id,)),
     )
+
+
+def exists_matching(
+    db: Db, *, user_id: str, work_date: str, time_from: str, time_to: str, description: str
+) -> bool:
+    """True when this exact row is already logged. A Clockify export carries no id,
+    so re-uploading the same file would otherwise double every entry."""
+    row = fetch_one(
+        db,
+        """SELECT id FROM timesheet_entries
+           WHERE user_id = %s AND work_date = %s AND time_from = %s AND time_to = %s
+             AND description = %s
+           LIMIT 1""",
+        (user_id, work_date, time_from, time_to, description),
+    )
+    return row is not None
 
 
 def create_entry(db: Db, row: TimesheetEntry) -> TimesheetEntry:

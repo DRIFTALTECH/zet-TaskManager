@@ -4,6 +4,7 @@ from database.database import Db, get_db
 from logic import project_logic
 from logic.schemas import MemberBody, ProjectAppearancePatch, ProjectClientPatch, ProjectCreate, ProjectOut, SectionCreate
 from routes.deps import get_current_user_id
+from upload_guard import read_limited
 
 router = APIRouter()
 
@@ -51,7 +52,7 @@ async def upload_media(
     user_id: str = Depends(get_current_user_id),
     db: Db = Depends(get_db),
 ):
-    content = await file.read()
+    content = await read_limited(file, project_logic.MAX_MEDIA_BYTES, label='Image')
     return project_logic.upload_media(
         db, user_id, project_id, kind, file.filename, file.content_type, content, accent_color
     )

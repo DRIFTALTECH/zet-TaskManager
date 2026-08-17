@@ -27,7 +27,7 @@ function defaultForecastRange() {
 export default function WhatWillHappenNextPage() {
   const currentUser = useAppStore(s => s.currentUser);
   const navigate = useNavigate();
-  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'superadmin';
   const [forecastRefresh, setForecastRefresh] = useState<ForecastRefreshControls | null>(null);
   const [range, setRange] = useState(defaultForecastRange);
   const [level, setLevel] = useState<ForecastLevel>('task');

@@ -21,6 +21,13 @@ import { isoWeekMonday, timesheetDateLocked } from '@/lib/timesheetSubmission';
 import { isTaskAssignedTo, isTopLevelTask } from '@/lib/task-utils';
 import type { TimesheetSubmission, TimesheetWorkEntry, Task } from '@/types';
 import CalendarWeekView from '@/components/CalendarWeekView';
+import DateRangePicker from '@/components/DateRangePicker';
+import {
+  datesInRange,
+  resolveRange,
+  weeksInRange,
+  type RangeSelection,
+} from '@/lib/date-range';
 import TaskSuggest from '@/components/TaskSuggest';
 import ProjectSectionPicker from '@/components/ProjectSectionPicker';
 
@@ -28,17 +35,6 @@ import ProjectSectionPicker from '@/components/ProjectSectionPicker';
 const dayShort = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 function iso(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-function weekDatesOf(weekOffset: number): string[] {
-  const now = new Date();
-  const dow = now.getDay();
-  const monday = new Date(now);
-  monday.setDate(now.getDate() - (dow === 0 ? 6 : dow - 1) + weekOffset * 7);
-  return dayShort.map((_, i) => {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    return iso(d);
-  });
 }
 function compactToApi(raw: string): string {
   const digits = raw.replace(/\D/g, '');
@@ -65,12 +61,13 @@ type Modal =
 
 export default function CalendarPage() {
   const { currentUser, projects, tasks, addSection } = useAppStore();
-  const [kind, setKind] = useState<'week' | 'day'>('week');
-  const [weekOffset, setWeekOffset] = useState(0);
-  const [dayDate, setDayDate] = useState(() => iso(new Date()));
+  // Any period the user wants, not just a week. Day/week/month/custom all resolve
+  // to a start+end pair, and the grid renders one column per day in that range.
+  const [selection, setSelection] = useState<RangeSelection>({ preset: 'week', offset: 0 });
   const [entries, setEntries] = useState<TimesheetWorkEntry[]>([]);
   const [loading, setLoading] = useState(false);
-  const [submission, setSubmission] = useState<TimesheetSubmission | null>(null);
+  /** Submission per ISO week Monday — a month-long range spans several weeks. */
+  const [submissions, setSubmissions] = useState<Record<string, TimesheetSubmission>>({});
   const todayStr = iso(new Date());
 
   const userProjects = useMemo(
@@ -85,12 +82,11 @@ export default function CalendarPage() {
     [tasks, currentUser],
   );
 
-  const weekDates = useMemo(() => weekDatesOf(weekOffset), [weekOffset]);
-  const range = useMemo(
-    () => (kind === 'week' ? { start: weekDates[0], end: weekDates[6] } : { start: dayDate, end: dayDate }),
-    [kind, weekDates, dayDate],
-  );
-  const gridDates = kind === 'week' ? weekDates : [dayDate];
+  const range = useMemo(() => resolveRange(selection), [selection]);
+  const gridDates = useMemo(() => datesInRange(range.start, range.end), [range.start, range.end]);
+  // Submission is still per ISO week (one timesheet_submissions row per week), so a
+  // multi-week range surfaces each week's status separately.
+  const weeksShown = useMemo(() => weeksInRange(range), [range]);
 
   const load = useCallback(async () => {
     if (!currentUser) return;
@@ -107,20 +103,26 @@ export default function CalendarPage() {
   const timesheetEpoch = useAppStore(s => s.timesheetEpoch);
   useEffect(() => { void load(); }, [load, timesheetEpoch]);
 
-  const weekStartForView = kind === 'week' ? weekDates[0] : isoWeekMonday(dayDate);
   const loadSubmission = useCallback(async () => {
     if (!currentUser) return;
-    try {
-      setSubmission(await api.getTimesheetSubmissionStatus(weekStartForView));
-    } catch {
-      setSubmission(null);
-    }
-  }, [currentUser, weekStartForView]);
+    // One status per week the range covers. Loading only the first week's status and
+    // applying it to every day would lock or unlock the wrong days in weeks 2..n.
+    const results = await Promise.all(
+      weeksShown.map(ws => api.getTimesheetSubmissionStatus(ws).catch(() => null)),
+    );
+    const byWeek: Record<string, TimesheetSubmission> = {};
+    weeksShown.forEach((ws, i) => {
+      const sub = results[i];
+      if (sub) byWeek[ws] = sub;
+    });
+    setSubmissions(byWeek);
+  }, [currentUser, weeksShown]);
   useEffect(() => { void loadSubmission(); }, [loadSubmission]);
 
+  /** Each date is judged against the submission of its own week. */
   const isDateLocked = useCallback(
-    (workDate: string) => timesheetDateLocked(submission, workDate),
-    [submission],
+    (workDate: string) => timesheetDateLocked(submissions[isoWeekMonday(workDate)], workDate),
+    [submissions],
   );
 
   // ── modal / form ────────────────────────────────────────────────────────────
@@ -246,44 +248,19 @@ export default function CalendarPage() {
     }
   };
 
-  const step = (dir: -1 | 1) => {
-    if (kind === 'week') setWeekOffset(w => w + dir);
-    else setDayDate(d => { const n = new Date(`${d}T12:00:00`); n.setDate(n.getDate() + dir); return iso(n); });
-  };
-  const goToday = () => { setWeekOffset(0); setDayDate(todayStr); };
-
   if (!currentUser) return null;
-
-  const rangeLabel = kind === 'week'
-    ? `${new Date(`${weekDates[0]}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${new Date(`${weekDates[6]}T12:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
-    : prettyDate(dayDate);
 
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={pageEnter} className="min-h-full">
       <div className="w-full px-3 sm:px-5 py-5 space-y-4">
         {/* Header */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-              <CalendarDays className="h-5 w-5 text-primary/70" /> Calendar
-            </h1>
-            <div className="flex items-center gap-0.5 rounded-lg border border-border/40 bg-muted/30 p-0.5">
-              {(['week', 'day'] as const).map(k => (
-                <button key={k} type="button" onClick={() => setKind(k)}
-                  className={cn('px-3 py-1.5 rounded-md text-xs font-semibold capitalize transition-colors', kind === k ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
-                  {k}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1 rounded-xl border border-border/70 bg-card/60 p-1">
-            <button type="button" onClick={() => step(-1)} className="p-1.5 rounded-lg hover:bg-muted/60 text-muted-foreground transition-colors"><ChevronLeft className="h-4 w-4" /></button>
-            <span className="text-sm font-semibold tabular-nums px-2 min-w-[190px] text-center">{rangeLabel}</span>
-            <button type="button" onClick={() => step(1)} className="p-1.5 rounded-lg hover:bg-muted/60 text-muted-foreground transition-colors"><ChevronRight className="h-4 w-4" /></button>
-            <button type="button" onClick={goToday} className="text-xs font-semibold text-primary px-2 py-1 rounded-lg hover:bg-primary/10 transition-colors">Today</button>
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 min-w-0">
+          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+            <CalendarDays className="h-5 w-5 text-primary/70" /> Calendar
             {loading && <span className="ml-1 h-3.5 w-3.5 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />}
-          </div>
+          </h1>
+
+          <DateRangePicker value={selection} onChange={setSelection} className="min-w-0" />
         </div>
 
         {userProjects.length === 0 ? (

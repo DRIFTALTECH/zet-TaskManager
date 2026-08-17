@@ -130,7 +130,7 @@ def _resolve_assigned_manager(db: Db, employee: User) -> str:
     manager = users_crud.get_by_id(db, manager_id)
     if not manager or not bool(getattr(manager, "is_active", True)):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Assigned manager not found or inactive")
-    if manager.role not in ("manager", "admin"):
+    if manager.role not in ("manager", "superadmin"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Assigned manager must have manager or admin role")
     return manager_id
 
@@ -540,9 +540,34 @@ def to_out(e: TimesheetEntry) -> TimesheetEntryOut:
     )
 
 
+# Widest range a single request may read. Generous enough for "this year" while
+# stopping a hand-edited query string from pulling the whole table in one go.
+MAX_RANGE_DAYS = 400
+
+
+def validate_range(start: str, end: str) -> tuple[date, date]:
+    """Parse and bound a requested date range. Raises 400 on anything unusable."""
+    try:
+        s_date = date.fromisoformat((start or "").strip())
+        e_date = date.fromisoformat((end or "").strip())
+    except ValueError:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "start and end must be dates in YYYY-MM-DD form"
+        )
+    if s_date > e_date:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "start must be on or before end")
+    span = (e_date - s_date).days + 1
+    if span > MAX_RANGE_DAYS:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"That range covers {span} days; the maximum is {MAX_RANGE_DAYS}. "
+            "Pick a shorter period.",
+        )
+    return s_date, e_date
+
+
 def list_entries(db: Db, user_id: str, start: str, end: str) -> list[TimesheetEntryOut]:
-    if start > end:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "start must be <= end")
+    validate_range(start, end)
     rows = te_crud.list_for_user_range(db, user_id, start, end)
     return [to_out(r) for r in rows]
 
@@ -556,8 +581,7 @@ def list_entries_as_manager(db: Db, manager_id: str, target_user_id: str, start:
 def list_entries_team(db: Db, user_id: str, start: str, end: str) -> list[TimesheetEntryOut]:
     """Manager/admin team report: every member's rows in range. Admin sees all;
     a manager sees only rows on projects they belong to (same visibility as /projects)."""
-    if start > end:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "start must be <= end")
+    validate_range(start, end)
     project_logic.ensure_manager(db, user_id)
     if project_logic.is_admin(db, user_id):
         rows = te_crud.list_for_range_all(db, start, end)

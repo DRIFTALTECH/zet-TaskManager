@@ -1,30 +1,72 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
+
+
+# Minimum password length, applied everywhere a password is set or changed.
+MIN_PASSWORD_LENGTH = 10
+
+
+def _validate_password_strength(value: str) -> str:
+    """Length plus a character-class mix. Long-but-simple beats short-but-clever,
+    so length carries most of the weight and we only require two classes."""
+    if len(value) < MIN_PASSWORD_LENGTH:
+        raise ValueError(f"Password must be at least {MIN_PASSWORD_LENGTH} characters")
+    classes = sum([
+        any(c.islower() for c in value),
+        any(c.isupper() for c in value),
+        any(c.isdigit() for c in value),
+        any(not c.isalnum() for c in value),
+    ])
+    if classes < 2:
+        raise ValueError(
+            "Password must mix at least two of: lower case, upper case, digits, symbols"
+        )
+    return value
 
 
 class LoginBody(BaseModel):
-    email: str
+    # Login does NOT validate strength — an existing weaker password must still
+    # be able to sign in. Only setting a password enforces the rules.
+    email: EmailStr
     password: str
     remember_me: bool = False
 
 
 class RegisterBody(BaseModel):
+    """Self-service sign-up. Role is NOT accepted from the client: every account
+    is created as an inactive employee and only a superadmin can activate it or
+    change its role."""
+
     name: str = Field(..., min_length=1, max_length=200)
-    email: str
-    password: str = Field(..., min_length=6, max_length=256)
-    role: Literal["employee", "manager"] = "employee"
+    email: EmailStr
+    password: str = Field(..., max_length=256)
     job_title: str = Field(default="", max_length=200)
     experience_months: int = Field(default=0, ge=0)
+
+    @field_validator("password")
+    @classmethod
+    def _password_strength(cls, v: str) -> str:
+        return _validate_password_strength(v)
 
 
 class MicrosoftAuthBody(BaseModel):
-    id_token: str = Field(..., min_length=20)
+    id_token: str = Field(
+        ...,
+        min_length=100,
+        description="Microsoft Entra ID token from MSAL (JWT: header.payload.signature).",
+    )
     remember_me: bool = False
-    """Role for new accounts only; existing users keep their role."""
-    role: Literal["employee", "manager"] | None = None
     job_title: str = Field(default="", max_length=200)
     experience_months: int = Field(default=0, ge=0)
+
+
+class RegistrationPending(BaseModel):
+    """Sign-up succeeded but produced no session: the account is inactive until a
+    superadmin approves it. `status` is what the frontend branches on."""
+
+    status: Literal["pending_approval"] = "pending_approval"
+    message: str
 
 
 class TokenResponse(BaseModel):
@@ -44,6 +86,7 @@ class PersonalAccessTokenOut(BaseModel):
     prefix: str
     createdAt: str
     lastUsedAt: str | None = None
+    expiresAt: str | None = None
 
 
 class PersonalAccessTokenCreated(PersonalAccessTokenOut):
@@ -92,50 +135,38 @@ class LoginResponse(BaseModel):
     user: UserOut
 
 
-# ── Admin console ─────────────────────────────────────────────────────────────
+# ── Superadmin console ────────────────────────────────────────────────────────
+# The superadmin is a normal user row holding role="superadmin"; they sign in
+# through /auth/login like anyone else. There is no separate console password.
 
-class AdminLoginBody(BaseModel):
-    username: str
-    password: str
-
-
-class AdminMicrosoftLoginBody(BaseModel):
-    id_token: str = Field(..., min_length=20)
+class SuperadminRoleUpdate(BaseModel):
+    role: Literal["employee", "manager", "superadmin"]
 
 
-class AdminTokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
+class SuperadminPasswordReset(BaseModel):
+    new_password: str = Field(..., max_length=256)
+
+    @field_validator("new_password")
+    @classmethod
+    def _password_strength(cls, v: str) -> str:
+        return _validate_password_strength(v)
 
 
-class AdminRoleUpdate(BaseModel):
-    role: Literal["employee", "manager", "admin"]
-
-
-class AdminPasswordReset(BaseModel):
-    new_password: str = Field(..., min_length=6, max_length=256)
-
-
-class AdminProjectsUpdate(BaseModel):
+class SuperadminProjectsUpdate(BaseModel):
     project_ids: list[str] = Field(default_factory=list)
 
 
-class AdminManagerUpdate(BaseModel):
+class SuperadminManagerUpdate(BaseModel):
     managerId: str | None = None
 
 
-class AdminUserDelete(BaseModel):
+class SuperadminUserDelete(BaseModel):
     # When the user owns work (tasks/assignments/timesheets), a reassign target is
     # required; otherwise the delete is rejected so nothing is silently orphaned.
     reassign_to: str | None = None
 
 
-class AdminChangePassword(BaseModel):
-    current_password: str
-    new_password: str = Field(..., min_length=8, max_length=256)
-
-
-class AdminProjectOut(BaseModel):
+class SuperadminProjectOut(BaseModel):
     id: str
     name: str
     memberIds: list[str] = Field(default_factory=list)
@@ -148,7 +179,12 @@ class ProfileUpdate(BaseModel):
 
 class PasswordUpdate(BaseModel):
     current_password: str
-    new_password: str
+    new_password: str = Field(..., max_length=256)
+
+    @field_validator("new_password")
+    @classmethod
+    def _password_strength(cls, v: str) -> str:
+        return _validate_password_strength(v)
 
 
 class SectionOut(BaseModel):
@@ -429,6 +465,24 @@ class TimesheetEntryOut(BaseModel):
     seconds: int
     billable: bool
     createdAt: str
+
+
+class ClockifyImportSkip(BaseModel):
+    """One row that did not import, with the spreadsheet line so it can be found."""
+
+    line: int
+    reason: str
+    detail: str = ""
+
+
+class ClockifyImportReport(BaseModel):
+    filename: str
+    totalRows: int
+    imported: int
+    duplicates: int
+    skippedCount: int
+    dateOrder: str
+    skipped: list[ClockifyImportSkip] = Field(default_factory=list)
 
 
 class TimesheetEntryCreate(BaseModel):

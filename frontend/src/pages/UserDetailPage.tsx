@@ -49,12 +49,12 @@ function projColor(id: string) {
   return PROJECT_PALETTE[h % PROJECT_PALETTE.length];
 }
 
-const STATUS_META: Record<string, { label: string; hex: string }> = {
-  backlog:     { label: 'Backlog',     hex: '#64748b' },
-  in_progress: { label: 'In Progress', hex: '#3b82f6' },
-  in_review:   { label: 'In Review',   hex: '#f59e0b' },
-  done:        { label: 'Done',        hex: '#8b5cf6' },
-  completed:   { label: 'Completed',   hex: '#10b981' },
+const STATUS_META: Record<string, { label: string; hex: string; bg: string; text: string }> = {
+  backlog:     { label: 'Backlog',     hex: '#64748b', bg: 'bg-slate-500/10',   text: 'text-slate-400'   },
+  in_progress: { label: 'In Progress', hex: '#3b82f6', bg: 'bg-blue-500/10',    text: 'text-blue-400'    },
+  in_review:   { label: 'In Review',   hex: '#f59e0b', bg: 'bg-amber-500/10',   text: 'text-amber-400'   },
+  done:        { label: 'Done',        hex: '#8b5cf6', bg: 'bg-violet-500/10',  text: 'text-violet-400'  },
+  completed:   { label: 'Completed',   hex: '#10b981', bg: 'bg-emerald-500/10', text: 'text-emerald-400' },
 };
 
 const PRIORITY_META: Record<Priority, { hex: string; label: string; bg: string; text: string; border: string }> = {
@@ -457,7 +457,7 @@ type View = 'analytics' | 'timesheet';
 export default function UserDetailPage() {
   const { userId } = useParams<{ userId: string }>();
   const { users, tasks, projects, kanbanColumns, addMemberToProject, removeMemberFromProject, skills, loadSkills, updateUserSkills, currentUser } = useAppStore();
-  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'superadmin';
 
   const [view, setView]             = useState<View>('analytics');
   const [addProjOpen, setAddProjOpen] = useState(false);

@@ -11,7 +11,7 @@ from logic.schemas import ClientCreate, ClientOut
 
 def _ensure_manager(db: Db, user_id: str) -> None:
     u = user_logic.get_user_or_404(db, user_id)
-    if u.role not in ("manager", "admin"):
+    if u.role not in ("manager", "superadmin"):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Manager only")
 
 

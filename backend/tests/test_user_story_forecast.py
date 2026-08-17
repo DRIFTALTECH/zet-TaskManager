@@ -5,19 +5,9 @@ from datetime import date, timedelta
 from conftest import make_project
 
 
-def test_user_story_forecast_excludes_other_managers_stories(client, manager):
+def test_user_story_forecast_excludes_other_managers_stories(client, manager, register):
     mgr, mh = manager
-    other_reg = client.post(
-        "/auth/register",
-        json={
-            "name": "Other",
-            "email": f"usfc-other-{mgr['id']}@t.test",
-            "password": "secret123",
-            "role": "manager",
-        },
-    ).json()
-    other = other_reg["user"]
-    oh = {"Authorization": f"Bearer {other_reg['access_token']}"}
+    other, oh = register("manager", email=f"usfc-other-{mgr['id']}@example.com", name="Other")
 
     mine = make_project(client, mh, name="MineUS", client_name="MineUSCo")["id"]
     theirs = make_project(client, oh, name="TheirsUS", client_name="TheirUSCo")["id"]

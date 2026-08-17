@@ -180,13 +180,24 @@ function MascotDropZone() {
 }
 
 const DashboardPage = () => {
-  const {
-    currentUser, projects, selectProject, tasks, selectedProjectId, users,
-    moveTask, kanbanColumns, approveTask,
-    activeTimers,
-    addColumn, renameColumn, removeColumn, reorderColumns,
-    mascotsEnabled, setMascotDrag, setMascotDropTask,
-  } = useAppStore();
+  const currentUser = useAppStore(s => s.currentUser);
+  const projects = useAppStore(s => s.projects);
+  const selectProject = useAppStore(s => s.selectProject);
+  const tasks = useAppStore(s => s.tasks);
+  const selectedProjectId = useAppStore(s => s.selectedProjectId);
+  const users = useAppStore(s => s.users);
+  const moveTask = useAppStore(s => s.moveTask);
+  const kanbanColumns = useAppStore(s => s.kanbanColumns);
+  const approveTask = useAppStore(s => s.approveTask);
+  const activeTimers = useAppStore(s => s.activeTimers);
+  const stopTimer = useAppStore(s => s.stopTimer);
+  const addColumn = useAppStore(s => s.addColumn);
+  const renameColumn = useAppStore(s => s.renameColumn);
+  const removeColumn = useAppStore(s => s.removeColumn);
+  const reorderColumns = useAppStore(s => s.reorderColumns);
+  const mascotsEnabled = useAppStore(s => s.mascotsEnabled);
+  const setMascotDrag = useAppStore(s => s.setMascotDrag);
+  const setMascotDropTask = useAppStore(s => s.setMascotDropTask);
 
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -225,7 +236,7 @@ const DashboardPage = () => {
     () => (currentUser ? projects.filter(p => currentUser.projectIds.includes(p.id)) : []),
     [currentUser, projects],
   );
-  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'superadmin';
   const isAllProjects = selectedProjectId === 'all';
   const projectSelected = isAllProjects || (!!selectedProjectId && userProjects.some(p => p.id === selectedProjectId));
   const projectTasks = useMemo(() => {

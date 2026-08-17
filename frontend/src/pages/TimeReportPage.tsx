@@ -114,7 +114,7 @@ const ReportsPage = () => {
   const projects = useAppStore(s => s.projects);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'superadmin';
 
   const [tab, setTab] = useState<Tab>(() => {
     const t = searchParams.get('tab');

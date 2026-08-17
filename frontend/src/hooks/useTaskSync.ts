@@ -9,9 +9,9 @@ type Versions = { tasks: number; projects: number; users: number };
 
 function wsUrl(): string {
   const base = getApiUrl(); // http(s)://host:port
-  const ws = base.replace(/^http/i, 'ws');
-  const token = getStoredToken() ?? '';
-  return `${ws}/sync/ws?token=${encodeURIComponent(token)}`;
+  // No token in the URL: it would end up in every proxy / load-balancer access
+  // log. The server expects it in the first message frame instead.
+  return `${base.replace(/^http/i, 'ws')}/sync/ws`;
 }
 
 /**
@@ -89,6 +89,9 @@ export function useLiveSync() {
       socket = ws;
 
       ws.onopen = () => {
+        // Authenticate as the first frame; the server closes with 4401 if this
+        // does not arrive, or does not validate.
+        ws.send(JSON.stringify({ type: 'auth', token: getStoredToken() ?? '' }));
         backoff = 1000;
         stopPolling();           // socket is live — stop the fallback
         void fullReconcile();    // close any gap since last connection

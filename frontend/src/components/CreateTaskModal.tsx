@@ -225,7 +225,7 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
     const ids = [...assigneeIds];
     if (ids.length === 0) return toast.error('Select at least one person assigned to this task');
     const subtasks = collectSubtaskTitles(subtaskRows);
-    if (!subtasks.ok) return toast.error(subtasks.error);
+    if (subtasks.ok === false) return toast.error(subtasks.error);
     try {
       const created = await createTask({
         title: title.trim(),

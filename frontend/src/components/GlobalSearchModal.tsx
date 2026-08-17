@@ -33,7 +33,7 @@ export default function GlobalSearchModal({ open, onOpenChange }: Props) {
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
-  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'superadmin';
 
   // Reset query on open
   useEffect(() => {
@@ -255,7 +255,7 @@ export default function GlobalSearchModal({ open, onOpenChange }: Props) {
                           ? 'bg-primary/10 text-primary border-primary/20'
                           : 'bg-muted/60 text-muted-foreground border-border/40'
                       }`}>
-                        {u.role === 'admin' ? 'Admin' : u.role === 'manager' ? 'Manager' : 'Employee'}
+                        {u.role === 'superadmin' ? 'Superadmin' : u.role === 'manager' ? 'Manager' : 'Employee'}
                       </span>
                       <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/20 group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0" />
                     </button>

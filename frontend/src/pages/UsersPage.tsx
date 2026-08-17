@@ -36,7 +36,7 @@ const UsersPage = () => {
   const { users, tasks, projects, currentUser } = useAppStore();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'superadmin';
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState<UserTab>(() => tabFromSearchParam(searchParams.get('tab')));
@@ -226,7 +226,7 @@ const UsersPage = () => {
             {filteredUsers.map((user, i) => {
               const activeTasks = tasks.filter(t => isTaskAssignedTo(t, user.id) && t.status !== 'completed').length;
               const userProjects = projects.filter(p => p.members.includes(user.id));
-              const isAdmin = user.role === 'admin';
+              const isAdmin = user.role === 'superadmin';
               const isManager = user.role === 'manager' || isAdmin;
               const roleLabel = isAdmin ? 'Admin' : user.role === 'manager' ? 'Manager' : 'Employee';
 

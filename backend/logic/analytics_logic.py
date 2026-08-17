@@ -276,14 +276,14 @@ def _project_map(db: Db, project_ids: list[str] | None = None) -> dict[str, Proj
 
 def _visible_project_ids(db: Db, requesting_user: User) -> set[str]:
     """Projects the viewer may see — matches /projects list rules."""
-    if requesting_user.role == "admin":
+    if requesting_user.role == "superadmin":
         return {p.id for p in analytics_crud.list_all_projects(db)}
     return {p.id for p in projects_crud.list_for_member(db, requesting_user.id)}
 
 
 def _visible_user_ids(db: Db, project_ids: set[str], requesting_user: User) -> set[str]:
     """Active users who belong to at least one visible project."""
-    if requesting_user.role == "admin":
+    if requesting_user.role == "superadmin":
         return {u.id for u in analytics_crud.list_active_users(db)}
     if not project_ids:
         return {requesting_user.id}

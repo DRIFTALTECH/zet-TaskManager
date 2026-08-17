@@ -128,7 +128,7 @@ interface DeliveryPageProps {
 export default function DeliveryPage({ embedded = false }: DeliveryPageProps) {
   const currentUser = useAppStore(s => s.currentUser);
   const storeProjects = useAppStore(s => s.projects);
-  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'superadmin';
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['delivery-risk'],

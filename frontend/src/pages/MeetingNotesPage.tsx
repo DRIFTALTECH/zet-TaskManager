@@ -40,7 +40,7 @@ function matchUser(name: string, users: User[]): User | undefined {
 export default function MeetingNotesPage() {
   const users = useAppStore(s => s.users);
   const currentUser = useAppStore(s => s.currentUser);
-  const isManagerial = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  const isManagerial = currentUser?.role === 'manager' || currentUser?.role === 'superadmin';
   const [teamsOpen, setTeamsOpen] = useState(false);
   const [cursor, setCursor] = useState(() => startOfMonth(new Date()));
   const [summaries, setSummaries] = useState<Record<string, ScrumDaySummary>>({});
@@ -621,9 +621,9 @@ function TeamsImportDialog({ open, defaultDate, onClose, onImported }: {
       toast.success('Transcript imported and parsed successfully!');
       await onImported();
       onClose();
-    } catch (e: any) {
+    } catch (e) {
       console.error(e);
-      toast.error(e.message || 'Import failed');
+      toast.error(e instanceof Error ? e.message : 'Import failed');
     } finally {
       setBusy(null);
     }
@@ -724,9 +724,9 @@ function TeamsImportDialog({ open, defaultDate, onClose, onImported }: {
       toast.success(`Successfully synced all new transcripts! Imported ${importedCount} scrums.`);
       await onImported();
       onClose();
-    } catch (e: any) {
+    } catch (e) {
       console.error(e);
-      toast.error(e.message || 'Sync failed');
+      toast.error(e instanceof Error ? e.message : 'Sync failed');
     } finally {
       setBusy(null);
     }

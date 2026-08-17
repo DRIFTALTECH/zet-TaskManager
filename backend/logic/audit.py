@@ -44,7 +44,7 @@ def log_audit(
 def list_for_viewer(db: Db, user_id: str, limit: int = 200):
     """Audit rows scoped to the viewer: managers/admins see all, employees their own."""
     caller = users_crud.get_by_id(db, user_id)
-    is_manager = caller is not None and caller.role in ("manager", "admin")
+    is_manager = caller is not None and caller.role in ("manager", "superadmin")
     return get_audit_logs(db, user_id, is_manager, limit=limit)
 
 

@@ -15,6 +15,7 @@ import crud.tasks as tasks_crud
 import crud.user_stories as stories_crud
 import crud.users as users_crud
 from database.models import TaskAttachment, UserStoryAttachment
+from logic import project_logic
 from logic.audit import log_audit
 from logic.schemas import TaskAttachmentOut, UserStoryAttachmentOut
 
@@ -24,17 +25,21 @@ ATTACHMENTS_DIR.mkdir(parents=True, exist_ok=True)
 MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
 
 
-def _ensure_task(db, task_id: str):
+def _ensure_task(db, task_id: str, user_id: str):
+    """Task must exist AND the caller must belong to its project — attachments are
+    project data, so existence alone is not authorization."""
     t = tasks_crud.get_by_id(db, task_id)
     if not t:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Task not found")
+    project_logic.ensure_project_member(db, t.project_id, user_id)
     return t
 
 
-def _ensure_story(db, story_id: str):
+def _ensure_story(db, story_id: str, user_id: str):
     s = stories_crud.get_by_id(db, story_id)
     if not s:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User story not found")
+    project_logic.ensure_project_member(db, s.project_id, user_id)
     return s
 
 
@@ -75,13 +80,13 @@ def _to_story_out(db, row: UserStoryAttachment) -> UserStoryAttachmentOut:
     )
 
 
-def list_for_task(db, task_id: str) -> list[TaskAttachmentOut]:
-    _ensure_task(db, task_id)
+def list_for_task(db, task_id: str, user_id: str) -> list[TaskAttachmentOut]:
+    _ensure_task(db, task_id, user_id)
     return [_to_out(db, r) for r in attachments_crud.list_for_task(db, task_id)]
 
 
 def upload(db, task_id: str, user_id: str, filename: str | None, content_type: str | None, content: bytes) -> TaskAttachmentOut:
-    task = _ensure_task(db, task_id)
+    task = _ensure_task(db, task_id, user_id)
     display_name, stored_name = _store_bytes(filename, content)
     row = TaskAttachment(
         id=str(uuid.uuid4()),
@@ -99,9 +104,9 @@ def upload(db, task_id: str, user_id: str, filename: str | None, content_type: s
     return _to_out(db, row)
 
 
-def resolve_for_download(db, task_id: str, attachment_id: str) -> tuple[Path, str, str]:
+def resolve_for_download(db, task_id: str, attachment_id: str, user_id: str) -> tuple[Path, str, str]:
     """Returns (file_path, filename, content_type) for a downloadable attachment."""
-    _ensure_task(db, task_id)
+    _ensure_task(db, task_id, user_id)
     row = attachments_crud.get_by_id(db, attachment_id)
     if not row or row.task_id != task_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Attachment not found")
@@ -112,12 +117,12 @@ def resolve_for_download(db, task_id: str, attachment_id: str) -> tuple[Path, st
 
 
 def delete(db, task_id: str, attachment_id: str, user_id: str) -> None:
-    _ensure_task(db, task_id)
+    _ensure_task(db, task_id, user_id)
     row = attachments_crud.get_by_id(db, attachment_id)
     if not row or row.task_id != task_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Attachment not found")
     caller = users_crud.get_by_id(db, user_id)
-    if row.uploaded_by != user_id and (not caller or caller.role not in ("manager", "admin")):
+    if row.uploaded_by != user_id and (not caller or caller.role not in ("manager", "superadmin")):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not allowed to delete this attachment")
     file_path = ATTACHMENTS_DIR / row.stored_name
     if file_path.exists():
@@ -129,15 +134,15 @@ def delete(db, task_id: str, attachment_id: str, user_id: str) -> None:
 # ── User story attachments ────────────────────────────────────────────────────
 
 
-def list_for_user_story(db, story_id: str) -> list[UserStoryAttachmentOut]:
-    _ensure_story(db, story_id)
+def list_for_user_story(db, story_id: str, user_id: str) -> list[UserStoryAttachmentOut]:
+    _ensure_story(db, story_id, user_id)
     return [_to_story_out(db, r) for r in attachments_crud.list_for_user_story(db, story_id)]
 
 
 def upload_for_user_story(
     db, story_id: str, user_id: str, filename: str | None, content_type: str | None, content: bytes
 ) -> UserStoryAttachmentOut:
-    story = _ensure_story(db, story_id)
+    story = _ensure_story(db, story_id, user_id)
     display_name, stored_name = _store_bytes(filename, content)
     row = UserStoryAttachment(
         id=str(uuid.uuid4()),
@@ -162,8 +167,8 @@ def upload_for_user_story(
     return _to_story_out(db, row)
 
 
-def resolve_story_for_download(db, story_id: str, attachment_id: str) -> tuple[Path, str, str]:
-    _ensure_story(db, story_id)
+def resolve_story_for_download(db, story_id: str, attachment_id: str, user_id: str) -> tuple[Path, str, str]:
+    _ensure_story(db, story_id, user_id)
     row = attachments_crud.get_story_by_id(db, attachment_id)
     if not row or row.user_story_id != story_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Attachment not found")
@@ -174,12 +179,12 @@ def resolve_story_for_download(db, story_id: str, attachment_id: str) -> tuple[P
 
 
 def delete_for_user_story(db, story_id: str, attachment_id: str, user_id: str) -> None:
-    _ensure_story(db, story_id)
+    _ensure_story(db, story_id, user_id)
     row = attachments_crud.get_story_by_id(db, attachment_id)
     if not row or row.user_story_id != story_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Attachment not found")
     caller = users_crud.get_by_id(db, user_id)
-    if row.uploaded_by != user_id and (not caller or caller.role not in ("manager", "admin")):
+    if row.uploaded_by != user_id and (not caller or caller.role not in ("manager", "superadmin")):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not allowed to delete this attachment")
     file_path = ATTACHMENTS_DIR / row.stored_name
     if file_path.exists():

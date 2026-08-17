@@ -2,23 +2,12 @@
 from __future__ import annotations
 
 
-def test_user_story_crud_and_progress(client):
+def test_user_story_crud_and_progress(client, register):
     # Register manager + employee
-    r = client.post(
-        "/auth/register",
-        json={"name": "Mgr", "email": "us-mgr@t.test", "password": "secret123", "role": "manager"},
-    )
-    assert r.status_code == 200, r.text
-    mgr = r.json()
-    token = {"Authorization": f"Bearer {mgr['access_token']}"}
-    mgr_id = mgr["user"]["id"]
-
-    r = client.post(
-        "/auth/register",
-        json={"name": "Emp", "email": "us-emp@t.test", "password": "secret123", "role": "employee"},
-    )
-    assert r.status_code == 200, r.text
-    emp_id = r.json()["user"]["id"]
+    mgr, token = register("manager", email="us-mgr@example.com", name="Mgr")
+    mgr_id = mgr["id"]
+    emp, _ = register("employee", email="us-emp@example.com", name="Emp")
+    emp_id = emp["id"]
 
     # Project + section
     r = client.post("/clients", headers=token, json={"name": "US Client"})

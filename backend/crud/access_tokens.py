@@ -6,8 +6,9 @@ from database.models import PersonalAccessToken
 def create(db: Db, token: PersonalAccessToken) -> PersonalAccessToken:
     db.write(
         """INSERT INTO personal_access_tokens (
-               id, user_id, name, token_hash, prefix, created_at, last_used_at, revoked
-           ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+               id, user_id, name, token_hash, prefix, created_at, last_used_at, revoked,
+               expires_at
+           ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
         (
             token.id,
             token.user_id,
@@ -17,6 +18,7 @@ def create(db: Db, token: PersonalAccessToken) -> PersonalAccessToken:
             token.created_at,
             token.last_used_at,
             token.revoked,
+            token.expires_at,
         ),
     )
     row = fetch_one(db, "SELECT * FROM personal_access_tokens WHERE id = %s", (token.id,))
@@ -58,7 +60,7 @@ def update(db: Db, token: PersonalAccessToken) -> PersonalAccessToken:
     db.write(
         """UPDATE personal_access_tokens SET
                user_id = %s, name = %s, token_hash = %s, prefix = %s,
-               created_at = %s, last_used_at = %s, revoked = %s
+               created_at = %s, last_used_at = %s, revoked = %s, expires_at = %s
            WHERE id = %s""",
         (
             token.user_id,
@@ -68,6 +70,7 @@ def update(db: Db, token: PersonalAccessToken) -> PersonalAccessToken:
             token.created_at,
             token.last_used_at,
             token.revoked,
+            token.expires_at,
             token.id,
         ),
     )

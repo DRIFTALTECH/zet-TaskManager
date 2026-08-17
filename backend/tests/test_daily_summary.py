@@ -36,7 +36,10 @@ def test_summarize_day_gathers_today(client, manager, monkeypatch):
     db = SessionLocal()
     task = tasks_crud.get_by_id(db, tid)
     assert task is not None
-    task.started_at = datetime.now(timezone.utc).isoformat()
+    # Match how production writes this field: task_logic.start_task stores a LOCAL
+    # date string ("2026-08-18"), not a UTC timestamp. Using utcnow() here made the
+    # test fail whenever the local date was ahead of UTC — every night in IST.
+    task.started_at = today
     tasks_crud.update_task(db, task)
     timelog_crud.add_seconds(db, tid, today, 3600, user["id"])
     te_crud.create_entry(

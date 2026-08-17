@@ -5,19 +5,9 @@ from datetime import date, timedelta
 from conftest import make_project
 
 
-def test_forecast_excludes_other_managers_tasks(client, manager):
+def test_forecast_excludes_other_managers_tasks(client, manager, register):
     mgr, mh = manager
-    other_reg = client.post(
-        "/auth/register",
-        json={
-            "name": "Other",
-            "email": f"fc-other-{mgr['id']}@t.test",
-            "password": "secret123",
-            "role": "manager",
-        },
-    ).json()
-    other = other_reg["user"]
-    oh = {"Authorization": f"Bearer {other_reg['access_token']}"}
+    other, oh = register("manager", email=f"fc-other-{mgr['id']}@example.com", name="Other")
 
     mine = make_project(client, mh, name="Mine", client_name="MineCo")["id"]
     theirs = make_project(client, oh, name="Theirs", client_name="TheirCo")["id"]
@@ -76,18 +66,9 @@ def test_forecast_excludes_other_managers_tasks(client, manager):
     assert "My delayed task" in task_titles or delayed >= 1
 
 
-def test_forecast_excludes_done_and_dedupes_multi_assignee(client, manager):
+def test_forecast_excludes_done_and_dedupes_multi_assignee(client, manager, register):
     mgr, mh = manager
-    emp_reg = client.post(
-        "/auth/register",
-        json={
-            "name": "EmpFC",
-            "email": f"fc-emp-{mgr['id']}@t.test",
-            "password": "secret123",
-            "role": "employee",
-        },
-    ).json()
-    emp = emp_reg["user"]
+    emp, _ = register("employee", email=f"fc-emp-{mgr['id']}@example.com", name="EmpFC")
 
     project = make_project(client, mh, name="DedupProj", client_name="DedupCo")
     pid = project["id"]

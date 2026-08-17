@@ -47,15 +47,42 @@ def client():
     return _client
 
 
-def _register(role: str):
-    email = f"{role}-{uuid.uuid4().hex[:8]}@t.test"
-    r = _client.post(
-        "/auth/register",
-        json={"name": role.title(), "email": email, "password": "secret123", "role": role},
-    )
+TEST_PASSWORD = "T3st!passphrase"
+
+
+def _register(role: str, *, email: str | None = None, name: str | None = None):
+    """Create an ACTIVE user at `role` and return (user, auth headers).
+
+    Self-service registration deliberately cannot do this any more: it always
+    creates an inactive employee that a superadmin has to approve. Tests need an
+    account that can act, so they are seeded directly.
+    """
+    import crud.users as users_crud
+    import ratelimit
+    from database.database import SessionLocal
+    from logic import auth_logic, user_logic
+
+    addr = email or f"{role}-{uuid.uuid4().hex[:8]}@example.com"
+    db = SessionLocal()
+    try:
+        user = users_crud.create_user(
+            db,
+            user_id=str(uuid.uuid4()),
+            name=name or role.title(),
+            email=addr,
+            password_hash=auth_logic.hash_password(TEST_PASSWORD),
+            role=role,
+            is_active=True,
+        )
+        out = user_logic.to_user_out(db, user)
+    finally:
+        db.close()
+
+    # Login is rate-limited per IP/email; tests share one client address.
+    ratelimit.reset()
+    r = _client.post("/auth/login", json={"email": addr, "password": TEST_PASSWORD})
     assert r.status_code == 200, r.text
-    j = r.json()
-    return j["user"], {"Authorization": f"Bearer {j['access_token']}"}
+    return out.model_dump(), {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
 @pytest.fixture
@@ -66,6 +93,21 @@ def manager():
 @pytest.fixture
 def employee():
     return _register("employee")
+
+
+@pytest.fixture
+def superadmin():
+    return _register("superadmin")
+
+
+@pytest.fixture
+def register():
+    """Seed extra active users inside a test: `register("manager", email=..., name=...)`.
+
+    Use this rather than importing `_register` — importing this module re-runs its
+    body, which deletes the test database.
+    """
+    return _register
 
 
 def make_client(api_client, headers, name: str = "Acme"):

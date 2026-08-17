@@ -37,7 +37,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from config import cors_origins
+from config import cors_origins, redis_url
 from database.init_db import init_db
 from logic.project_logic import PROJECT_MEDIA_DIR
 from mcp_app import build_mcp_asgi
@@ -59,7 +59,7 @@ async def lifespan(app):
     """Run the MCP lifespan and, when REDIS_URL is set, a Redis fan-out subscriber
     so realtime works across multiple workers/containers."""
     sub_task = None
-    if os.environ.get("REDIS_URL"):
+    if redis_url():
         sub_task = asyncio.create_task(realtime.redis_subscriber())
     async with mcp_lifespan(app):
         yield
@@ -75,6 +75,43 @@ app = FastAPI(title="ZET Backend API", version="1.0.1", lifespan=lifespan)
 
 _SLOW_REQUEST_MS = float(os.environ.get("DB_SLOW_QUERY_MS", "200"))
 
+# ── Security headers ───────────────────────────────────────────────────────────
+# The session token lives in localStorage, so an XSS anywhere in the frontend is
+# account takeover. CSP is the containment. It is report-only by default because
+# the app still ships inline styles; set CSP_ENFORCE=1 once the report log is clean.
+_CSP = (
+    "default-src 'self'; "
+    "base-uri 'self'; "
+    "object-src 'none'; "
+    "frame-ancestors 'none'; "
+    "img-src 'self' data: blob:; "
+    "style-src 'self' 'unsafe-inline'; "
+    "script-src 'self'; "
+    "connect-src 'self' https://login.microsoftonline.com https://graph.microsoft.com; "
+    "form-action 'self'"
+)
+_CSP_HEADER = (
+    "Content-Security-Policy"
+    if os.environ.get("CSP_ENFORCE", "").strip().lower() in ("1", "true", "yes")
+    else "Content-Security-Policy-Report-Only"
+)
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault(_CSP_HEADER, _CSP)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+    # HSTS only over TLS — sending it on plain http://localhost would pin dev to https.
+    if request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https":
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
+    return response
+
 
 @app.middleware("http")
 async def request_timing(request, call_next):
@@ -87,10 +124,11 @@ async def request_timing(request, call_next):
         log.debug("REQUEST %s %s %.1f ms", request.method, request.url.path, elapsed_ms)
     return response
 
+# CORS_ORIGINS is the allowlist and is required in production (see config.py).
+# Do NOT add allow_origin_regex=".*" here — it silently overrides the allowlist.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins(),
-    allow_origin_regex=".*",  # ponytail: allow-all CORS for now — delete this line to restore cors_origins() allowlist
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -107,6 +145,10 @@ class _SafeStatic(StaticFiles):
 
 
 app.include_router(register_routes())
+# Vendored third-party JS (MSAL for the OAuth consent page). Served from our own
+# origin rather than a CDN: an auth page must not load code from a host we do not
+# control, and a CDN outage would break Microsoft sign-in for MCP clients.
+app.mount("/static", _SafeStatic(directory=str(Path(__file__).resolve().parent / "static")), name="static")
 # Project background / photo files (served publicly; referenced by /projects payloads).
 app.mount("/project-media", _SafeStatic(directory=str(PROJECT_MEDIA_DIR)), name="project-media")
 # MCP endpoint lives at /mcp on the same server (clients connect to http://<host>:8000/mcp/).

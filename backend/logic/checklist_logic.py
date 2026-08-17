@@ -8,14 +8,17 @@ from fastapi import HTTPException, status
 import crud.checklists as checklists_crud
 import crud.tasks as tasks_crud
 from database.models import TaskChecklist
+from logic import project_logic
 from logic.audit import log_audit
 from logic.schemas import TaskChecklistCreate, TaskChecklistOut, TaskChecklistPatch
 
 
-def _ensure_task(db, task_id: str):
+def _ensure_task(db, task_id: str, user_id: str):
+    """Existence plus project membership — a checklist is project data."""
     t = tasks_crud.get_by_id(db, task_id)
     if not t:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Task not found")
+    project_logic.ensure_project_member(db, t.project_id, user_id)
     return t
 
 
@@ -32,13 +35,13 @@ def _to_out(row: TaskChecklist) -> TaskChecklistOut:
     )
 
 
-def list_for_task(db, task_id: str) -> list[TaskChecklistOut]:
-    _ensure_task(db, task_id)
+def list_for_task(db, task_id: str, user_id: str) -> list[TaskChecklistOut]:
+    _ensure_task(db, task_id, user_id)
     return [_to_out(r) for r in checklists_crud.list_for_task(db, task_id)]
 
 
 def create(db, task_id: str, body: TaskChecklistCreate, user_id: str) -> TaskChecklistOut:
-    task = _ensure_task(db, task_id)
+    task = _ensure_task(db, task_id, user_id)
     row = TaskChecklist(
         id=str(uuid.uuid4()),
         task_id=task_id,
@@ -56,7 +59,7 @@ def create(db, task_id: str, body: TaskChecklistCreate, user_id: str) -> TaskChe
 
 
 def patch(db, task_id: str, item_id: str, body: TaskChecklistPatch, user_id: str) -> TaskChecklistOut:
-    _ensure_task(db, task_id)
+    _ensure_task(db, task_id, user_id)
     row = checklists_crud.get_by_id(db, item_id)
     if not row or row.task_id != task_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Checklist item not found")
@@ -74,7 +77,7 @@ def patch(db, task_id: str, item_id: str, body: TaskChecklistPatch, user_id: str
 
 
 def delete(db, task_id: str, item_id: str, user_id: str) -> None:
-    _ensure_task(db, task_id)
+    _ensure_task(db, task_id, user_id)
     row = checklists_crud.get_by_id(db, item_id)
     if not row or row.task_id != task_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Checklist item not found")

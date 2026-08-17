@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { User, Project, Task, TaskStatus, KanbanColumn, Role, Client, Skill } from '@/types';
-import { api, TOKEN_KEY } from '@/lib/api';
+import { api, isAuthError, isPendingApproval, TOKEN_KEY } from '@/lib/api';
 import { defaultSelectedProjectIdForUser } from '@/lib/project-utils';
 
 /** Map server timer rows → { taskId: epochMs } for the running-timer UI. */
@@ -31,12 +31,16 @@ const DEFAULT_COLUMNS: KanbanColumn[] = [
 
 interface AppState {
   hydrated: boolean;
+  /** Set when startup failed for a NON-auth reason; the session is still valid. */
+  bootstrapError: string | null;
   bootstrap: () => Promise<void>;
 
   currentUser: User | null;
   login: (email: string, password: string, rememberMe?: boolean) => Promise<User | null>;
-  register: (name: string, email: string, password: string, role?: Role) => Promise<User | null>;
-  loginWithMicrosoft: (idToken: string, rememberMe?: boolean, role?: Role, jobTitle?: string, experienceMonths?: number) => Promise<User | null>;
+  /** Resolves with the pending-approval message; no session is created. */
+  register: (name: string, email: string, password: string) => Promise<string>;
+  /** Returns the signed-in user, or a pending-approval message for a new account. */
+  loginWithMicrosoft: (idToken: string, rememberMe?: boolean, jobTitle?: string, experienceMonths?: number) => Promise<User | { pending: string }>;
   logout: () => void;
   updateProfile: (name: string, avatar: string) => Promise<void>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
@@ -120,7 +124,7 @@ interface AppState {
 
 async function refetchUsersProjects(get: () => AppState, set: (p: Partial<AppState>) => void) {
   const cu = get().currentUser;
-  const isManager = cu?.role === 'manager' || cu?.role === 'admin';
+  const isManager = cu?.role === 'manager' || cu?.role === 'superadmin';
   const [users, projects, clients] = await Promise.all([
     api.getUsers(),
     api.getProjects(),
@@ -155,7 +159,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     try {
       const me = await api.getMe();
-      const isManager = me.role === 'manager' || me.role === 'admin';
+      const isManager = me.role === 'manager' || me.role === 'superadmin';
       const [users, projects, tasks, kanbanColumns, activeTimerRows, clients] = await Promise.all([
         api.getUsers(),
         api.getProjects(),
@@ -166,6 +170,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       ]);
       set({
         hydrated: true,
+        bootstrapError: null,
         currentUser: me,
         users,
         projects,
@@ -175,22 +180,34 @@ export const useAppStore = create<AppState>((set, get) => ({
         selectedProjectId: defaultSelectedProjectIdForUser(projects, me.projectIds),
         activeTimers: timersToMap(activeTimerRows),
       });
-    } catch {
-      localStorage.removeItem(TOKEN_KEY);
+    } catch (e) {
+      // Only an actual 401/403 means the session is over. Anything else — server
+      // down, 500, DNS, CORS, a dropped request on a hard refresh — must KEEP the
+      // token, or a momentary blip silently logs the user out.
+      if (isAuthError(e)) {
+        localStorage.removeItem(TOKEN_KEY);
+        set({
+          hydrated: true,
+          bootstrapError: null,
+          currentUser: null,
+          users: [],
+          projects: [],
+          clients: [],
+          skills: [],
+          tasks: [],
+          kanbanColumns: DEFAULT_COLUMNS,
+          selectedProjectId: null,
+        });
+        return;
+      }
       set({
         hydrated: true,
-        currentUser: null,
-        users: [],
-        projects: [],
-        clients: [],
-        skills: [],
-        tasks: [],
-        kanbanColumns: DEFAULT_COLUMNS,
-        selectedProjectId: null,
+        bootstrapError: e instanceof Error ? e.message : 'Could not reach the server',
       });
     }
   },
 
+  bootstrapError: null,
   currentUser: null,
   theme: (typeof window !== 'undefined' && localStorage.getItem('theme') as 'dark' | 'light') || 'dark',
 
@@ -221,37 +238,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  register: async (name, email, password, role = 'employee') => {
-    // Let registration errors (e.g. duplicate email) propagate to the caller
-    const { access_token, user } = await api.register(name, email, password, role);
-    localStorage.setItem(TOKEN_KEY, access_token);
-    try {
-      const [users, projects, tasks, kanbanColumns, activeTimerRows] = await Promise.all([
-        api.getUsers(),
-        api.getProjects(),
-        api.getTasks(),
-        api.getKanbanColumns(),
-        api.getActiveTimers().catch(() => []),
-      ]);
-      set({
-        currentUser: user,
-        users,
-        projects,
-        tasks,
-        kanbanColumns,
-        selectedProjectId: defaultSelectedProjectIdForUser(projects, user.projectIds),
-        activeTimers: timersToMap(activeTimerRows),
-        hydrated: true,
-      });
-    } catch {
-      // Data loading failed but account was created — set minimal state
-      set({ currentUser: user, hydrated: true });
-    }
-    return user;
+  register: async (name, email, password) => {
+    // Sign-up creates an inactive account and issues no token, so there is
+    // nothing to hydrate — the caller just shows the waiting-for-approval screen.
+    // Errors (duplicate email, weak password) propagate to the caller.
+    const r = await api.register(name, email, password);
+    return r.message;
   },
 
-  loginWithMicrosoft: async (idToken, rememberMe = false, role, jobTitle, experienceMonths) => {
-    const { access_token, user } = await api.loginMicrosoft(idToken, rememberMe, role, jobTitle, experienceMonths);
+  loginWithMicrosoft: async (idToken, rememberMe = false, jobTitle, experienceMonths) => {
+    const res = await api.loginMicrosoft(idToken, rememberMe, jobTitle, experienceMonths);
+    if (isPendingApproval(res)) return { pending: res.message };
+    const { access_token, user } = res;
     localStorage.setItem(TOKEN_KEY, access_token);
     const [users, projects, tasks, kanbanColumns] = await Promise.all([
       api.getUsers(),
@@ -324,7 +322,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   clients: [],
   loadClients: async () => {
     const cu = get().currentUser;
-    if (!cu || (cu.role !== 'manager' && cu.role !== 'admin')) {
+    if (!cu || (cu.role !== 'manager' && cu.role !== 'superadmin')) {
       set({ clients: [] });
       return;
     }
@@ -347,7 +345,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   skills: [],
   loadSkills: async () => {
     const cu = get().currentUser;
-    if (!cu || (cu.role !== 'manager' && cu.role !== 'admin')) {
+    if (!cu || (cu.role !== 'manager' && cu.role !== 'superadmin')) {
       set({ skills: [] });
       return;
     }

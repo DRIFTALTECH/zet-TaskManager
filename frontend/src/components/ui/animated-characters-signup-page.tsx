@@ -3,11 +3,9 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { User, Users } from "lucide-react";
+import { ShieldCheck } from "lucide-react";
 import { ZetLogo } from "@/components/brand/ZetLogo";
 import { AuthAnimatedCharactersPanel } from "@/components/auth/AuthAnimatedCharactersPanel";
-import type { Role } from "@/types";
 
 function MicrosoftIcon({ className }: { className?: string }) {
   return (
@@ -22,7 +20,7 @@ function MicrosoftIcon({ className }: { className?: string }) {
 
 export interface AnimatedCharactersSignupPageProps {
   microsoftEnabled: boolean;
-  onMicrosoftSignup: (role: Role, jobTitle: string, experienceMonths: number) => Promise<void>;
+  onMicrosoftSignup: (jobTitle: string, experienceMonths: number) => Promise<void>;
 }
 
 export function AnimatedCharactersSignupPage({
@@ -30,7 +28,6 @@ export function AnimatedCharactersSignupPage({
   onMicrosoftSignup,
 }: AnimatedCharactersSignupPageProps) {
   const [msLoading, setMsLoading] = useState(false);
-  const [role, setRole] = useState<Role>("employee");
   const [jobTitle, setJobTitle] = useState("");
   const [expYears, setExpYears] = useState(0);
   const [expMonths, setExpMonths] = useState(0);
@@ -107,53 +104,15 @@ export function AnimatedCharactersSignupPage({
               </div>
             </div>
 
-            <div className="space-y-3">
-              <Label className="text-sm font-medium">Are you an employee or a manager?</Label>
-              <RadioGroup
-                value={role}
-                onValueChange={(v) => setRole(v as Role)}
-                className="grid grid-cols-1 sm:grid-cols-2 gap-3"
-                disabled={!microsoftEnabled || msLoading}
-              >
-                <label
-                  htmlFor="role-employee"
-                  className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${
-                    role === "employee"
-                      ? "border-primary bg-primary/5 ring-1 ring-primary/20"
-                      : "border-border/60 hover:bg-muted/40"
-                  } ${!microsoftEnabled || msLoading ? "opacity-60 pointer-events-none" : ""}`}
-                >
-                  <RadioGroupItem value="employee" id="role-employee" className="mt-0.5" />
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2 text-sm font-semibold">
-                      <User className="size-4 text-muted-foreground" />
-                      Employee
-                    </div>
-                    <p className="text-xs text-muted-foreground leading-snug">
-                      Log time, work on assigned tasks, and use your personal timesheet.
-                    </p>
-                  </div>
-                </label>
-                <label
-                  htmlFor="role-manager"
-                  className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition-colors ${
-                    role === "manager"
-                      ? "border-primary bg-primary/5 ring-1 ring-primary/20"
-                      : "border-border/60 hover:bg-muted/40"
-                  } ${!microsoftEnabled || msLoading ? "opacity-60 pointer-events-none" : ""}`}
-                >
-                  <RadioGroupItem value="manager" id="role-manager" className="mt-0.5" />
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2 text-sm font-semibold">
-                      <Users className="size-4 text-muted-foreground" />
-                      Manager
-                    </div>
-                    <p className="text-xs text-muted-foreground leading-snug">
-                      Create projects, assign work, approve tasks, and manage the team.
-                    </p>
-                  </div>
-                </label>
-              </RadioGroup>
+            <div className="flex items-start gap-3 rounded-xl border border-amber-500/40 bg-amber-500/[0.06] p-4">
+              <ShieldCheck className="mt-0.5 size-4 shrink-0 text-amber-500" />
+              <div className="space-y-1">
+                <p className="text-sm font-semibold">A superadmin approves new accounts</p>
+                <p className="text-xs text-muted-foreground leading-snug">
+                  You will be set up as an employee. Once your account is approved you can sign in,
+                  and a superadmin decides from there what access you get.
+                </p>
+              </div>
             </div>
 
             <Button
@@ -164,7 +123,7 @@ export function AnimatedCharactersSignupPage({
               onClick={async () => {
                 setMsLoading(true);
                 try {
-                  await onMicrosoftSignup(role, jobTitle.trim(), expYears * 12 + expMonths);
+                  await onMicrosoftSignup(jobTitle.trim(), expYears * 12 + expMonths);
                 } finally {
                   setMsLoading(false);
                 }

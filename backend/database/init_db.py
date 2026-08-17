@@ -336,6 +336,19 @@ def _migrate_user_stories() -> None:
             pass
 
 
+def _migrate_pat_expiry() -> None:
+    """Add expires_at to personal access tokens. Existing rows keep '' (never
+    expires) so nobody's working MCP connection breaks on deploy; every newly
+    issued token gets a real expiry."""
+    db = get_database()
+    try:
+        db.write(
+            "ALTER TABLE personal_access_tokens ADD COLUMN expires_at VARCHAR NOT NULL DEFAULT ''"
+        )
+    except Exception:
+        pass  # ponytail: column already exists
+
+
 def _migrate_forecast_visibility() -> None:
     db = get_database()
     db.write(
@@ -369,6 +382,7 @@ def init_db() -> None:
     _migrate_skills()
     _migrate_user_stories()
     _migrate_forecast_visibility()
+    _migrate_pat_expiry()
     _seed_kanban()
     from logic.audit import purge_old_audit_logs
 

@@ -29,7 +29,7 @@ def _page(request_id: str, app_name: str, error: str = "") -> str:
     <div class="divider"><span>or</span></div>
     <button type="button" id="msBtn" class="ms">Sign in with Microsoft</button>
     <p class="hint">Microsoft sign-in works only for accounts that already exist in ZET.</p>
-    <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3/lib/msal-browser.min.js"></script>
+    <script src="/static/vendor/msal-browser.min.js"></script>
     <script>
     (function(){
       var btn=document.getElementById('msBtn');
@@ -44,8 +44,12 @@ def _page(request_id: str, app_name: str, error: str = "") -> str:
         try{
           await pca.initialize();
           var res=await pca.loginPopup({scopes:["openid","profile","email"],prompt:"select_account"});
+          var idToken=(res&&res.idToken||"").trim();
+          if(!idToken||idToken.split(".").length!==3){
+            throw new Error("Microsoft did not return an ID token. Check Entra SPA redirect URI "+window.location.origin+"/oauth/msal-callback");
+          }
           var r=await fetch("/oauth/consent/microsoft",{method:"POST",headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({request_id:"__REQUEST_ID__",id_token:res.idToken})});
+            body:JSON.stringify({request_id:"__REQUEST_ID__",id_token:idToken})});
           var data=await r.json();
           if(r.ok && data.redirect){ window.location.href=data.redirect; }
           else { throw new Error(data.detail||data.error||"Microsoft sign-in failed"); }
@@ -154,8 +158,8 @@ def consent_microsoft(body: _MsConsentBody, db: Db = Depends(get_db)):
 def msal_callback():
     """Redirect target for the MSAL popup — loads MSAL so the popup resolves and closes."""
     return HTMLResponse(
-        '<!doctype html><html><body><script '
-        'src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@3/lib/msal-browser.min.js"></script>'
+        '<!doctype html><html><body>'
+        '<script src="/static/vendor/msal-browser.min.js"></script>'
         '<script>new msal.PublicClientApplication({auth:{clientId:"' + _MS_CLIENT_ID + '"}})'
         '.initialize().then(function(p){return p.handleRedirectPromise();});</script>'
         '<p>Completing sign-in…</p></body></html>'

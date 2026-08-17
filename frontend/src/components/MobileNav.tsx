@@ -3,10 +3,10 @@ import { useAppStore } from '@/stores/appStore';
 import { useLocation, Link } from 'react-router-dom';
 import { Menu, Settings, LogOut } from 'lucide-react';
 import { toast } from 'sonner';
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { ZetLogo } from '@/components/brand/ZetLogo';
 import UserAvatar from '@/components/UserAvatar';
-import { navItems } from '@/components/nav-items';
+import { isNavItemActive, visibleNavItems } from '@/components/nav-items';
 
 /** Hamburger + slide-in nav drawer. Rendered in the navbar, visible only under md. */
 const MobileNav = () => {
@@ -29,6 +29,10 @@ const MobileNav = () => {
       </SheetTrigger>
 
       <SheetContent side="left" className="w-[min(80vw,18rem)] p-0 flex flex-col glass">
+        <SheetTitle className="sr-only">Navigation menu</SheetTitle>
+        <SheetDescription className="sr-only">
+          Move between the pages of ZET, or open settings and sign out.
+        </SheetDescription>
         <div className="flex items-center gap-2 px-4 h-16 border-b border-sidebar-border/70 shrink-0">
           <ZetLogo />
         </div>
@@ -37,9 +41,8 @@ const MobileNav = () => {
           <p className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/60">
             Workspace
           </p>
-          {navItems.map(item => {
-            if (item.managerOnly && currentUser.role !== 'manager' && currentUser.role !== 'admin') return null;
-            const active = location.pathname === item.path;
+          {visibleNavItems(currentUser.role).map(item => {
+            const active = isNavItemActive(item, location.pathname);
             return (
               <Link
                 key={item.path}
@@ -51,7 +54,7 @@ const MobileNav = () => {
                     : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground'
                 }`}
               >
-                <item.icon className="h-4 w-4 shrink-0" />
+                <item.icon className="h-[18px] w-[18px] shrink-0" />
                 <span className="whitespace-nowrap">{item.labelNode ?? item.label}</span>
               </Link>
             );

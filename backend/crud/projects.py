@@ -7,6 +7,17 @@ def get_by_id(db: Db, project_id: str) -> Project | None:
     return row_to_model(Project, fetch_one(db, "SELECT * FROM projects WHERE id = %s", (project_id,)))
 
 
+def get_by_name(db: Db, name: str) -> Project | None:
+    """Case-insensitive exact-name lookup, for imports that carry project names
+    rather than ids. Returns the oldest match if names are duplicated."""
+    row = fetch_one(
+        db,
+        "SELECT * FROM projects WHERE LOWER(TRIM(name)) = %s ORDER BY created_at LIMIT 1",
+        (name.strip().lower(),),
+    )
+    return row_to_model(Project, row)
+
+
 def list_all(db: Db) -> list[Project]:
     return rows_to_models(Project, fetch_all(db, "SELECT * FROM projects ORDER BY name"))
 

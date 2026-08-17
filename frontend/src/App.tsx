@@ -3,32 +3,37 @@ import { BrowserRouter, Route, Routes, Navigate, useNavigate } from "react-route
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAppStore } from "@/stores/appStore";
-import { useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { consumePendingMicrosoftAuth } from "@/lib/microsoftAuth";
-import { adminApi } from "@/lib/adminApi";
+import { consumePendingMicrosoftAuth, hasPendingMicrosoftAuth } from "@/lib/microsoftAuth";
+import { getStoredToken } from "@/lib/api";
 import LoginPage from "./pages/LoginPage";
 import SignUpPage from "./pages/SignUpPage";
-import DashboardPage from "./pages/DashboardPage";
-import MyTasksPage from "./pages/MyTasksPage";
-import TimesheetPage from "./pages/TimesheetPage";
-import CalendarPage from "./pages/CalendarPage";
-import TimeReportPage from "./pages/TimeReportPage";
-import UsersPage from "./pages/UsersPage";
-import UserDetailPage from "./pages/UserDetailPage";
-import WhatWillHappenNextPage from "./pages/WhatWillHappenNextPage";
-import ManageProjectsOverview from "./pages/ManageProjectsOverview";
-import ProjectDetailPage from "./pages/ProjectDetailPage";
-import SettingsPage from "./pages/SettingsPage";
 import AppSidebar from "./components/AppSidebar";
 import AppNavbar from "./components/AppNavbar";
-import AIPage from "./pages/AIPage";
-import MeetingNotesPage from "./pages/MeetingNotesPage";
-import AdminLoginPage from "./pages/AdminLoginPage";
-import AdminPage from "./pages/AdminPage";
-import OverviewPage from "./pages/OverviewPage";
-import ClientDetailPage from "./pages/ClientDetailPage";
-import { DashboardPanArea } from "./components/analytics/DashboardPanArea";
+import ErrorBoundary from "./components/ErrorBoundary";
+
+// Route-level code splitting: each authenticated page is its own chunk, so a
+// first visit downloads the shell plus one page instead of the whole app.
+const DashboardPage = lazy(() => import("./pages/DashboardPage"));
+const MyTasksPage = lazy(() => import("./pages/MyTasksPage"));
+const TimesheetPage = lazy(() => import("./pages/TimesheetPage"));
+const CalendarPage = lazy(() => import("./pages/CalendarPage"));
+const TimeReportPage = lazy(() => import("./pages/TimeReportPage"));
+const UsersPage = lazy(() => import("./pages/UsersPage"));
+const UserDetailPage = lazy(() => import("./pages/UserDetailPage"));
+const WhatWillHappenNextPage = lazy(() => import("./pages/WhatWillHappenNextPage"));
+const ManageProjectsOverview = lazy(() => import("./pages/ManageProjectsOverview"));
+const ProjectDetailPage = lazy(() => import("./pages/ProjectDetailPage"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const AIPage = lazy(() => import("./pages/AIPage"));
+const MeetingNotesPage = lazy(() => import("./pages/MeetingNotesPage"));
+const SuperAdminPage = lazy(() => import("./pages/SuperAdminPage"));
+const OverviewPage = lazy(() => import("./pages/OverviewPage"));
+const ClientDetailPage = lazy(() => import("./pages/ClientDetailPage"));
+const DashboardPanArea = lazy(() =>
+  import("./components/analytics/DashboardPanArea").then(m => ({ default: m.DashboardPanArea })),
+);
 import { useLiveSync } from "./hooks/useTaskSync";
 import Companion from "./components/agents/Companion";
 
@@ -41,6 +46,25 @@ const queryClient = new QueryClient({
   },
 });
 
+/** Full-screen progress used for every wait before the app is usable. */
+function FullScreenStatus({ message }: { message: string }) {
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center gap-3.5 bg-background text-muted-foreground">
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
+      <p className="text-sm">{message}</p>
+    </div>
+  );
+}
+
+/** Shown while a route's chunk is still downloading. */
+function PageSkeleton() {
+  return (
+    <div className="flex min-h-[60vh] items-center justify-center text-sm text-muted-foreground">
+      Loading…
+    </div>
+  );
+}
+
 function AppLayout({ children }: { children: React.ReactNode }) {
   useLiveSync(); // live updates (tasks, projects, users) via smart polling
   return (
@@ -48,7 +72,12 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       <AppSidebar />
       <div className="flex-1 flex flex-col min-w-0">
         <AppNavbar />
-        <main className="flex-1 min-w-0 overflow-auto">{children}</main>
+        <main className="flex-1 min-w-0 overflow-auto">
+        {/* A render error in one page must not blank the whole app. */}
+        <ErrorBoundary>
+          <Suspense fallback={<PageSkeleton />}>{children}</Suspense>
+        </ErrorBoundary>
+      </main>
       </div>
       <Companion />
     </div>
@@ -58,7 +87,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 function ProtectedRoute({ children, managerOnly }: { children: React.ReactNode; managerOnly?: boolean }) {
   const currentUser = useAppStore(s => s.currentUser);
   if (!currentUser) return <Navigate to="/login" />;
-  if (managerOnly && currentUser.role !== 'manager' && currentUser.role !== 'admin') return <Navigate to="/" />;
+  if (managerOnly && currentUser.role !== 'manager' && currentUser.role !== 'superadmin') return <Navigate to="/" />;
   return <AppLayout>{children}</AppLayout>;
 }
 
@@ -72,65 +101,111 @@ function ThemeHandler() {
 
 function BootstrapGate({ children }: { children: React.ReactNode }) {
   const hydrated = useAppStore(s => s.hydrated);
+  const bootstrapError = useAppStore(s => s.bootstrapError);
   const bootstrap = useAppStore(s => s.bootstrap);
   useEffect(() => {
     void bootstrap();
   }, [bootstrap]);
-  if (!hydrated) {
+
+  // Startup failed for a reason that is NOT "you are signed out" — the token is
+  // still good. Offer a retry instead of dumping the user on the login page,
+  // which would look like being logged out for no reason.
+  if (hydrated && bootstrapError) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background text-muted-foreground text-sm">
-        Loading…
+      <div className="min-h-screen flex items-center justify-center bg-background p-6">
+        <div className="w-full max-w-sm rounded-xl border border-border bg-card p-6 text-center">
+          <h2 className="text-base font-semibold">Could not reach the server</h2>
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            You are still signed in. Check your connection and try again.
+          </p>
+          <p className="mt-3 rounded-lg bg-muted px-2.5 py-2 text-xs text-muted-foreground break-words">
+            {bootstrapError}
+          </p>
+          <button
+            type="button"
+            onClick={() => void bootstrap()}
+            className="mt-4 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
+          >
+            Try again
+          </button>
+        </div>
       </div>
+    );
+  }
+
+  if (!hydrated) {
+    // A Microsoft redirect is still mid-exchange on this load — name it, so the
+    // wait reads as progress.
+    return (
+      <FullScreenStatus
+        message={hasPendingMicrosoftAuth() ? 'Signing you in with Microsoft…' : 'Loading ZET…'}
+      />
     );
   }
   return <>{children}</>;
 }
 
-/** Finish Microsoft redirect login after MSAL consumed the URL hash in `main.tsx` (sessionStorage pending). */
-function MsalRedirectResume() {
+/**
+ * Finishes the Microsoft redirect sign-in, and holds a progress screen over the
+ * routes while it runs.
+ *
+ * Without the gate the routes render during the exchange, so the user briefly
+ * lands on the login page — the single biggest reason people concluded that
+ * signing in with Microsoft had failed and clicked the button again.
+ */
+function MsalRedirectResume({ children }: { children: React.ReactNode }) {
   const loginWithMicrosoft = useAppStore(s => s.loginWithMicrosoft);
   const navigate = useNavigate();
   const ran = useRef(false);
+  // Read synchronously on the first render: by the time an effect runs, the
+  // routes would already have painted.
+  // Only hold the progress screen for a genuine first-time exchange. An already
+  // signed-in user must never be blocked behind it.
+  const [exchanging, setExchanging] = useState(() => hasPendingMicrosoftAuth() && !getStoredToken());
+
   useEffect(() => {
     if (ran.current) return;
     const pending = consumePendingMicrosoftAuth();
-    if (!pending) return;
+    if (!pending) {
+      setExchanging(false);
+      return;
+    }
     ran.current = true;
+
+    // MSAL keeps its cache in sessionStorage, so a plain reload can make
+    // handleRedirectPromise resolve again and leave a *stale* pending token behind.
+    // Re-exchanging it would fail (Microsoft ID tokens last about an hour) and take
+    // a working session down with it. If we are already signed in, drop it silently.
+    if (getStoredToken()) {
+      setExchanging(false);
+      return;
+    }
+
     void (async () => {
       try {
-        if (pending.flow === 'admin') {
-          await adminApi.loginMicrosoft(pending.idToken);
-          toast.success('Welcome, admin');
-          navigate("/admin", { replace: true });
+        const result = pending.flow === 'signup'
+          ? await loginWithMicrosoft(pending.idToken, false, pending.jobTitle, pending.experienceMonths)
+          : await loginWithMicrosoft(pending.idToken, pending.rememberMe);
+        if ('pending' in result) {
+          toast.info(result.pending);
+          navigate("/login", { replace: true });
           return;
         }
-        if (pending.flow === 'signup') {
-          const user = await loginWithMicrosoft(pending.idToken, false, pending.role ?? undefined, pending.jobTitle, pending.experienceMonths);
-          if (user) {
-            toast.success(`Welcome to ZET, ${user.name}!`);
-            navigate("/", { replace: true });
-          }
-        } else {
-          const user = await loginWithMicrosoft(pending.idToken, pending.rememberMe);
-          if (user) {
-            toast.success(`Welcome back, ${user.name}!`);
-            navigate("/", { replace: true });
-          }
-        }
+        toast.success(`Welcome, ${result.name}!`);
+        navigate("/", { replace: true });
       } catch (e) {
-        const msg = e instanceof Error ? e.message : "";
-        // Backend returns "no_account" when a new Microsoft email hits the login flow.
-        // Redirect to /signup so the user can choose their role.
-        if (msg.includes("no_account")) {
-          toast.info("No account found. Please sign up and choose your role.");
-          navigate("/signup", { replace: true });
-          return;
-        }
-        toast.error(msg || "Microsoft sign-in failed.");
+        toast.error(e instanceof Error ? e.message : "Microsoft sign-in failed.");
+        // Only send them to the login page if they have no session to fall back on;
+        // never evict a signed-in user because a redirect replay failed.
+        if (!getStoredToken()) navigate("/login", { replace: true });
+      } finally {
+        setExchanging(false);
       }
     })();
   }, [loginWithMicrosoft, navigate]);
-  return null;
+
+  if (exchanging) return <FullScreenStatus message="Signing you in with Microsoft…" />;
+  return <>{children}</>;
 }
 
 const App = () => (
@@ -140,7 +215,7 @@ const App = () => (
       <ThemeHandler />
       <BootstrapGate>
       <BrowserRouter>
-        <MsalRedirectResume />
+        <MsalRedirectResume>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignUpPage />} />
@@ -163,10 +238,12 @@ const App = () => (
           <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
           <Route path="/ai" element={<ProtectedRoute><AIPage /></ProtectedRoute>} />
           <Route path="/overview" element={<ProtectedRoute managerOnly><DashboardPanArea><OverviewPage /></DashboardPanArea></ProtectedRoute>} />
-          <Route path="/admin/login" element={<AdminLoginPage />} />
-          <Route path="/admin" element={<AdminPage />} />
+          <Route path="/superadmin" element={<ProtectedRoute><SuperAdminPage /></ProtectedRoute>} />
+          <Route path="/admin" element={<Navigate to="/superadmin" replace />} />
+          <Route path="/admin/login" element={<Navigate to="/login" replace />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
+        </MsalRedirectResume>
       </BrowserRouter>
       </BootstrapGate>
     </TooltipProvider>

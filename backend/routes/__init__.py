@@ -1,21 +1,20 @@
 from fastapi import APIRouter
 
-from routes import admin, audit, auth, kanban, notifications, projects, tasks, timesheet, users, clients, skills
+from routes import audit, auth, kanban, notifications, projects, tasks, timesheet, users, clients, skills
 from routes import checklists, attachments, sync, meeting_notes, tokens, oauth_consent, oauth_well_known, health
-from routes import integrations_teams
-from routes import analytics, insights, wrapper_test, user_stories
+from routes import integrations_teams, superadmin
+from routes import analytics, insights, user_stories
 from ai.router import router as ai_router
 
 
 def register_routes() -> APIRouter:
     root = APIRouter()
     root.include_router(health.router, tags=["health"])
-    root.include_router(wrapper_test.router, tags=["wrapper-test"])
     root.include_router(auth.router, prefix="/auth", tags=["auth"])
     root.include_router(tokens.router, prefix="/auth/tokens", tags=["tokens"])
     root.include_router(oauth_consent.router, prefix="/oauth", tags=["oauth"])
     root.include_router(oauth_well_known.router, tags=["oauth"])
-    root.include_router(admin.router, prefix="/admin", tags=["admin"])
+    root.include_router(superadmin.router, prefix="/superadmin", tags=["superadmin"])
     root.include_router(users.router, prefix="/users", tags=["users"])
     root.include_router(clients.router, prefix="/clients", tags=["clients"])
     root.include_router(skills.router, prefix="/skills", tags=["skills"])

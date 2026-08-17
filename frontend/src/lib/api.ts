@@ -1,7 +1,33 @@
-import type { AuditLog, Client, KanbanColumn, Notification, Project, Role, Skill, Task, TaskAttachment, TaskChecklist, TaskFeedback, TimesheetSubmission, TimesheetSubmissionReview, TimesheetWorkEntry, User } from '@/types';
+import type { AuditLog, ClockifyImportReport, Client, KanbanColumn, Notification, Project, Role, Skill, Task, TaskAttachment, TaskChecklist, TaskFeedback, TimesheetSubmission, TimesheetSubmissionReview, TimesheetWorkEntry, User } from '@/types';
 import { getApiUrl } from '@/lib/env';
 
 const TOKEN_KEY = 'tm_token';
+
+/** Error carrying the HTTP status, so callers can distinguish "not authorised"
+ *  from "could not reach the server". Losing that distinction is how a flaky
+ *  connection ends up looking like a logout. */
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+/** True when the failure means the session is genuinely no longer valid. */
+export function isAuthError(e: unknown): boolean {
+  return e instanceof ApiError && (e.status === 401 || e.status === 403);
+}
+
+/** Returned by sign-up when the account is created but not yet approved. */
+export interface PendingApproval {
+  status: 'pending_approval';
+  message: string;
+}
+
+/** Narrows the register / Microsoft responses, which can be either shape. */
+export function isPendingApproval(r: unknown): r is PendingApproval {
+  return !!r && typeof r === 'object' && (r as PendingApproval).status === 'pending_approval';
+}
 
 function baseUrl(): string {
   return getApiUrl();
@@ -33,17 +59,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (res.status === 401) {
     const detail = await parseError(res);
-    localStorage.removeItem(TOKEN_KEY);
-    // Session expired / unauthorized → bounce to login (unless already on an auth page).
-    if (typeof window !== 'undefined') {
-      const p = window.location.pathname;
-      if (p !== '/login' && p !== '/signup') {
-        window.location.href = '/login';
+    // Microsoft exchange failures are not an expired ZET session — don't wipe auth UI.
+    const isMicrosoftExchange = path === '/auth/microsoft';
+    if (!isMicrosoftExchange) {
+      localStorage.removeItem(TOKEN_KEY);
+      if (typeof window !== 'undefined') {
+        const p = window.location.pathname;
+        if (p !== '/login' && p !== '/signup') {
+          window.location.href = '/login';
+        }
       }
     }
-    throw new Error(detail || 'Unauthorized');
+    throw new ApiError(detail || 'Unauthorized', 401);
   }
-  if (!res.ok) throw new Error(await parseError(res));
+  if (!res.ok) throw new ApiError(await parseError(res), res.status);
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
@@ -70,30 +99,40 @@ export const api = {
     });
   },
 
+  /** Sign-up never returns a session: the account waits for superadmin approval. */
   async register(
     name: string,
     email: string,
     password: string,
-    role: Role = 'employee',
-  ): Promise<{ access_token: string; user: User }> {
+    jobTitle?: string,
+    experienceMonths?: number,
+  ): Promise<PendingApproval> {
     return request('/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ name, email, password, role }),
+      body: JSON.stringify({
+        name,
+        email,
+        password,
+        job_title: jobTitle ?? '',
+        experience_months: experienceMonths ?? 0,
+      }),
     });
   },
 
+  /**
+   * Signs in a known Microsoft account. An unknown one is registered as an
+   * inactive employee and comes back as PendingApproval instead of a session.
+   */
   async loginMicrosoft(
     idToken: string,
     rememberMe = false,
-    role?: Role,
     jobTitle?: string,
     experienceMonths?: number,
-  ): Promise<{ access_token: string; user: User }> {
+  ): Promise<{ access_token: string; user: User } | PendingApproval> {
     const body: Record<string, unknown> = {
       id_token: idToken,
       remember_me: rememberMe,
     };
-    if (role) body.role = role;
     if (jobTitle) body.job_title = jobTitle;
     if (typeof experienceMonths === 'number') body.experience_months = experienceMonths;
     return request('/auth/microsoft', {
@@ -137,6 +176,13 @@ export const api = {
     const form = new FormData();
     form.append('file', file);
     return request(`/users/${userId}/cv-skills`, { method: 'POST', body: form });
+  },
+
+  /** Import a Clockify Detailed report CSV into timesheet entries (superadmin only). */
+  async importClockifyCsv(file: File): Promise<ClockifyImportReport> {
+    const form = new FormData();
+    form.append('file', file);
+    return request('/timesheet/import/clockify', { method: 'POST', body: form });
   },
 
   async createClient(name: string): Promise<Client> {

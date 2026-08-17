@@ -518,7 +518,7 @@ const ManageEmployeesPage = () => {
       <Dialog open={addSectionOpen} onOpenChange={o => { setAddSectionOpen(o); if (!o) setSectionName(''); }}>
         <DialogContent
           className="rounded-2xl"
-          onOpenAutoFocus={e => { e.preventDefault(); (e.currentTarget.querySelector('input') as HTMLInputElement | null)?.focus(); }}
+          onOpenAutoFocus={e => { e.preventDefault(); (e.currentTarget as HTMLElement).querySelector<HTMLInputElement>('input')?.focus(); }}
         >
           <DialogHeader>
             <DialogTitle className="text-xl font-bold">Add Section</DialogTitle>

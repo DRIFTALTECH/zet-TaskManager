@@ -17,10 +17,12 @@ def get_current_user_id(
     return auth_logic.resolve_user_id(db, token)
 
 
-def require_admin(
-    token: str = Depends(get_token),
+def require_superadmin(
+    user_id: str = Depends(get_current_user_id),
     db: Db = Depends(get_db),
-) -> None:
-    """Dependency guarding admin-only routes. Raises 401/403 unless the bearer
-    token is an admin-scoped token (master admin or an app user with the admin role)."""
-    auth_logic.require_admin(token, db)
+) -> str:
+    """Dependency guarding the superadmin console. The caller uses their ordinary
+    session token; we check the role on every request so revoking it takes effect
+    immediately. Returns the superadmin's own id for audit logging."""
+    auth_logic.require_superadmin(db, user_id)
+    return user_id

@@ -87,10 +87,12 @@ endpoint in `routes/`. Catch yourself importing model or `text` into `routes/` o
 
 ### Key Domain Concepts
 
-- **Roles**: `admin`, `manager`, `employee`.
-  - `admin` — full access to everything **plus** standalone `/admin` console; sees ALL projects and tasks. Admin role granted only from admin console.
-  - `manager` — all in-app manager powers (create projects, assign members, approve, move any task) but **no** admin console; sees only projects they member of.
+- **Roles**: `superadmin`, `manager`, `employee`.
+  - `superadmin` — the operator. A normal user row (`role="superadmin"`) signing in via `/auth/login`; there is no separate console password. Full access to everything plus the `/superadmin` page, the **only** place accounts get activated and roles get assigned. Sees ALL projects and tasks.
+  - `manager` — all in-app manager powers (create projects, assign members, approve, move any task) but **no** superadmin page; sees only projects they are a member of. Granted only by a superadmin.
   - `employee` — own work only; cannot create projects or assign members; sees only projects they belong to.
+- **Access gate**: `/auth/register` (and first-time Microsoft sign-in) creates an **inactive** `employee` and issues no token — the client cannot pick a role. Nobody signs in until a superadmin activates them at `/superadmin`. `is_active` is re-checked on **every** request (`auth_logic.resolve_user_id`), so deactivating someone ends their live session immediately.
+  - Cutover / promote a superadmin: `cd backend && python scripts/seed_superadmin.py --apply`
 - **Projects → Sections → Tasks**: Tasks belong to sections within projects
 - **Multi-assignee tasks**: `task_assignees` table with position ordering
 - **Time tracking**: Per-user, per-task, per-date via `task_time_logs`; separate manual `timesheet_entries`

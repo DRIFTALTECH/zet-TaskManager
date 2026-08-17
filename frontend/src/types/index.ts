@@ -1,4 +1,4 @@
-export type Role = 'manager' | 'employee' | 'admin';
+export type Role = 'superadmin' | 'manager' | 'employee';
 export type Priority = 'Low' | 'Medium' | 'High' | 'Urgent';
 export type TaskStatus = string;
 
@@ -453,4 +453,23 @@ export interface TimesheetWorkEntry {
   seconds: number;
   billable: boolean;
   createdAt: string;
+}
+
+
+/** One row a Clockify CSV import could not create, with its spreadsheet line. */
+export interface ClockifyImportSkip {
+  line: number;
+  reason: string;
+  detail: string;
+}
+
+export interface ClockifyImportReport {
+  filename: string;
+  totalRows: number;
+  imported: number;
+  duplicates: number;
+  skippedCount: number;
+  /** Date order the server detected in the file, e.g. "DD/MM/YYYY". */
+  dateOrder: string;
+  skipped: ClockifyImportSkip[];
 }

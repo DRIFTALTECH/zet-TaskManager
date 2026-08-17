@@ -4,8 +4,9 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   User, Lock, Sun, Moon, Camera, Check, Eye, EyeOff,
   Shield, Mail, Briefcase, Terminal, Copy, AlertTriangle, Trash2, Plug,
-  ShieldCheck, Search, X, RefreshCw, ChevronDown, Puzzle, Code2, Bot, Clock,
+  ShieldCheck, Search, X, RefreshCw, ChevronDown, Puzzle, Code2, Bot, Clock, Upload,
 } from 'lucide-react';
+import type { ClockifyImportReport } from '@/types';
 import type { ReactNode } from 'react';
 import { toast } from 'sonner';
 import { pageEnter } from '@/lib/motion';
@@ -299,15 +300,54 @@ function ConnectionGuide({
   );
 }
 
+const SKIP_REASON_LABEL: Record<string, string> = {
+  unknown_user: 'No such user',
+  unknown_project: 'No such project',
+  no_email: 'No email',
+  no_project: 'No project',
+  bad_date_or_time: 'Bad date or time',
+  future_date: 'Future date',
+  locked_week: 'Week already submitted',
+  not_project_member: 'Not a project member',
+  rejected: 'Rejected',
+};
+
 export default function SettingsPage() {
   const { currentUser, updateProfile, changePassword, toggleTheme, theme, users, mascotsEnabled, toggleMascots } = useAppStore();
-  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'superadmin';
+  // Clockify import writes to other people's timesheets, so it is superadmin-only.
+  const isSuperadmin = currentUser?.role === 'superadmin';
 
   // Profile state
   const [name, setName] = useState(currentUser?.name ?? '');
   const [avatarPreview, setAvatarPreview] = useState(currentUser?.avatar ?? '');
   const [savingProfile, setSavingProfile] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Clockify CSV import
+  const clockifyInputRef = useRef<HTMLInputElement>(null);
+  const [clockifyBusy, setClockifyBusy] = useState(false);
+  const [clockifyReport, setClockifyReport] = useState<ClockifyImportReport | null>(null);
+
+  const uploadClockifyCsv = useCallback(async (file: File) => {
+    setClockifyBusy(true);
+    setClockifyReport(null);
+    try {
+      const report = await api.importClockifyCsv(file);
+      setClockifyReport(report);
+      if (report.imported > 0) {
+        toast.success(`Imported ${report.imported} timesheet ${report.imported === 1 ? 'entry' : 'entries'}`);
+      } else if (report.duplicates === report.totalRows) {
+        toast.info('Every row in this file was already imported');
+      } else {
+        toast.warning('Nothing was imported — see the details below');
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not import the CSV');
+    } finally {
+      setClockifyBusy(false);
+    }
+  }, []);
 
   // Password state
   const [currentPw, setCurrentPw] = useState('');
@@ -694,19 +734,92 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {isManager && (
+          {isSuperadmin && (
             <div className="rounded-2xl border border-border/40 bg-card shadow-sm overflow-hidden p-5">
               <div className="flex items-center gap-3">
                 <div className="h-9 w-9 rounded-xl bg-primary/10 flex items-center justify-center">
                   <Clock className="h-4 w-4 text-primary" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <h2 className="font-semibold text-foreground">Clockify Integration</h2>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Clockify data is imported using the external Clockify Importer.
+                    Import a Detailed report export. Each row is logged to the timesheet of
+                    the user named in its Email column.
                   </p>
                 </div>
               </div>
+
+              <div className="mt-4 rounded-xl border border-border/40 bg-muted/20 p-4">
+                <p className="text-xs font-semibold text-foreground">Where to get the file</p>
+                <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                  In Clockify: <span className="font-medium text-foreground">Reports → Detailed →
+                  Export → CSV</span>. The Summary export will not work — it has no dates or users.
+                  A row&apos;s <span className="font-medium text-foreground">Task</span> becomes its
+                  section, and rows with no Task go to a section called{' '}
+                  <span className="font-medium text-foreground">General</span>.
+                </p>
+
+                <input
+                  ref={clockifyInputRef}
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="hidden"
+                  onChange={e => {
+                    const f = e.target.files?.[0];
+                    e.target.value = '';   // allow re-picking the same file
+                    if (f) void uploadClockifyCsv(f);
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => clockifyInputRef.current?.click()}
+                  disabled={clockifyBusy}
+                  className="mt-3 inline-flex items-center gap-2 rounded-xl bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
+                >
+                  <Upload className="h-4 w-4" />
+                  {clockifyBusy ? 'Importing…' : 'Upload CSV'}
+                </button>
+              </div>
+
+              {clockifyReport && (
+                <div className="mt-3 rounded-xl border border-border/40 overflow-hidden">
+                  <div className="flex flex-wrap items-center gap-x-5 gap-y-1 bg-muted/25 px-4 py-3 text-xs">
+                    <span className="font-semibold text-foreground truncate">{clockifyReport.filename}</span>
+                    <span className="text-emerald-500 font-semibold tabular-nums">
+                      {clockifyReport.imported} imported
+                    </span>
+                    {clockifyReport.duplicates > 0 && (
+                      <span className="text-muted-foreground tabular-nums">
+                        {clockifyReport.duplicates} already logged
+                      </span>
+                    )}
+                    {clockifyReport.skippedCount > 0 && (
+                      <span className="text-amber-500 font-semibold tabular-nums">
+                        {clockifyReport.skippedCount} skipped
+                      </span>
+                    )}
+                    <span className="text-muted-foreground/70">
+                      dates read as {clockifyReport.dateOrder}
+                    </span>
+                  </div>
+
+                  {clockifyReport.skipped.length > 0 && (
+                    <div className="max-h-56 overflow-y-auto divide-y divide-border/30">
+                      {clockifyReport.skipped.map(sk => (
+                        <div key={sk.line} className="flex items-start gap-3 px-4 py-2 text-xs">
+                          <span className="shrink-0 font-mono text-muted-foreground/70 tabular-nums">
+                            line {sk.line}
+                          </span>
+                          <span className="shrink-0 font-semibold text-amber-500">
+                            {SKIP_REASON_LABEL[sk.reason] ?? sk.reason}
+                          </span>
+                          <span className="text-muted-foreground min-w-0">{sk.detail}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

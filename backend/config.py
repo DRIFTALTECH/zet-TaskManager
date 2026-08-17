@@ -1,8 +1,8 @@
 """Centralised environment config with production fail-fast.
 
 In production (APP_ENV=production), missing/weak secrets raise on startup so the
-app never runs with a forgeable JWT secret, the default admin password, or a
-wide-open CORS policy. In development, safe dev defaults apply.
+app never runs with a forgeable JWT secret or a wide-open CORS policy. In
+development, safe dev defaults apply.
 """
 
 import os
@@ -41,7 +41,8 @@ def cors_origins() -> list[str]:
 # Secrets (validated above). Dev defaults match the historical values so local dev
 # is unchanged; production rejects them.
 JWT_SECRET = _secret("TASKMANAGER_JWT_SECRET", "dev-secret-change-me")
-ADMIN_PASSWORD = _secret("ADMIN_PASSWORD", "Default@123", min_len=8)
+# There is no separate admin-console password: the superadmin is a normal user row
+# (role="superadmin") who signs in through /auth/login. See scripts/seed_superadmin.py.
 
 
 # ── Microsoft Graph (Teams meeting transcripts → MOM) ───────────────────────────
@@ -62,3 +63,19 @@ def graph_configured() -> bool:
         and MICROSOFT_TENANT_ID
         and MICROSOFT_TENANT_ID.lower() != "common"
     )
+
+
+# ── Realtime fan-out ──────────────────────────────────────────────────────────
+def redis_url() -> str:
+    """Shared version-counter store. Required in production: without it, realtime
+    counters are per-process, so with more than one worker a write only reaches the
+    clients attached to the worker that served it."""
+    raw = os.environ.get("REDIS_URL", "").strip()
+    if raw:
+        return raw
+    if IS_PROD and os.environ.get("ALLOW_SINGLE_WORKER", "").strip().lower() not in ("1", "true", "yes"):
+        raise RuntimeError(
+            "REDIS_URL must be set in production so realtime updates reach every "
+            "worker. Running a single worker on purpose? Set ALLOW_SINGLE_WORKER=1."
+        )
+    return ""

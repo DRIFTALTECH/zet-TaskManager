@@ -99,39 +99,8 @@ export function formatDisplayDate(iso: string): string {
   return `${d}-${m}-${y}`;
 }
 
-/** Short locale range for weekly submit copy, e.g. "Jul 6 – Jul 12". */
-export function formatWeekRangeShort(weekStart: string, weekEnd: string): string {
-  const start = new Date(`${weekStart}T12:00:00`);
-  const end = new Date(`${weekEnd}T12:00:00`);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-    return `${formatDisplayDate(weekStart)} – ${formatDisplayDate(weekEnd)}`;
-  }
-  const sameMonth = start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear();
-  const startFmt: Intl.DateTimeFormatOptions = sameMonth
-    ? { month: 'short', day: 'numeric' }
-    : { month: 'short', day: 'numeric', year: 'numeric' };
-  const endFmt: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric', year: 'numeric' };
-  return `${start.toLocaleDateString(undefined, startFmt)} – ${end.toLocaleDateString(undefined, endFmt)}`;
-}
 
-/** Editable ISO dates in the viewed week (Mon–Sun, not future, not locked). */
-export function getWeekSubmitDates(
-  weekDates: readonly string[],
-  submission: TimesheetSubmission | null | undefined,
-  todayStr: string,
-): string[] {
-  return weekDates.filter(d => d <= todayStr && !timesheetDateLocked(submission, d));
-}
 
-/** Group week entries for preview / email / submit (all editable days in the week). */
-export function buildWeekSubmissionData(
-  weekDates: readonly string[],
-  weekEntries: readonly TimesheetWorkEntry[],
-  submission: TimesheetSubmission | null | undefined,
-  todayStr: string,
-): SelectedSubmissionData {
-  return buildSelectedSubmissionData(getWeekSubmitDates(weekDates, submission, todayStr), weekEntries);
-}
 
 export function statusDisplayLabel(status: TimesheetSubmissionStatus): string {
   switch (status) {

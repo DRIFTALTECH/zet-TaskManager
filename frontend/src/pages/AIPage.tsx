@@ -633,10 +633,10 @@ function AgentTimesheetCard({ data }: { data: AICardTimesheetData }) {
 }
 
 function AgentCardRenderer({ card }: { card: AICard }) {
-  if (card.type === 'task')               return <AgentTaskCard data={card.data as AICardTaskData} />;
-  if (card.type === 'stat')               return <AgentStatCard data={card.data as AICardStatData} />;
-  if (card.type === 'project')            return <AgentProjectCard data={card.data as AICardProjectData} />;
-  if (card.type === 'timesheet_summary')  return <AgentTimesheetCard data={card.data as AICardTimesheetData} />;
+  if (card.type === 'task')               return <AgentTaskCard data={card.data as unknown as AICardTaskData} />;
+  if (card.type === 'stat')               return <AgentStatCard data={card.data as unknown as AICardStatData} />;
+  if (card.type === 'project')            return <AgentProjectCard data={card.data as unknown as AICardProjectData} />;
+  if (card.type === 'timesheet_summary')  return <AgentTimesheetCard data={card.data as unknown as AICardTimesheetData} />;
   return null;
 }
 

@@ -83,7 +83,18 @@ def ensure_ca_bundle(path: str, url: str) -> str:
     if os.path.exists(path) and os.path.getsize(path) > 0:
         return path
     print(f"CA bundle not found. Downloading from {url} ...")
-    urllib.request.urlretrieve(url, path)
+    # Use certifi's CA store — python.org macOS builds often lack system trust roots,
+    # so bare urllib.urlretrieve fails with SSLCertVerificationError.
+    import ssl
+
+    try:
+        import certifi
+
+        ctx = ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        ctx = ssl.create_default_context()
+    with urllib.request.urlopen(url, context=ctx) as resp, open(path, "wb") as out:
+        out.write(resp.read())
     print(f"Saved CA bundle to {path}")
     return path
 

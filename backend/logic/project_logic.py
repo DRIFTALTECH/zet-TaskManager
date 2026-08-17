@@ -64,7 +64,7 @@ def is_managerial(db: Db, user_id: str) -> bool:
     from logic import user_logic
 
     u = user_logic.get_user_or_404(db, user_id)
-    return u.role in ("manager", "admin")
+    return u.role in ("manager", "superadmin")
 
 
 def ensure_project_member(db: Db, project_id: str, user_id: str) -> None:
@@ -87,7 +87,7 @@ def ensure_manager(db: Db, user_id: str) -> None:
 def is_admin(db: Db, user_id: str) -> bool:
     from logic import user_logic
 
-    return user_logic.get_user_or_404(db, user_id).role == "admin"
+    return user_logic.get_user_or_404(db, user_id).role == "superadmin"
 
 
 def list_projects(db: Db, current_user_id: str) -> list[ProjectOut]:

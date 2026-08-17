@@ -47,7 +47,7 @@ function ClockifyNotice() {
 export default function ClientDetailPage() {
   const { clientId } = useParams<{ clientId: string }>();
   const { clients, projects, tasks, users, loadClients, currentUser } = useAppStore();
-  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'superadmin';
 
   useEffect(() => {
     void loadClients();

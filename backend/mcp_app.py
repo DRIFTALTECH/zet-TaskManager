@@ -162,13 +162,13 @@ class RoleToolFilter(Middleware):
 
     async def on_list_tools(self, context, call_next):
         tools = await call_next(context)
-        if _caller_role() in ("manager", "admin"):
+        if _caller_role() in ("manager", "superadmin"):
             return tools
         return [t for t in tools if t.name not in _MANAGER_ONLY_TOOLS]
 
     async def on_call_tool(self, context, call_next):
         name = getattr(context.message, "name", None)
-        if name in _MANAGER_ONLY_TOOLS and _caller_role() not in ("manager", "admin"):
+        if name in _MANAGER_ONLY_TOOLS and _caller_role() not in ("manager", "superadmin"):
             raise ToolError("This action requires a manager or admin role.")
         return await call_next(context)
 

@@ -14,19 +14,9 @@ def _overview(client, headers):
     ).json()
 
 
-def test_overview_counts_only_viewer_projects(client, manager):
+def test_overview_counts_only_viewer_projects(client, manager, register):
     mgr, mh = manager
-    other_reg = client.post(
-        "/auth/register",
-        json={
-            "name": "Other",
-            "email": f"other-{mgr['id']}@t.test",
-            "password": "secret123",
-            "role": "manager",
-        },
-    ).json()
-    other = other_reg["user"]
-    oh = {"Authorization": f"Bearer {other_reg['access_token']}"}
+    other, oh = register("manager", email=f"other-{mgr['id']}@example.com", name="Other")
 
     mine = make_project(client, mh, name="Mine", client_name="MineCo")["id"]
     theirs = make_project(client, oh, name="Theirs", client_name="TheirCo")["id"]

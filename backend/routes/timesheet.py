@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, File, UploadFile, Response
 
 from database.database import Db, get_db
-from logic import timesheet_logic
+from logic import clockify_import_logic, timesheet_logic
 from logic.schemas import (
+    ClockifyImportReport,
     TimesheetEntryCreate,
     TimesheetEntryOut,
     TimesheetEntryPatch,
@@ -11,7 +12,8 @@ from logic.schemas import (
     TimesheetSubmissionReviewOut,
     TimesheetSubmitBody,
 )
-from routes.deps import get_current_user_id
+from routes.deps import get_current_user_id, require_superadmin
+from upload_guard import read_limited
 
 router = APIRouter()
 
@@ -172,3 +174,18 @@ def delete_entries_for_day(
 ):
     timesheet_logic.delete_all_entries_for_day(db, user_id, work_date)
     return Response(status_code=204)
+
+
+@router.post("/import/clockify", response_model=ClockifyImportReport)
+async def import_clockify_csv(
+    file: UploadFile = File(...),
+    actor_id: str = Depends(require_superadmin),
+    db: Db = Depends(get_db),
+):
+    """Import a Clockify Detailed report CSV into timesheet entries.
+
+    Superadmin only: each row is logged against the user named by its Email column,
+    so this writes to other people's timesheets.
+    """
+    content = await read_limited(file, clockify_import_logic.MAX_CSV_BYTES, label="CSV")
+    return clockify_import_logic.import_detailed_csv(db, actor_id, file.filename, content)

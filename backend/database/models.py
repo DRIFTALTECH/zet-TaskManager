@@ -373,6 +373,9 @@ class PersonalAccessToken(Base):
     created_at = Column(String, nullable=False, default="")
     last_used_at = Column(String, nullable=True)
     revoked = Column(Boolean, nullable=False, default=False)
+    # ISO-8601 UTC. Empty string means "never expires" (pre-existing rows only);
+    # new tokens always get a real expiry. Checked in token_logic.resolve_user_id.
+    expires_at = Column(String, nullable=False, default="")
 
 
 class Scrum(Base):

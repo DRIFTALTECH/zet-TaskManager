@@ -16,7 +16,7 @@ def list_checklists(
     user_id: str = Depends(get_current_user_id),
     db: Db = Depends(get_db),
 ):
-    return checklist_logic.list_for_task(db, task_id)
+    return checklist_logic.list_for_task(db, task_id, user_id)
 
 
 @router.post("", response_model=TaskChecklistOut, status_code=201)

@@ -4,8 +4,12 @@ from database.database import Db, get_db
 from logic import meeting_notes_logic
 from logic.schemas import ScrumCreate, ScrumDaySummary, ScrumOut, ScrumUpdate
 from routes.deps import get_current_user_id
+from upload_guard import read_limited
 
 router = APIRouter()
+
+# Scrum recordings go to speech-to-text; 25 MB matches the Whisper API ceiling.
+MAX_AUDIO_BYTES = 25 * 1024 * 1024
 
 
 @router.get("", response_model=list[ScrumDaySummary])
@@ -36,7 +40,7 @@ async def transcribe(
 ):
     """Transcribe a dropped meeting recording to text (for review before saving).
     Returns {text}."""
-    audio = await file.read()
+    audio = await read_limited(file, MAX_AUDIO_BYTES, label='Audio')
     return {"text": meeting_notes_logic.transcribe_audio(audio, file.filename)}
 
 

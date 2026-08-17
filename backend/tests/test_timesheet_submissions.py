@@ -128,7 +128,9 @@ def test_submission_review_shows_only_submitted_dates(db):
     mgr = _seed_user(db, role="manager", email=f"mgr-review-partial-{suffix}@example.com")
     emp = _seed_user(db, role="employee", email=f"emp-review-partial-{suffix}@example.com", manager_id=mgr.id)
     pid, sid = _seed_project_with_member(db, emp)
-    ws = timesheet_logic.week_start_for(date.today().isoformat())
+    # Anchor to LAST week: create_entry refuses dates beyond tomorrow, so using the
+    # current week made this test fail whenever it ran on a Monday or Tuesday.
+    ws = timesheet_logic.week_start_for((date.today() - timedelta(days=7)).isoformat())
     monday = date.fromisoformat(ws)
     tuesday = (monday + timedelta(days=1)).isoformat()
     wednesday = (monday + timedelta(days=2)).isoformat()
@@ -272,7 +274,7 @@ def test_submission_review(db):
     mgr = _seed_user(db, role="manager", email=f"mgr-review-{suffix}@example.com")
     other_mgr = _seed_user(db, role="manager", email=f"other-mgr-{suffix}@example.com")
     emp = _seed_user(db, role="employee", email=f"emp-review-{suffix}@example.com", manager_id=mgr.id)
-    admin = _seed_user(db, role="admin", email=f"admin-review-{suffix}@example.com")
+    superadmin = _seed_user(db, role="superadmin", email=f"superadmin-review-{suffix}@example.com")
     pid, sid = _seed_project_with_member(db, emp)
     ws = timesheet_logic.week_start_for(date.today().isoformat())
     monday = date.fromisoformat(ws)
@@ -305,7 +307,7 @@ def test_submission_review(db):
     assert mon_day.entries[0].sectionName == "S"
     assert mon_day.entries[0].billable is True
 
-    timesheet_logic.get_submission_review(db, admin.id, sub.id)
+    timesheet_logic.get_submission_review(db, superadmin.id, sub.id)
 
     review_other = timesheet_logic.get_submission_review(db, other_mgr.id, sub.id)
     assert review_other.submission.id == sub.id

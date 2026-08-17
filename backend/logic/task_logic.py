@@ -149,7 +149,7 @@ def list_tasks(db: Db, current_user_id: str) -> list[TaskOut]:
     actor = user_logic.get_user_or_404(db, current_user_id)
     visible = (
         tasks_crud.list_all(db)
-        if actor.role == "admin"
+        if actor.role == "superadmin"
         else tasks_crud.list_for_member_projects(db, current_user_id)
     )
     ids = [t.id for t in visible]
@@ -391,7 +391,7 @@ def _can_reopen_completed_task(db: Db, t: Task, user_id: str) -> bool:
     if assignees_crud.is_assignee(db, t.id, user_id):
         return True
     actor = user_logic.get_user_or_404(db, user_id)
-    return actor.role in ("manager", "admin")
+    return actor.role in ("manager", "superadmin")
 
 
 def reopen_completed_to_backlog(db: Db, current_user_id: str, task_id: str) -> TaskOut:

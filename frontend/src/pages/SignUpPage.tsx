@@ -7,7 +7,6 @@ import {
   isMicrosoftAuthConfigured,
   signUpWithMicrosoftRedirect,
 } from '@/lib/microsoftAuth';
-import type { Role } from '@/types';
 
 const SignUpPage = () => {
   const currentUser = useAppStore(s => s.currentUser);
@@ -17,9 +16,9 @@ const SignUpPage = () => {
   return (
     <AnimatedCharactersSignupPage
       microsoftEnabled={isMicrosoftAuthConfigured()}
-      onMicrosoftSignup={async (role: Role, jobTitle: string, experienceMonths: number) => {
+      onMicrosoftSignup={async (jobTitle: string, experienceMonths: number) => {
         try {
-          await signUpWithMicrosoftRedirect(role, jobTitle, experienceMonths);
+          await signUpWithMicrosoftRedirect(jobTitle, experienceMonths);
         } catch (e) {
           const msg = formatMsalAuthError(e);
           toast.error(msg || 'Microsoft sign-up failed.');

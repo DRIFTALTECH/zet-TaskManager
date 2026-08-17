@@ -211,7 +211,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
     setViewer(prev => { if (prev?.url) { try { URL.revokeObjectURL(prev.url); } catch { /* noop */ } } return null; });
   }, []);
 
-  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'superadmin';
   const isCompleted = task?.status === 'completed';
   const canReopenToBacklog = Boolean(
     currentUser && task && isCompleted &&

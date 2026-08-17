@@ -105,7 +105,7 @@ const ProjectDetailPage = () => {
     addSection, removeSection, addMemberToProject, removeMemberFromProject,
     moveTask, approveTask, reopenTaskToBacklog, setProjectAppearance, uploadProjectMedia, deleteProject,
   } = useAppStore();
-  const canEdit = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  const canEdit = currentUser?.role === 'manager' || currentUser?.role === 'superadmin';
 
   const project = projects.find(p => p.id === projectId);
   const baseAccent = project ? projectAccent(project.id) : null;
@@ -1107,7 +1107,7 @@ const ProjectDetailPage = () => {
 
       <Dialog open={addSectionOpen} onOpenChange={o => { setAddSectionOpen(o); if (!o) setSectionName(''); }}>
         <DialogContent className="rounded-2xl"
-          onOpenAutoFocus={e => { e.preventDefault(); (e.currentTarget.querySelector('input') as HTMLInputElement | null)?.focus(); }}>
+          onOpenAutoFocus={e => { e.preventDefault(); (e.currentTarget as HTMLElement).querySelector<HTMLInputElement>('input')?.focus(); }}>
           <DialogHeader><DialogTitle className="text-xl font-bold">Add Section</DialogTitle></DialogHeader>
           <div className="space-y-3 pt-2">
             <input autoFocus value={sectionName} onChange={e => setSectionName(e.target.value)}

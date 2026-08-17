@@ -42,15 +42,14 @@ const CHART_TOOLTIP = {
 export default function OverviewPage() {
   const currentUser = useAppStore(s => s.currentUser);
   const projects = useAppStore(s => s.projects);
-  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'admin';
-  if (!isManager) return <Navigate to="/" replace />;
+  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'superadmin';
 
   const [range, setRange] = useState(defaultRange);
   const [projectId, setProjectId] = useState('');
 
   const visibleProjects = useMemo(() => {
     if (!currentUser) return [];
-    if (currentUser.role === 'admin') return projects;
+    if (currentUser.role === 'superadmin') return projects;
     return projects.filter(p => currentUser.projectIds.includes(p.id));
   }, [currentUser, projects]);
 
@@ -60,6 +59,7 @@ export default function OverviewPage() {
     queryKey: ['overview', range, projectId],
     queryFn: () => analyticsExtApi.getOverview(range, projectId || undefined),
     staleTime: 0,
+    enabled: isManager,
   });
 
   const insightContext = useMemo(() => {
@@ -86,6 +86,10 @@ export default function OverviewPage() {
       })),
     };
   }, [data, range, projectId, selectedProject?.name]);
+
+  // Guard sits below every hook: an early return above them changes the hook
+  // count between renders, which crashes React.
+  if (!isManager) return <Navigate to="/" replace />;
 
   return (
     <motion.div

@@ -4,6 +4,7 @@ from database.database import Db, get_db
 from logic import cv_skill_logic, skill_logic, user_logic
 from logic.schemas import CvSkillsOut, PasswordUpdate, ProfileUpdate, UserOut, UserSkillsUpdate
 from routes.deps import get_current_user_id
+from upload_guard import read_limited
 
 router = APIRouter()
 
@@ -62,7 +63,7 @@ async def extract_skills_from_cv(
     Nothing is persisted — the client confirms which skills to add.
     Manager/admin only (same guard as skill editing).
     """
-    content = await file.read()
+    content = await read_limited(file, cv_skill_logic.MAX_FILE_SIZE, label='CV')
     skills = cv_skill_logic.parse_cv_and_extract_skills(
         db, user_id, file.filename, content
     )

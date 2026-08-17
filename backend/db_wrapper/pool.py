@@ -5,6 +5,7 @@ import logging
 import os
 import threading
 import time
+from pathlib import Path
 from types import ModuleType
 from typing import Any
 
@@ -82,20 +83,49 @@ class ConnectionPools:
             self._tokens[hostname] = (token, now + _TOKEN_TTL_SECONDS)
             return token
 
-    def _connect_kwargs(self, hostname: str) -> dict[str, Any]:
-        self._connector.ensure_ca_bundle(
+    def _ca_bundle(self) -> str:
+        """Path to the RDS CA bundle used to verify the server certificate.
+
+        Prefers the bundle vendored in the repo, so a deployed container never has
+        to reach truststore.pki.rds.amazonaws.com at connect time — restricted
+        egress would otherwise stop the app from booting.
+
+        That bundle holds public Amazon roots AND the RDS private CAs, because the
+        two are not interchangeable: this cluster presents a certificate issued by
+        "Amazon RSA 2048 M01" (Amazon Trust Services, a PUBLIC CA), which the
+        RDS-only bundle cannot verify. Carrying both means a CA rotation, or a new
+        cluster using the RDS private CA, keeps working. Regenerate with
+        scripts/refresh_ca_bundle.py.
+        """
+        vendored = Path(__file__).resolve().parent.parent / "certs" / "rds-and-public-roots.pem"
+        override = os.environ.get("DB_SSL_ROOT_CERT", "").strip()
+        if override:
+            return override
+        if vendored.is_file() and vendored.stat().st_size > 0:
+            return str(vendored)
+        return self._connector.ensure_ca_bundle(
             self._connector.CA_BUNDLE_PATH,
             self._connector.CA_BUNDLE_URL,
         )
-        return {
+
+    def _connect_kwargs(self, hostname: str) -> dict[str, Any]:
+        # verify-full validates the certificate chain AND the hostname. Plain
+        # "require" only encrypts: it accepts any certificate, so it cannot detect
+        # an intercepted connection. DB_SSL_MODE is the escape hatch — verify-full
+        # fails closed, so a CA problem should be downgradable without a redeploy.
+        ssl_mode = os.environ.get("DB_SSL_MODE", "verify-full").strip() or "verify-full"
+        kwargs: dict[str, Any] = {
             "host": hostname,
             "port": self._connector.DB_PORT,
             "user": self._connector.DB_USER,
             "password": self._iam_token(hostname),
             "database": self._connector.DB_NAME,
-            "sslmode": "require",
+            "sslmode": ssl_mode,
             "connect_timeout": int(os.environ.get("DB_CONNECT_TIMEOUT", "10")),
         }
+        if ssl_mode in ("verify-ca", "verify-full"):
+            kwargs["sslrootcert"] = self._ca_bundle()
+        return kwargs
 
     def _close_pools(self) -> None:
         with self._pool_lock:

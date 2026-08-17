@@ -277,7 +277,12 @@ export function WipPage() {
   }
 
   return (
-    <motion.div {...pageEnter} className="p-4 sm:p-6 space-y-6 max-w-screen-xl mx-auto">
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={pageEnter}
+      className="p-4 sm:p-6 space-y-6 max-w-screen-xl mx-auto"
+    >
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2.5">

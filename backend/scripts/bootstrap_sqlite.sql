@@ -245,7 +245,8 @@ CREATE TABLE IF NOT EXISTS personal_access_tokens (
     prefix VARCHAR NOT NULL DEFAULT '',
     created_at VARCHAR NOT NULL DEFAULT '',
     last_used_at VARCHAR,
-    revoked BOOLEAN NOT NULL DEFAULT FALSE
+    revoked BOOLEAN NOT NULL DEFAULT FALSE,
+    expires_at VARCHAR NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS scrums (

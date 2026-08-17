@@ -67,7 +67,7 @@ const MyTasksPage = () => {
     () => currentUser?.projectIds ?? [],
     [currentUser?.projectIds],
   );
-  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'admin';
+  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'superadmin';
 
 
   const assignedTasks = useMemo(() => {
