@@ -1,8 +1,7 @@
 /**
- * ReportsPage — Clockify-style reporting over timesheet data.
- * Three views: Summary (chart + breakdown + donut), Detailed (entry table),
- * Weekly (project/user × day matrix). Filters: Team · Person · Project · Section ·
- * Billable · Description. Export to PDF (print), CSV, or per-employee Excel.
+ * ReportsPage — time reporting over timesheet data.
+ * Views: Summary, Detailed, Weekly, Client Summary.
+ * Filters match Manage/Audit: Employee + date (+ optional project / group-by).
  */
 import { useAppStore } from '@/stores/appStore';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
@@ -14,11 +13,10 @@ import {
 import { motion } from 'framer-motion';
 import {
   ChevronLeft, ChevronRight, BarChart3, ListChecks, CalendarRange, Download,
-  FileText, Search, ChevronDown, ChevronRight as ChevRight, Clock, FolderKanban,
-  User, X,
+  FileText, ChevronDown, ChevronRight as ChevRight, Clock, FolderKanban,
+  User, ShieldCheck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -26,25 +24,22 @@ import {
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Calendar } from '@/components/ui/calendar';
-import {
-  Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
-} from '@/components/ui/command';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
+import DateRangePicker from '@/components/DateRangePicker';
+import { formatRangeLabel, resolveRange, type RangeSelection } from '@/lib/date-range';
 import type { TimesheetWorkEntry } from '@/types';
 import { pageEnter } from '@/lib/motion';
 import { ZET, zetStackColor } from '@/lib/zet-charts';
 import { cn } from '@/lib/utils';
 import { downloadCSV, openPrintWindow, printTable, exportEmployeeReport, type EmployeeReportSummary } from '@/lib/report-export';
 import { ClientSummaryPanel } from '@/components/analytics/ClientSummaryPanel';
+import UserAvatar, { accentColor } from '@/components/UserAvatar';
 import {
-  subDays, addDays, addWeeks, addMonths, format, parseISO,
-  eachDayOfInterval, startOfWeek, endOfWeek, startOfMonth, endOfMonth,
+  addWeeks, format, parseISO,
+  eachDayOfInterval, startOfWeek, endOfWeek,
 } from 'date-fns';
-import type { DateRange } from 'react-day-picker';
 
 // ── time helpers ────────────────────────────────────────────────────────────
 const iso = (d: Date) => {
@@ -61,37 +56,10 @@ const fmtHMS = (s: number) => {
 const hoursDec = (s: number) => Math.round((s / 3600) * 100) / 100;
 
 type Tab = 'summary' | 'detailed' | 'weekly' | 'clients';
-type Preset = 'today' | 'week' | 'month' | 'last30' | 'custom';
 type GroupBy = 'project' | 'section' | 'user' | 'billable';
 type WeeklyBy = 'project' | 'user';
-type Billable = 'all' | 'billable' | 'nonbillable';
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
-function presetRange(preset: Preset, off: number, custom: DateRange | undefined): { start: string; end: string; label: string } {
-  const today = new Date();
-  if (preset === 'today') {
-    const d = addDays(today, off);
-    return { start: iso(d), end: iso(d), label: format(d, 'EEE, MMM d, yyyy') };
-  }
-  if (preset === 'month') {
-    const base = addMonths(today, off);
-    return { start: iso(startOfMonth(base)), end: iso(endOfMonth(base)), label: format(base, 'MMMM yyyy') };
-  }
-  if (preset === 'last30') {
-    const end = addDays(today, off * 30);
-    const start = subDays(end, 29);
-    return { start: iso(start), end: iso(end), label: `${format(start, 'MMM d')} – ${format(end, 'MMM d, yyyy')}` };
-  }
-  if (preset === 'custom' && custom?.from) {
-    const f = custom.from, t = custom.to ?? custom.from;
-    return { start: iso(f), end: iso(t), label: `${format(f, 'MMM d')} – ${format(t, 'MMM d, yyyy')}` };
-  }
-  // week (default)
-  const base = addWeeks(today, off);
-  const s = startOfWeek(base, { weekStartsOn: 1 }), e = endOfWeek(base, { weekStartsOn: 1 });
-  return { start: iso(s), end: iso(e), label: `${format(s, 'MMM d')} – ${format(e, 'MMM d, yyyy')}` };
-}
 
 function weekRange(off: number): { start: string; end: string; label: string; days: string[] } {
   const base = addWeeks(new Date(), off);
@@ -123,18 +91,12 @@ const ReportsPage = () => {
     if (t === 'weekly') return 'weekly';
     return 'summary';
   });
-  const [preset, setPreset] = useState<Preset>('week');
-  const [presetOff, setPresetOff] = useState(0);
-  const [custom, setCustom] = useState<DateRange | undefined>();
+  const [selection, setSelection] = useState<RangeSelection>({ preset: 'week', offset: 0 });
   const [weekOff, setWeekOff] = useState(0);
 
-  const [team, setTeam] = useState<string>(isManager ? 'all' : 'me');
-  const [personFilter, setPersonFilter] = useState('');
-  const [personPickerOpen, setPersonPickerOpen] = useState(false);
+  /** Single employee filter — mirrors Manage timesheets / Audit. */
+  const [employeeFilter, setEmployeeFilter] = useState(isManager ? 'all' : (currentUser?.id ?? 'all'));
   const [projectFilter, setProjectFilter] = useState('all');
-  const [sectionFilter, setSectionFilter] = useState('all');
-  const [billable, setBillable] = useState<Billable>('all');
-  const [query, setQuery] = useState('');
   const [groupBy, setGroupBy] = useState<GroupBy>('project');
   const [weeklyBy, setWeeklyBy] = useState<WeeklyBy>('project');
 
@@ -142,9 +104,9 @@ const ReportsPage = () => {
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  // ── name / color maps ──────────────────────────────────────────────────────
   const projectName = useCallback((id: string) => projects.find(p => p.id === id)?.name ?? 'No project', [projects]);
   const userName = useCallback((id: string) => users.find(u => u.id === id)?.name ?? 'Unknown', [users]);
+  const userById = useCallback((id: string) => users.find(u => u.id === id), [users]);
   const sectionNameMap = useMemo(() => {
     const m = new Map<string, string>();
     for (const p of projects) for (const s of p.sections) m.set(s.id, s.name);
@@ -152,37 +114,48 @@ const ReportsPage = () => {
   }, [projects]);
   const sectionName = useCallback((id: string) => sectionNameMap.get(id) ?? 'No section', [sectionNameMap]);
 
-  const personOptions = useMemo(() => {
+  /** Stable color for a user id (falls back to key for special groups). */
+  const colorForUser = useCallback((userId: string) => accentColor(userId), []);
+  const colorForGroup = useCallback((key: string, index: number, byUser: boolean) => {
+    if (key === '_other' || key === '_billable' || key === '_nonbillable') return zetStackColor(index);
+    if (byUser) return colorForUser(key);
+    return zetStackColor(index);
+  }, [colorForUser]);
+
+  const employeeOptions = useMemo(() => {
     if (!currentUser) return [];
     if (!isManager) return [currentUser];
-    return [...users].sort((a, b) => a.name.localeCompare(b.name));
+    return [...users].filter(u => u.isActive !== false).sort((a, b) => a.name.localeCompare(b.name));
   }, [currentUser, isManager, users]);
 
-  const selectedPerson = useMemo(
-    () => personOptions.find(u => u.id === personFilter) ?? null,
-    [personOptions, personFilter],
+  const selectedEmployee = useMemo(
+    () => (employeeFilter === 'all' ? null : employeeOptions.find(u => u.id === employeeFilter) ?? null),
+    [employeeOptions, employeeFilter],
   );
 
   useEffect(() => {
-    if (currentUser && !isManager) setPersonFilter(currentUser.id);
+    if (currentUser && !isManager) setEmployeeFilter(currentUser.id);
   }, [currentUser, isManager]);
 
-  // ── active range ───────────────────────────────────────────────────────────
   const range = useMemo(() => {
     if (tab === 'weekly') return weekRange(weekOff);
-    return presetRange(preset, presetOff, custom);
-  }, [tab, weekOff, preset, presetOff, custom]);
+    const r = resolveRange(selection);
+    return { ...r, label: formatRangeLabel(r, selection.preset) };
+  }, [tab, weekOff, selection]);
 
-  // ── fetch ──────────────────────────────────────────────────────────────────
   const load = useCallback(async () => {
     if (!currentUser) return;
     setLoading(true);
     try {
       const { start, end } = range;
       let list: TimesheetWorkEntry[];
-      if (team === 'me' || !isManager) list = await api.getTimesheetWorkEntries(start, end);
-      else if (team === 'all') list = await api.getTeamTimesheetEntries(start, end);
-      else list = await api.getTimesheetWorkEntriesForUser(team, start, end);
+      if (!isManager || employeeFilter === currentUser.id) {
+        list = await api.getTimesheetWorkEntries(start, end);
+      } else if (employeeFilter === 'all') {
+        list = await api.getTeamTimesheetEntries(start, end);
+      } else {
+        list = await api.getTimesheetWorkEntriesForUser(employeeFilter, start, end);
+      }
       setEntries(list);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not load reports');
@@ -190,28 +163,21 @@ const ReportsPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [currentUser, isManager, team, range]);
+  }, [currentUser, isManager, employeeFilter, range]);
 
   const timesheetEpoch = useAppStore(s => s.timesheetEpoch);
   useEffect(() => { void load(); }, [load, timesheetEpoch]);
-  useEffect(() => { setExpanded(new Set()); }, [tab, weeklyBy, team, personFilter, range]);
+  useEffect(() => { setExpanded(new Set()); }, [tab, weeklyBy, employeeFilter, projectFilter, range]);
 
-  // ── filtering (live) ───────────────────────────────────────────────────────
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
     return entries.filter(e =>
-      (personFilter === '' || e.userId === personFilter) &&
-      (projectFilter === 'all' || e.projectId === projectFilter) &&
-      (sectionFilter === 'all' || e.sectionId === sectionFilter) &&
-      (billable === 'all' || (billable === 'billable' ? e.billable : !e.billable)) &&
-      (!q || e.description.toLowerCase().includes(q)),
+      (projectFilter === 'all' || e.projectId === projectFilter),
     );
-  }, [entries, personFilter, projectFilter, sectionFilter, billable, query]);
+  }, [entries, projectFilter]);
 
   const total = useMemo(() => filtered.reduce((a, e) => a + e.seconds, 0), [filtered]);
   const billableSec = useMemo(() => filtered.filter(e => e.billable).reduce((a, e) => a + e.seconds, 0), [filtered]);
 
-  // ── grouping for Summary ───────────────────────────────────────────────────
   const groupKey = useCallback((e: TimesheetWorkEntry) => {
     if (groupBy === 'project') return e.projectId;
     if (groupBy === 'section') return e.sectionId;
@@ -259,7 +225,6 @@ const ReportsPage = () => {
     return row;
   }), [chartDays, topGroups, topKeys, filtered, groupKey]);
 
-  // ── Weekly matrix ──────────────────────────────────────────────────────────
   const weekDays = useMemo(() => (tab === 'weekly' ? weekRange(weekOff).days : []), [tab, weekOff]);
   const primaryKey = useCallback((e: TimesheetWorkEntry) => (weeklyBy === 'project' ? e.projectId : e.userId), [weeklyBy]);
   const secondaryKey = useCallback((e: TimesheetWorkEntry) => (weeklyBy === 'project' ? e.userId : e.projectId), [weeklyBy]);
@@ -282,16 +247,12 @@ const ReportsPage = () => {
 
   const colTotals = useMemo(() => weekDays.map(d => filtered.filter(e => e.workDate === d).reduce((a, e) => a + e.seconds, 0)), [weekDays, filtered]);
 
-  // ── Detailed (sorted) ──────────────────────────────────────────────────────
   const detailed = useMemo(
     () => [...filtered].sort((a, b) => b.workDate.localeCompare(a.workDate) || b.timeFrom.localeCompare(a.timeFrom)),
     [filtered],
   );
 
-  // ── exports ────────────────────────────────────────────────────────────────
   const rangeLabel = range.label;
-  const doStep = (dir: -1 | 1) => (tab === 'weekly' ? setWeekOff(w => w + dir) : setPresetOff(o => o + dir));
-  const resetStep = () => (tab === 'weekly' ? setWeekOff(0) : setPresetOff(0));
 
   const exportCSV = () => {
     if (tab === 'summary') {
@@ -369,7 +330,7 @@ const ReportsPage = () => {
   };
 
   const exportCurrentEmployeeReport = () => {
-    if (!selectedPerson) return;
+    if (!selectedEmployee) return;
     const personEntries = [...filtered].sort(
       (a, b) => b.workDate.localeCompare(a.workDate) || b.timeFrom.localeCompare(a.timeFrom),
     );
@@ -377,7 +338,7 @@ const ReportsPage = () => {
     try {
       exportEmployeeReport({
         format: 'excel',
-        summary: buildEmployeeSummary(personEntries, selectedPerson.name),
+        summary: buildEmployeeSummary(personEntries, selectedEmployee.name),
         detailHeader: header,
         detailRows: data,
       });
@@ -387,12 +348,6 @@ const ReportsPage = () => {
     }
   };
 
-  const sectionsForFilter = useMemo(
-    () => (projectFilter === 'all' ? [] : projects.find(p => p.id === projectFilter)?.sections ?? []),
-    [projectFilter, projects],
-  );
-  useEffect(() => { setSectionFilter('all'); }, [projectFilter]);
-
   if (!currentUser) return null;
 
   const toggle = (k: string) => setExpanded(prev => {
@@ -401,14 +356,32 @@ const ReportsPage = () => {
     return n;
   });
 
-  return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={pageEnter} className="min-h-full">
-      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-6 space-y-5">
+  const groupByUser = groupBy === 'user';
 
-        {/* Header row: tabs + range + export */}
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-2xl font-bold tracking-tight">Reports</h1>
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={pageEnter}
+      className="min-h-full flex flex-col"
+    >
+      {/* Header — same chrome as Audit / Manage timesheets */}
+      <div className="shrink-0 px-4 sm:px-8 pt-6 sm:pt-7 pb-5 border-b border-border/30 bg-gradient-to-b from-muted/20 to-transparent">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <ShieldCheck className="h-4 w-4 text-primary/60" />
+              <span className="text-xs font-bold text-muted-foreground/50 uppercase tracking-widest">Time</span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
+              Reports
+            </h1>
+            <p className="text-sm text-muted-foreground/60 mt-1.5">
+              Summary, detailed entries, and weekly matrices for the selected period.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
             <Tabs value={tab} onValueChange={v => setTab(v as Tab)}>
               <TabsList className="h-9">
                 <TabsTrigger value="summary" className="gap-1.5 text-xs"><BarChart3 className="size-3.5" /> Summary</TabsTrigger>
@@ -419,43 +392,18 @@ const ReportsPage = () => {
                 )}
               </TabsList>
             </Tabs>
-          </div>
-
-          <div className="flex items-center gap-2 flex-wrap">
-            {/* Range control */}
-            <div className="flex items-center gap-1 rounded-xl border border-border/70 bg-card/60 p-1">
-              <Button variant="ghost" size="icon" className="size-7" onClick={() => doStep(-1)}><ChevronLeft className="size-4" /></Button>
-              {tab === 'weekly' ? (
-                <span className="text-xs font-semibold tabular-nums px-2 min-w-[170px] text-center">{rangeLabel}</span>
-              ) : (
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <button className="text-xs font-semibold tabular-nums px-2 min-w-[170px] text-center hover:text-primary transition-colors">{rangeLabel}</button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="center">
-                    <div className="flex flex-col p-2 gap-1 border-b border-border/50">
-                      {([['today', 'Today'], ['week', 'This week'], ['month', 'This month'], ['last30', 'Last 30 days']] as [Preset, string][]).map(([p, lbl]) => (
-                        <button key={p} onClick={() => { setPreset(p); setPresetOff(0); }}
-                          className={cn('text-left text-xs px-3 py-1.5 rounded-lg hover:bg-muted transition-colors', preset === p && 'bg-muted font-semibold')}>{lbl}</button>
-                      ))}
-                    </div>
-                    <Calendar mode="range" selected={custom} onSelect={r => { setCustom(r); if (r?.from) setPreset('custom'); }} numberOfMonths={1} />
-                  </PopoverContent>
-                </Popover>
-              )}
-              <Button variant="ghost" size="icon" className="size-7" onClick={() => doStep(1)}><ChevronRight className="size-4" /></Button>
-              <Button variant="ghost" size="sm" className="text-[11px] h-7 px-2" onClick={resetStep}>{tab === 'weekly' ? 'This week' : 'Now'}</Button>
-            </div>
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-9 gap-1.5 text-xs"><Download className="size-3.5" /> Export</Button>
+                <Button variant="outline" size="sm" className="h-9 gap-1.5 text-xs rounded-xl">
+                  <Download className="size-3.5" /> Export
+                </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem onClick={exportPDF}><FileText className="size-3.5 mr-2" /> Export PDF</DropdownMenuItem>
                 <DropdownMenuItem onClick={exportCSV}><Download className="size-3.5 mr-2" /> Export CSV</DropdownMenuItem>
                 <DropdownMenuSeparator />
-                {personFilter ? (
+                {selectedEmployee ? (
                   <DropdownMenuItem onClick={exportCurrentEmployeeReport}>
                     <User className="size-3.5 mr-2" /> Export Current Employee Report
                   </DropdownMenuItem>
@@ -476,102 +424,68 @@ const ReportsPage = () => {
           </div>
         </div>
 
-        {/* Filter bar */}
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-card/50 p-2.5">
-          {isManager && (
-            <Select value={team} onValueChange={setTeam}>
-              <SelectTrigger className="h-8 w-auto min-w-[130px] text-xs"><SelectValue /></SelectTrigger>
+        {/* Filter bar — Employee + date (+ project / view options) */}
+        <div className="flex flex-wrap items-center gap-2 mt-5 rounded-xl border border-border/70 bg-card/50 p-2.5">
+          {isManager ? (
+            <Select value={employeeFilter} onValueChange={setEmployeeFilter}>
+              <SelectTrigger className="h-8 w-auto min-w-[160px] text-xs">
+                <SelectValue placeholder="Employee" />
+              </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All team</SelectItem>
-                <SelectItem value="me">Me</SelectItem>
-                {users.filter(u => u.id !== currentUser.id).map(u => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
+                <SelectItem value="all">All employees</SelectItem>
+                {employeeOptions.map(u => (
+                  <SelectItem key={u.id} value={u.id}>
+                    <span className="flex items-center gap-2">
+                      <span className="size-2 rounded-full shrink-0" style={{ backgroundColor: accentColor(u.id) }} />
+                      {u.name}{u.id === currentUser.id ? ' (you)' : ''}
+                    </span>
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
+          ) : (
+            <div className="flex items-center gap-2 h-8 px-2.5 rounded-lg border border-border/60 bg-muted/30 text-xs">
+              <UserAvatar name={currentUser.name} avatar={currentUser.avatar} size="xs" />
+              <span className="font-medium truncate max-w-[140px]">{currentUser.name}</span>
+            </div>
           )}
-          <Popover open={personPickerOpen} onOpenChange={setPersonPickerOpen}>
-            <PopoverTrigger asChild>
-              <Button
-                variant="outline"
-                role="combobox"
-                aria-expanded={personPickerOpen}
-                className="h-8 min-w-[140px] justify-between gap-2 px-2.5 text-xs font-normal"
-              >
-                <span className="flex items-center gap-1.5 truncate">
-                  <User className="size-3.5 shrink-0 text-muted-foreground" />
-                  {selectedPerson ? selectedPerson.name : 'Person'}
-                </span>
-                <ChevronDown className="size-3.5 shrink-0 opacity-50" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-[240px] p-0" align="start">
-              <Command>
-                <CommandInput placeholder="Search employee…" className="h-9 text-xs" />
-                <CommandList>
-                  <CommandEmpty>No employee found.</CommandEmpty>
-                  <CommandGroup>
-                    {isManager && (
-                      <CommandItem
-                        value="all people"
-                        onSelect={() => { setPersonFilter(''); setPersonPickerOpen(false); }}
-                        className="text-xs"
-                      >
-                        All people
-                      </CommandItem>
-                    )}
-                    {personOptions.map(u => (
-                      <CommandItem
-                        key={u.id}
-                        value={`${u.name} ${u.email}`}
-                        onSelect={() => { setPersonFilter(u.id); setPersonPickerOpen(false); }}
-                        className="text-xs"
-                      >
-                        {u.name}{u.id === currentUser.id ? ' (you)' : ''}
-                      </CommandItem>
-                    ))}
-                  </CommandGroup>
-                </CommandList>
-              </Command>
-            </PopoverContent>
-          </Popover>
-          {personFilter && isManager && (
-            <button
-              type="button"
-              onClick={() => setPersonFilter('')}
-              className="inline-flex items-center gap-1 h-8 px-2 rounded-lg text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-              title="Clear person filter"
-            >
-              <X className="size-3" /> Clear
-            </button>
-          )}
+
           <Select value={projectFilter} onValueChange={setProjectFilter}>
-            <SelectTrigger className="h-8 w-auto min-w-[130px] text-xs"><SelectValue placeholder="Project" /></SelectTrigger>
+            <SelectTrigger className="h-8 w-auto min-w-[130px] text-xs">
+              <SelectValue placeholder="Project" />
+            </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All projects</SelectItem>
               {projects.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Select value={sectionFilter} onValueChange={setSectionFilter} disabled={projectFilter === 'all'}>
-            <SelectTrigger className="h-8 w-auto min-w-[120px] text-xs"><SelectValue placeholder="Section" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All sections</SelectItem>
-              {sectionsForFilter.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Select value={billable} onValueChange={v => setBillable(v as Billable)}>
-            <SelectTrigger className="h-8 w-auto min-w-[110px] text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All time</SelectItem>
-              <SelectItem value="billable">Billable</SelectItem>
-              <SelectItem value="nonbillable">Non-billable</SelectItem>
-            </SelectContent>
-          </Select>
-          <div className="relative flex-1 min-w-[160px]">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
-            <Input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search description…" className="h-8 pl-8 text-xs" />
-          </div>
+
+          {tab === 'weekly' ? (
+            <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-background/60 p-0.5">
+              <Button variant="ghost" size="icon" className="size-7" onClick={() => setWeekOff(w => w - 1)}>
+                <ChevronLeft className="size-4" />
+              </Button>
+              <span className="text-xs font-semibold tabular-nums px-2 min-w-[150px] text-center">{rangeLabel}</span>
+              <Button variant="ghost" size="icon" className="size-7" onClick={() => setWeekOff(w => w + 1)}>
+                <ChevronRight className="size-4" />
+              </Button>
+              <Button variant="ghost" size="sm" className="text-[11px] h-7 px-2" onClick={() => setWeekOff(0)}>
+                This week
+              </Button>
+            </div>
+          ) : (
+            <DateRangePicker
+              value={selection}
+              onChange={setSelection}
+              allowedPresets={['day', 'week', 'lastweek', 'month', 'last30', 'custom']}
+            />
+          )}
+
           {tab === 'summary' && (
             <Select value={groupBy} onValueChange={v => setGroupBy(v as GroupBy)}>
-              <SelectTrigger className="h-8 w-auto min-w-[130px] text-xs"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-8 w-auto min-w-[130px] text-xs ml-auto">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="project">Group: Project</SelectItem>
                 <SelectItem value="section">Group: Section</SelectItem>
@@ -582,7 +496,9 @@ const ReportsPage = () => {
           )}
           {tab === 'weekly' && (
             <Select value={weeklyBy} onValueChange={v => setWeeklyBy(v as WeeklyBy)}>
-              <SelectTrigger className="h-8 w-auto min-w-[120px] text-xs"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-8 w-auto min-w-[120px] text-xs ml-auto">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="project">By Project</SelectItem>
                 <SelectItem value="user">By User</SelectItem>
@@ -591,14 +507,17 @@ const ReportsPage = () => {
           )}
           {loading && <span className="text-[11px] text-muted-foreground animate-pulse">Loading…</span>}
         </div>
+      </div>
 
-        {/* KPI cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <Kpi label="Total" value={fmtHMS(total)} sub={`${hoursDec(total)} h`} color={ZET.indigo} />
-          <Kpi label="Billable" value={fmtHMS(billableSec)} sub={`${total ? Math.round((billableSec / total) * 100) : 0}% of total`} color="#16a34a" />
-          <Kpi label="Non-billable" value={fmtHMS(total - billableSec)} sub={`${total ? Math.round(((total - billableSec) / total) * 100) : 0}% of total`} color="#e11d48" />
-          <Kpi label="Entries" value={String(filtered.length)} sub={`${rangeLabel}`} color={ZET.indigo} />
-        </div>
+      <div className="flex-1 p-4 sm:p-8 space-y-5 max-w-[1400px] w-full mx-auto">
+        {tab !== 'clients' && (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <Kpi label="Total" value={fmtHMS(total)} sub={`${hoursDec(total)} h`} color={ZET.indigo} />
+            <Kpi label="Billable" value={fmtHMS(billableSec)} sub={`${total ? Math.round((billableSec / total) * 100) : 0}% of total`} color="#16a34a" />
+            <Kpi label="Non-billable" value={fmtHMS(total - billableSec)} sub={`${total ? Math.round(((total - billableSec) / total) * 100) : 0}% of total`} color="#e11d48" />
+            <Kpi label="Entries" value={String(filtered.length)} sub={rangeLabel} color={ZET.indigo} />
+          </div>
+        )}
 
         {/* ── SUMMARY ── */}
         {tab === 'summary' && (
@@ -613,7 +532,15 @@ const ReportsPage = () => {
                       <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--muted-foreground))' }} tickFormatter={v => `${v}h`} width={42} />
                       <RechartsTooltip contentStyle={tooltipStyle} cursor={{ fill: 'hsl(var(--muted)/0.4)' }} formatter={(v: number, n: string) => [`${v}h`, n]} />
                       {topGroups.map((g, i) => (
-                        <Bar key={g.key} dataKey={g.key} name={g.name} stackId="a" fill={zetStackColor(i)} radius={i === topGroups.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} maxBarSize={48} />
+                        <Bar
+                          key={g.key}
+                          dataKey={g.key}
+                          name={g.name}
+                          stackId="a"
+                          fill={colorForGroup(g.key, i, groupByUser)}
+                          radius={i === topGroups.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                          maxBarSize={48}
+                        />
                       ))}
                     </BarChart>
                   </ResponsiveContainer>
@@ -629,7 +556,7 @@ const ReportsPage = () => {
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                           <Pie data={topGroups.map(g => ({ name: g.name, value: g.seconds }))} dataKey="value" nameKey="name" innerRadius={66} outerRadius={100} paddingAngle={2} stroke="hsl(var(--card))" strokeWidth={2}>
-                            {topGroups.map((_, i) => <Cell key={i} fill={zetStackColor(i)} />)}
+                            {topGroups.map((g, i) => <Cell key={g.key} fill={colorForGroup(g.key, i, groupByUser)} />)}
                           </Pie>
                           <RechartsTooltip contentStyle={tooltipStyle} formatter={(v: number) => fmtHMS(v)} />
                         </PieChart>
@@ -646,8 +573,9 @@ const ReportsPage = () => {
                 <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
                   {groupTotals.length === 0 ? <Empty /> : groupTotals.map((g, i) => {
                     const pct = total ? (g.seconds / total) * 100 : 0;
-                    // Project groups are clickable for managers → open the project page.
                     const clickable = groupBy === 'project' && g.key !== '_other' && isManager;
+                    const color = colorForGroup(g.key, i, groupByUser);
+                    const person = groupByUser && g.key !== '_other' ? userById(g.key) : null;
                     return (
                       <div
                         key={g.key}
@@ -661,13 +589,17 @@ const ReportsPage = () => {
                         )}
                       >
                         <div className="flex items-center gap-2.5">
-                          <span className="size-2.5 rounded-full shrink-0" style={{ backgroundColor: zetStackColor(i) }} />
+                          {person ? (
+                            <UserAvatar name={person.name} avatar={person.avatar} size="xs" />
+                          ) : (
+                            <span className="size-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                          )}
                           <span className="truncate text-sm font-medium flex-1">{g.name}</span>
                           <span className="text-xs tabular-nums text-muted-foreground shrink-0">{fmtHMS(g.seconds)} · {pct.toFixed(0)}%</span>
                           {clickable && <ChevRight className="size-3.5 text-muted-foreground/40 shrink-0" />}
                         </div>
                         <div className="mt-2 h-1.5 rounded-full bg-muted overflow-hidden">
-                          <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: zetStackColor(i) }} />
+                          <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
                         </div>
                       </div>
                     );
@@ -694,21 +626,29 @@ const ReportsPage = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {detailed.map(e => (
-                      <tr key={e.id} className="border-b border-border/40 hover:bg-muted/30 transition-colors">
-                        <td className="py-2.5 px-2 max-w-[420px]">
-                          <p className="font-medium truncate">{e.description || <span className="italic text-muted-foreground/50">No description</span>}</p>
-                          <p className="text-xs text-muted-foreground truncate">{projectName(e.projectId)} · {sectionName(e.sectionId)}</p>
-                        </td>
-                        <td className="py-2.5 px-2 text-muted-foreground hidden md:table-cell">{userName(e.userId)}</td>
-                        <td className="py-2.5 px-2 hidden sm:table-cell">
-                          <span className="font-mono text-xs tabular-nums">{e.timeFrom}–{e.timeTo}</span>
-                          <span className="block text-[11px] text-muted-foreground">{format(parseISO(e.workDate), 'dd/MM/yyyy')}</span>
-                        </td>
-                        <td className="py-2.5 px-2 text-right font-mono font-bold tabular-nums">{fmtHMS(e.seconds)}</td>
-                        <td className="py-2.5 px-2 text-center"><span className={cn('text-base font-bold', e.billable ? 'text-green-500' : 'text-muted-foreground/30')}>$</span></td>
-                      </tr>
-                    ))}
+                    {detailed.map(e => {
+                      const person = userById(e.userId);
+                      return (
+                        <tr key={e.id} className="border-b border-border/40 hover:bg-muted/30 transition-colors">
+                          <td className="py-2.5 px-2 max-w-[420px]">
+                            <p className="font-medium truncate">{e.description || <span className="italic text-muted-foreground/50">No description</span>}</p>
+                            <p className="text-xs text-muted-foreground truncate">{projectName(e.projectId)} · {sectionName(e.sectionId)}</p>
+                          </td>
+                          <td className="py-2.5 px-2 hidden md:table-cell">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <UserAvatar name={person?.name ?? userName(e.userId)} avatar={person?.avatar} size="xs" />
+                              <span className="truncate text-muted-foreground">{userName(e.userId)}</span>
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-2 hidden sm:table-cell">
+                            <span className="font-mono text-xs tabular-nums">{e.timeFrom}–{e.timeTo}</span>
+                            <span className="block text-[11px] text-muted-foreground">{format(parseISO(e.workDate), 'dd/MM/yyyy')}</span>
+                          </td>
+                          <td className="py-2.5 px-2 text-right font-mono font-bold tabular-nums">{fmtHMS(e.seconds)}</td>
+                          <td className="py-2.5 px-2 text-center"><span className={cn('text-base font-bold', e.billable ? 'text-green-500' : 'text-muted-foreground/30')}>$</span></td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -730,28 +670,48 @@ const ReportsPage = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {weekly.map((g, gi) => (
-                      <Fragment key={g.key}>
-                        <tr className="border-b border-border/40 hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => toggle(g.key)}>
-                          <td className="py-2.5 px-2">
-                            <div className="flex items-center gap-2">
-                              {expanded.has(g.key) ? <ChevronDown className="size-3.5 text-muted-foreground" /> : <ChevRight className="size-3.5 text-muted-foreground" />}
-                              <span className="size-2.5 rounded-full shrink-0" style={{ backgroundColor: zetStackColor(gi) }} />
-                              <span className="font-semibold truncate">{primaryLabel(g.key)}</span>
-                            </div>
-                          </td>
-                          {weekDays.map(d => <td key={d} className="py-2.5 px-2 text-right font-mono text-xs tabular-nums text-muted-foreground">{g.days[d] ? fmtHMS(g.days[d]) : '—'}</td>)}
-                          <td className="py-2.5 px-2 text-right font-mono font-bold tabular-nums">{fmtHMS(g.total)}</td>
-                        </tr>
-                        {expanded.has(g.key) && [...g.subs.entries()].sort((a, b) => b[1].total - a[1].total).map(([sk, sub]) => (
-                          <tr key={`${g.key}-${sk}`} className="border-b border-border/30 bg-muted/10">
-                            <td className="py-2 px-2 pl-9 text-muted-foreground truncate">{secondaryLabel(sk)}</td>
-                            {weekDays.map(d => <td key={d} className="py-2 px-2 text-right font-mono text-xs tabular-nums text-muted-foreground/70">{sub.days[d] ? fmtHMS(sub.days[d]) : '—'}</td>)}
-                            <td className="py-2 px-2 text-right font-mono text-xs tabular-nums text-muted-foreground">{fmtHMS(sub.total)}</td>
+                    {weekly.map((g, gi) => {
+                      const primaryPerson = weeklyBy === 'user' ? userById(g.key) : null;
+                      const primaryColor = weeklyBy === 'user' ? colorForUser(g.key) : zetStackColor(gi);
+                      return (
+                        <Fragment key={g.key}>
+                          <tr className="border-b border-border/40 hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => toggle(g.key)}>
+                            <td className="py-2.5 px-2">
+                              <div className="flex items-center gap-2">
+                                {expanded.has(g.key) ? <ChevronDown className="size-3.5 text-muted-foreground" /> : <ChevRight className="size-3.5 text-muted-foreground" />}
+                                {primaryPerson ? (
+                                  <UserAvatar name={primaryPerson.name} avatar={primaryPerson.avatar} size="xs" />
+                                ) : (
+                                  <span className="size-2.5 rounded-full shrink-0" style={{ backgroundColor: primaryColor }} />
+                                )}
+                                <span className="font-semibold truncate">{primaryLabel(g.key)}</span>
+                              </div>
+                            </td>
+                            {weekDays.map(d => <td key={d} className="py-2.5 px-2 text-right font-mono text-xs tabular-nums text-muted-foreground">{g.days[d] ? fmtHMS(g.days[d]) : '—'}</td>)}
+                            <td className="py-2.5 px-2 text-right font-mono font-bold tabular-nums">{fmtHMS(g.total)}</td>
                           </tr>
-                        ))}
-                      </Fragment>
-                    ))}
+                          {expanded.has(g.key) && [...g.subs.entries()].sort((a, b) => b[1].total - a[1].total).map(([sk, sub]) => {
+                            const subPerson = weeklyBy === 'project' ? userById(sk) : null;
+                            return (
+                              <tr key={`${g.key}-${sk}`} className="border-b border-border/30 bg-muted/10">
+                                <td className="py-2 px-2 pl-9">
+                                  <div className="flex items-center gap-2 min-w-0 text-muted-foreground">
+                                    {subPerson ? (
+                                      <UserAvatar name={subPerson.name} avatar={subPerson.avatar} size="xs" />
+                                    ) : (
+                                      <span className="size-2 rounded-full shrink-0" style={{ backgroundColor: accentColor(sk) }} />
+                                    )}
+                                    <span className="truncate">{secondaryLabel(sk)}</span>
+                                  </div>
+                                </td>
+                                {weekDays.map(d => <td key={d} className="py-2 px-2 text-right font-mono text-xs tabular-nums text-muted-foreground/70">{sub.days[d] ? fmtHMS(sub.days[d]) : '—'}</td>)}
+                                <td className="py-2 px-2 text-right font-mono text-xs tabular-nums text-muted-foreground">{fmtHMS(sub.total)}</td>
+                              </tr>
+                            );
+                          })}
+                        </Fragment>
+                      );
+                    })}
                     <tr className="border-t-2 border-border font-bold">
                       <td className="py-2.5 px-2">Total</td>
                       {colTotals.map((c, i) => <td key={i} className="py-2.5 px-2 text-right font-mono tabular-nums">{fmtHMS(c)}</td>)}
@@ -764,7 +724,6 @@ const ReportsPage = () => {
           </Card>
         )}
 
-        {/* ── CLIENT SUMMARY (manager/admin) ── */}
         {tab === 'clients' && isManager && (
           <ClientSummaryPanel />
         )}
@@ -773,7 +732,6 @@ const ReportsPage = () => {
   );
 };
 
-// ── small presentational helpers ──────────────────────────────────────────────
 function Kpi({ label, value, sub, color }: { label: string; value: string; sub: string; color: string }) {
   return (
     <div className="rounded-xl border border-border/70 bg-card p-4 shadow-sm">

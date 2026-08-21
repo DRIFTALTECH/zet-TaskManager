@@ -19,10 +19,10 @@ import type { Priority, Task } from '@/types';
 import { toast } from 'sonner';
 
 const priorityBadgeStyles: Record<Priority, string> = {
-  Urgent: 'bg-red-500/15 text-red-400 border-red-500/20',
-  High: 'bg-orange-500/15 text-orange-400 border-orange-500/20',
-  Medium: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/20',
-  Low: 'bg-green-500/15 text-green-400 border-green-500/20',
+  Urgent: 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/20',
+  High: 'bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/20',
+  Medium: 'bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border-yellow-500/20',
+  Low: 'bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/20',
 };
 
 const priorityGlowColor: Record<Priority, string> = {
@@ -33,16 +33,16 @@ const priorityGlowColor: Record<Priority, string> = {
 };
 
 const ID_PILL_PALETTES = [
-  'bg-blue-500/15 text-blue-400 border-blue-500/25',
-  'bg-violet-500/15 text-violet-400 border-violet-500/25',
-  'bg-emerald-500/15 text-emerald-400 border-emerald-500/25',
-  'bg-orange-500/15 text-orange-400 border-orange-500/25',
-  'bg-pink-500/15 text-pink-400 border-pink-500/25',
-  'bg-teal-500/15 text-teal-400 border-teal-500/25',
-  'bg-amber-500/15 text-amber-400 border-amber-500/25',
-  'bg-cyan-500/15 text-cyan-400 border-cyan-500/25',
-  'bg-indigo-500/15 text-indigo-400 border-indigo-500/25',
-  'bg-rose-500/15 text-rose-400 border-rose-500/25',
+  'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/25',
+  'bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-500/25',
+  'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/25',
+  'bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/25',
+  'bg-pink-500/15 text-pink-600 dark:text-pink-400 border-pink-500/25',
+  'bg-teal-500/15 text-teal-600 dark:text-teal-400 border-teal-500/25',
+  'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/25',
+  'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border-cyan-500/25',
+  'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border-indigo-500/25',
+  'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/25',
 ];
 
 function idPillColor(id: string): string {
@@ -225,7 +225,7 @@ export function TaskCard({
         </div>
         <h4 className="text-base font-bold leading-snug mb-2 text-foreground line-clamp-2 shrink-0">{task.title}</h4>
         {userStoryTitle && (
-          <span className="mb-2 inline-flex max-w-full items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border border-violet-500/25 bg-violet-500/10 text-violet-400 font-semibold truncate">
+          <span className="mb-2 inline-flex max-w-full items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border border-violet-500/25 bg-violet-500/10 text-violet-600 dark:text-violet-400 font-semibold truncate">
             {userStoryTitle}
           </span>
         )}
@@ -251,7 +251,7 @@ export function TaskCard({
                       aria-label={done ? 'Mark as not completed' : 'Mark as completed'}
                     >
                       {done
-                        ? <CheckSquare className="h-3.5 w-3.5 text-emerald-400" />
+                        ? <CheckSquare className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
                         : <Square className="h-3.5 w-3.5" />}
                     </button>
                     <span

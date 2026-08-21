@@ -82,7 +82,7 @@ export function KanbanBoardPan({ children, className }: { children: ReactNode; c
   return (
     <div
       ref={ref}
-      className={cn('overflow-auto min-h-0', className)}
+      className={cn('overflow-x-auto overflow-y-hidden scrollbar-none min-h-0', className)}
       onPointerDown={onPointerDown}
       onPointerMove={(e) => setGrabCursor(e.target)}
       onPointerLeave={() => {

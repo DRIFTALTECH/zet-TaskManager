@@ -98,7 +98,7 @@ function ProjectAccordion({ project }: { project: ProjectGroup }) {
           <p className="text-sm font-medium text-foreground truncate">{project.projectName}</p>
           <p className="text-[10px] text-muted-foreground truncate">{project.clientName}</p>
         </div>
-        <span className="text-xs font-semibold tabular-nums text-blue-400 shrink-0">{project.totalHours.toFixed(1)}h</span>
+        <span className="text-xs font-semibold tabular-nums text-blue-600 dark:text-blue-400 shrink-0">{project.totalHours.toFixed(1)}h</span>
       </button>
       <AnimatePresence initial={false}>
         {open && (
@@ -174,7 +174,7 @@ function EmployeeRow({
           </button>
         </td>
         <td className="px-3 py-3 text-muted-foreground/70 tabular-nums">{group.projects.length}</td>
-        <td className="px-3 py-3 tabular-nums font-semibold text-violet-400">{group.totalHours.toFixed(1)}h</td>
+        <td className="px-3 py-3 tabular-nums font-semibold text-violet-600 dark:text-violet-400">{group.totalHours.toFixed(1)}h</td>
       </motion.tr>
       <AnimatePresence initial={false}>
         {expanded && (
@@ -337,14 +337,14 @@ export function WipPage() {
         />
       </div>
 
-      <AnalyticsSection title="Active Work by Person" icon={Activity} iconClassName="text-blue-400" tone="muted">
+      <AnalyticsSection title="Active Work by Person" icon={Activity} iconClassName="text-blue-600 dark:text-blue-400" tone="muted">
         <div className="rounded-xl border border-border/20 bg-card/50 overflow-hidden">
         {query.isLoading ? (
           <div className="flex items-center justify-center py-16">
             <div className="h-7 w-7 rounded-full border-2 border-primary/40 border-t-primary animate-spin" />
           </div>
         ) : query.isError ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center text-sm text-red-400">
+          <div className="flex flex-col items-center justify-center py-16 text-center text-sm text-red-600 dark:text-red-400">
             <p>{(query.error as Error).message}</p>
             <button
               type="button"
@@ -389,7 +389,7 @@ export function WipPage() {
         {filtered.length > 0 && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-border/20 text-xs text-muted-foreground/50">
             <span>{filtered.length} employee{filtered.length !== 1 ? 's' : ''}</span>
-            <span className="font-semibold text-violet-400">{filtered.reduce((s, g) => s + g.totalHours, 0).toFixed(1)}h total</span>
+            <span className="font-semibold text-violet-600 dark:text-violet-400">{filtered.reduce((s, g) => s + g.totalHours, 0).toFixed(1)}h total</span>
           </div>
         )}
         </div>

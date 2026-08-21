@@ -9,21 +9,21 @@ import UserAvatar from '@/components/UserAvatar';
 
 // ── Action label map ──────────────────────────────────────────────────────────
 const ACTION_LABELS: Record<string, { label: string; color: string }> = {
-  'task.created':       { label: 'Created task',         color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25' },
-  'task.updated':       { label: 'Updated task',         color: 'bg-blue-500/15 text-blue-400 border-blue-500/25' },
-  'task.deleted':       { label: 'Deleted task',         color: 'bg-red-500/15 text-red-400 border-red-500/25' },
-  'task.status_changed':{ label: 'Changed status',       color: 'bg-violet-500/15 text-violet-400 border-violet-500/25' },
-  'task.started':       { label: 'Started task',         color: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/25' },
-  'task.approved':      { label: 'Approved task',        color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25' },
-  'task.reopened':      { label: 'Reopened task',        color: 'bg-amber-500/15 text-amber-400 border-amber-500/25' },
-  'task.comment_added': { label: 'Added comment',        color: 'bg-slate-500/15 text-slate-400 border-slate-500/25' },
-  'checklist.created':  { label: 'Added checklist item', color: 'bg-teal-500/15 text-teal-400 border-teal-500/25' },
-  'checklist.done':     { label: 'Completed item',       color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25' },
-  'checklist.undone':   { label: 'Unchecked item',       color: 'bg-amber-500/15 text-amber-400 border-amber-500/25' },
-  'checklist.updated':  { label: 'Updated item',         color: 'bg-blue-500/15 text-blue-400 border-blue-500/25' },
-  'checklist.deleted':  { label: 'Deleted item',         color: 'bg-red-500/15 text-red-400 border-red-500/25' },
-  'attachment.uploaded':{ label: 'Uploaded file',        color: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/25' },
-  'attachment.deleted': { label: 'Deleted file',         color: 'bg-red-500/15 text-red-400 border-red-500/25' },
+  'task.created':       { label: 'Created task',         color: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/25' },
+  'task.updated':       { label: 'Updated task',         color: 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/25' },
+  'task.deleted':       { label: 'Deleted task',         color: 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/25' },
+  'task.status_changed':{ label: 'Changed status',       color: 'bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-500/25' },
+  'task.started':       { label: 'Started task',         color: 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border-cyan-500/25' },
+  'task.approved':      { label: 'Approved task',        color: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/25' },
+  'task.reopened':      { label: 'Reopened task',        color: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/25' },
+  'task.comment_added': { label: 'Added comment',        color: 'bg-slate-500/15 text-slate-600 dark:text-slate-400 border-slate-500/25' },
+  'checklist.created':  { label: 'Added checklist item', color: 'bg-teal-500/15 text-teal-600 dark:text-teal-400 border-teal-500/25' },
+  'checklist.done':     { label: 'Completed item',       color: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/25' },
+  'checklist.undone':   { label: 'Unchecked item',       color: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/25' },
+  'checklist.updated':  { label: 'Updated item',         color: 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/25' },
+  'checklist.deleted':  { label: 'Deleted item',         color: 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/25' },
+  'attachment.uploaded':{ label: 'Uploaded file',        color: 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border-indigo-500/25' },
+  'attachment.deleted': { label: 'Deleted file',         color: 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/25' },
 };
 
 function fmtDate(iso: string) {

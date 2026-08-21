@@ -260,7 +260,12 @@ export default function CalendarPage() {
             {loading && <span className="ml-1 h-3.5 w-3.5 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />}
           </h1>
 
-          <DateRangePicker value={selection} onChange={setSelection} className="min-w-0" />
+          <DateRangePicker
+            value={selection}
+            onChange={setSelection}
+            allowedPresets={['day', 'week', 'lastweek', 'month', 'custom']}
+            className="min-w-0"
+          />
         </div>
 
         {userProjects.length === 0 ? (

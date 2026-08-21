@@ -12,6 +12,7 @@ import { ForecastPanel, type ForecastLevel, type ForecastRefreshControls } from 
 import { ANALYTICS_LABELS } from '@/lib/analyticsLabels';
 import { pageEnter } from '@/lib/motion';
 import { cn } from '@/lib/utils';
+import DateRangeField from '@/components/DateRangeField';
 
 function defaultForecastRange() {
   const start = new Date();
@@ -60,7 +61,7 @@ export default function WhatWillHappenNextPage() {
             </button>
             <div>
               <div className="flex items-center gap-2 mb-1">
-                <TrendingUp className="h-4 w-4 text-violet-400" />
+                <TrendingUp className="h-4 w-4 text-violet-600 dark:text-violet-400" />
                 <span className="text-xs font-semibold text-muted-foreground/60 uppercase tracking-widest">
                   Team Forecast
                 </span>
@@ -107,21 +108,12 @@ export default function WhatWillHappenNextPage() {
 
           <div className="flex flex-wrap items-end gap-2 text-sm">
             <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Due from</span>
-              <input
-                type="date"
-                value={range.startDate}
-                onChange={e => setRange(r => ({ ...r, startDate: e.target.value }))}
-                className="rounded-lg border border-border/40 bg-background px-3 py-1.5"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Due to</span>
-              <input
-                type="date"
-                value={range.endDate}
-                onChange={e => setRange(r => ({ ...r, endDate: e.target.value }))}
-                className="rounded-lg border border-border/40 bg-background px-3 py-1.5"
+              <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Due between</span>
+              <DateRangeField
+                from={range.startDate}
+                to={range.endDate}
+                onChange={(startDate, endDate) => setRange(r => ({ ...r, startDate, endDate }))}
+                placeholder="Any due date"
               />
             </div>
             <button

@@ -91,10 +91,10 @@ const statusLabel = (id: string, columns: { id: string; label: string }[]) => {
 };
 
 const statusChipCls = (status: string) =>
-  status === 'completed' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25'
-  : status === 'in_progress' ? 'bg-blue-500/15 text-blue-400 border-blue-500/25'
-  : status === 'in_review' ? 'bg-violet-500/15 text-violet-400 border-violet-500/25'
-  : status === 'done' ? 'bg-green-500/15 text-green-400 border-green-500/25'
+  status === 'completed' ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/25'
+  : status === 'in_progress' ? 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/25'
+  : status === 'in_review' ? 'bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-500/25'
+  : status === 'done' ? 'bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/25'
   : 'bg-muted text-muted-foreground border-border/40';
 
 const ProjectDetailPage = () => {
@@ -831,7 +831,7 @@ const ProjectDetailPage = () => {
                         <span className={`text-[11px] ${active > 0 ? 'text-primary/70 font-medium' : 'text-muted-foreground/50'}`}>{active} active {active === 1 ? 'task' : 'tasks'}</span>
                       </div>
                       <button onClick={() => setMemberToRemove({ id: u.id, name: u.name })}
-                        className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-500/10 text-muted-foreground/40 hover:text-red-400 transition-all shrink-0" aria-label={`Remove ${u.name}`}>
+                        className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-500/10 text-muted-foreground/40 hover:text-red-600 dark:text-red-400 transition-all shrink-0" aria-label={`Remove ${u.name}`}>
                         <X className="h-3.5 w-3.5" />
                       </button>
                     </div>
@@ -900,7 +900,7 @@ const ProjectDetailPage = () => {
                         <span className="break-words [overflow-wrap:anywhere]">{s.name}</span>
                         <span className="text-[10px] text-muted-foreground/45">{secTasks}</span>
                         <button type="button" onClick={() => setSectionToDelete({ id: s.id, name: s.name })}
-                          className="p-0.5 rounded-md opacity-0 group-hover:opacity-100 hover:bg-red-500/15 text-muted-foreground/40 hover:text-red-400 transition-all" aria-label={`Delete section ${s.name}`}>
+                          className="p-0.5 rounded-md opacity-0 group-hover:opacity-100 hover:bg-red-500/15 text-muted-foreground/40 hover:text-red-600 dark:text-red-400 transition-all" aria-label={`Delete section ${s.name}`}>
                           <Trash2 className="h-3 w-3" />
                         </button>
                       </motion.span>
@@ -983,7 +983,7 @@ const ProjectDetailPage = () => {
                     <div className="flex items-center gap-1 shrink-0 self-end sm:self-auto">
                       {completed ? (
                         <button disabled={busy} onClick={() => void doReopen(task)}
-                          className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-border/40 bg-muted/30 hover:bg-amber-500/10 hover:border-amber-500/40 hover:text-amber-400 text-muted-foreground/70 transition-all disabled:opacity-40" title="Reopen to backlog">
+                          className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-border/40 bg-muted/30 hover:bg-amber-500/10 hover:border-amber-500/40 hover:text-amber-600 dark:text-amber-400 text-muted-foreground/70 transition-all disabled:opacity-40" title="Reopen to backlog">
                           <RotateCcw className="h-3.5 w-3.5" /> Reopen
                         </button>
                       ) : (
@@ -992,7 +992,7 @@ const ProjectDetailPage = () => {
                           <MoveBtn disabled={busy || !nextCol} onClick={() => nextCol && void doMove(task, nextCol.id)} title={nextCol ? `Move to ${nextCol.label}` : 'At last column'} dir="right" />
                           {isDoneCol && (
                             <button disabled={busy} onClick={() => void doApprove(task)}
-                              className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 transition-all disabled:opacity-40" title="Approve & complete">
+                              className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 transition-all disabled:opacity-40" title="Approve & complete">
                               <Check className="h-3.5 w-3.5" /> Approve
                             </button>
                           )}
@@ -1039,7 +1039,7 @@ const ProjectDetailPage = () => {
                 </label>
                 {project.backgroundImage && (
                   <button type="button" onClick={() => void applyBackground('')} disabled={savingAppearance}
-                    className="shrink-0 flex items-center gap-1.5 px-3 rounded-xl border border-red-500/30 text-red-400 text-xs font-semibold hover:bg-red-500/10 transition-colors disabled:opacity-40">
+                    className="shrink-0 flex items-center gap-1.5 px-3 rounded-xl border border-red-500/30 text-red-600 dark:text-red-400 text-xs font-semibold hover:bg-red-500/10 transition-colors disabled:opacity-40">
                     <Trash2 className="h-3.5 w-3.5" /> Remove
                   </button>
                 )}
@@ -1082,7 +1082,7 @@ const ProjectDetailPage = () => {
                   </label>
                   {project.projectImage && (
                     <button type="button" onClick={() => void applyProjectImage('')} disabled={savingAppearance}
-                      className="flex items-center gap-1.5 text-xs font-semibold text-red-400 hover:text-red-300 transition-colors disabled:opacity-40">
+                      className="flex items-center gap-1.5 text-xs font-semibold text-red-600 dark:text-red-400 hover:text-red-300 transition-colors disabled:opacity-40">
                       <Trash2 className="h-3.5 w-3.5" /> Remove project image
                     </button>
                   )}

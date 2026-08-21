@@ -31,10 +31,10 @@ interface Props {
 const priorities: Priority[] = ['Low', 'Medium', 'High', 'Urgent'];
 
 const priorityChoice: Record<Priority, string> = {
-  Urgent: 'border-red-500/30 bg-red-500/15 text-red-400',
-  High: 'border-orange-500/30 bg-orange-500/15 text-orange-400',
-  Medium: 'border-yellow-500/35 bg-yellow-500/15 text-yellow-400',
-  Low: 'border-green-500/30 bg-green-500/15 text-green-400',
+  Urgent: 'border-red-500/30 bg-red-500/15 text-red-600 dark:text-red-400',
+  High: 'border-orange-500/30 bg-orange-500/15 text-orange-600 dark:text-orange-400',
+  Medium: 'border-yellow-500/35 bg-yellow-500/15 text-yellow-600 dark:text-yellow-400',
+  Low: 'border-green-500/30 bg-green-500/15 text-green-600 dark:text-green-400',
 };
 
 const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
@@ -223,7 +223,6 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
       return toast.error('Please fill in title, project, and section');
     }
     const ids = [...assigneeIds];
-    if (ids.length === 0) return toast.error('Select at least one person assigned to this task');
     const subtasks = collectSubtaskTitles(subtaskRows);
     if (subtasks.ok === false) return toast.error(subtasks.error);
     try {

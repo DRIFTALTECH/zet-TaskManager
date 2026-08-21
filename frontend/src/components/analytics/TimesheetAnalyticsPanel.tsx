@@ -41,10 +41,10 @@ function KpiCard({ icon: Icon, label, value, sub, accent }: {
   accent?: 'green' | 'amber' | 'red' | 'blue';
 }) {
   const accentCss = {
-    green: 'text-emerald-400',
-    amber: 'text-amber-400',
-    red:   'text-red-400',
-    blue:  'text-blue-400',
+    green: 'text-emerald-600 dark:text-emerald-400',
+    amber: 'text-amber-600 dark:text-amber-400',
+    red:   'text-red-600 dark:text-red-400',
+    blue:  'text-blue-600 dark:text-blue-400',
   }[accent ?? 'blue'];
 
   return (
@@ -109,7 +109,7 @@ export function TimesheetAnalyticsPanel({ userId }: { userId?: string }) {
       )}
 
       {error && (
-        <p className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        <p className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-400">
           {(error as Error).message}
         </p>
       )}
@@ -132,16 +132,16 @@ export function TimesheetAnalyticsPanel({ userId }: { userId?: string }) {
                 <BarChart data={data.dailyBreakdown} barSize={12} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
                   <XAxis
                     dataKey="date"
-                    tick={{ fontSize: 10, fill: '#94a3b8' }}
+                    tick={{ fontSize: 10, fill: 'hsl(var(--chart-axis))' }}
                     tickFormatter={(d: string) => d.slice(5)}
                   />
-                  <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} width={28} />
+                  <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--chart-axis))' }} width={28} />
                   <Tooltip
                     contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 12, fontSize: 12 }}
                     formatter={(v: number) => [`${v}h`, 'Hours']}
                     labelFormatter={(d: string) => d}
                   />
-                  <Bar dataKey="totalHours" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="totalHours" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </section>
@@ -154,22 +154,22 @@ export function TimesheetAnalyticsPanel({ userId }: { userId?: string }) {
               <AreaChart data={data.weeklyTrend} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
                 <defs>
                   <linearGradient id="gBill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#8b5cf6" stopOpacity={0.35} />
-                    <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
+                    <stop offset="5%"  stopColor="hsl(var(--chart-3))" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="hsl(var(--chart-3))" stopOpacity={0} />
                   </linearGradient>
                   <linearGradient id="gNonBill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor="#6366f1" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                    <stop offset="5%"  stopColor="hsl(var(--chart-1))" stopOpacity={0.2} />
+                    <stop offset="95%" stopColor="hsl(var(--chart-1))" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="weekLabel" tick={{ fontSize: 11, fill: '#94a3b8' }} />
-                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} width={32} />
+                <XAxis dataKey="weekLabel" tick={{ fontSize: 11, fill: 'hsl(var(--chart-axis))' }} />
+                <YAxis tick={{ fontSize: 11, fill: 'hsl(var(--chart-axis))' }} width={32} />
                 <Tooltip
                   contentStyle={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))', borderRadius: 12, fontSize: 12 }}
                   formatter={(v: number, name: string) => [`${v}h`, name === 'billableHours' ? 'Billable' : 'Non-Billable']}
                 />
-                <Area type="monotone" dataKey="billableHours"    stroke="#8b5cf6" fill="url(#gBill)"    strokeWidth={2} name="billableHours" />
-                <Area type="monotone" dataKey="nonBillableHours" stroke="#6366f1" fill="url(#gNonBill)" strokeWidth={2} name="nonBillableHours" />
+                <Area type="monotone" dataKey="billableHours"    stroke="hsl(var(--chart-3))" fill="url(#gBill)"    strokeWidth={2} name="billableHours" />
+                <Area type="monotone" dataKey="nonBillableHours" stroke="hsl(var(--chart-1))" fill="url(#gNonBill)" strokeWidth={2} name="nonBillableHours" />
               </AreaChart>
             </ResponsiveContainer>
             <div className="flex gap-4 text-xs text-muted-foreground">
@@ -182,7 +182,7 @@ export function TimesheetAnalyticsPanel({ userId }: { userId?: string }) {
           {data.overtimeDays.length > 0 && (
             <section className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5 space-y-3">
               <div className="flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 text-amber-400" />
+                <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
                 <h3 className="text-sm font-semibold text-amber-300">Overtime Detected</h3>
               </div>
               <div className="flex flex-wrap gap-2">

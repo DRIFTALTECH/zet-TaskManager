@@ -4,9 +4,9 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
   User, Lock, Sun, Moon, Camera, Check, Eye, EyeOff,
   Shield, Mail, Briefcase, Terminal, Copy, AlertTriangle, Trash2, Plug,
-  ShieldCheck, Search, X, RefreshCw, ChevronDown, Puzzle, Code2, Bot, Clock, Upload,
+  ShieldCheck, Search, X, RefreshCw, ChevronDown, Puzzle, Code2, Bot, Clock, Upload, ListTodo,
 } from 'lucide-react';
-import type { ClockifyImportReport } from '@/types';
+import type { ClockifyImportReport, TasksImportReport } from '@/types';
 import type { ReactNode } from 'react';
 import { toast } from 'sonner';
 import { pageEnter } from '@/lib/motion';
@@ -17,21 +17,21 @@ import UserAvatar from '@/components/UserAvatar';
 import AgentAvatar from '@/components/agents/AgentAvatar';
 
 const ACTION_LABELS: Record<string, { label: string; color: string }> = {
-  'task.created':        { label: 'Created task',         color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25' },
-  'task.updated':        { label: 'Updated task',         color: 'bg-blue-500/15 text-blue-400 border-blue-500/25' },
-  'task.deleted':        { label: 'Deleted task',         color: 'bg-red-500/15 text-red-400 border-red-500/25' },
-  'task.status_changed': { label: 'Changed status',       color: 'bg-violet-500/15 text-violet-400 border-violet-500/25' },
-  'task.started':        { label: 'Started task',         color: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/25' },
-  'task.approved':       { label: 'Approved task',        color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25' },
-  'task.reopened':       { label: 'Reopened task',        color: 'bg-amber-500/15 text-amber-400 border-amber-500/25' },
-  'task.comment_added':  { label: 'Added comment',        color: 'bg-slate-500/15 text-slate-400 border-slate-500/25' },
-  'checklist.created':   { label: 'Added checklist item', color: 'bg-teal-500/15 text-teal-400 border-teal-500/25' },
-  'checklist.done':      { label: 'Completed item',       color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25' },
-  'checklist.undone':    { label: 'Unchecked item',       color: 'bg-amber-500/15 text-amber-400 border-amber-500/25' },
-  'checklist.updated':   { label: 'Updated item',         color: 'bg-blue-500/15 text-blue-400 border-blue-500/25' },
-  'checklist.deleted':   { label: 'Deleted item',         color: 'bg-red-500/15 text-red-400 border-red-500/25' },
-  'attachment.uploaded': { label: 'Uploaded file',        color: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/25' },
-  'attachment.deleted':  { label: 'Deleted file',         color: 'bg-red-500/15 text-red-400 border-red-500/25' },
+  'task.created':        { label: 'Created task',         color: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/25' },
+  'task.updated':        { label: 'Updated task',         color: 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/25' },
+  'task.deleted':        { label: 'Deleted task',         color: 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/25' },
+  'task.status_changed': { label: 'Changed status',       color: 'bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-500/25' },
+  'task.started':        { label: 'Started task',         color: 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border-cyan-500/25' },
+  'task.approved':       { label: 'Approved task',        color: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/25' },
+  'task.reopened':       { label: 'Reopened task',        color: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/25' },
+  'task.comment_added':  { label: 'Added comment',        color: 'bg-slate-500/15 text-slate-600 dark:text-slate-400 border-slate-500/25' },
+  'checklist.created':   { label: 'Added checklist item', color: 'bg-teal-500/15 text-teal-600 dark:text-teal-400 border-teal-500/25' },
+  'checklist.done':      { label: 'Completed item',       color: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/25' },
+  'checklist.undone':    { label: 'Unchecked item',       color: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/25' },
+  'checklist.updated':   { label: 'Updated item',         color: 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/25' },
+  'checklist.deleted':   { label: 'Deleted item',         color: 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/25' },
+  'attachment.uploaded': { label: 'Uploaded file',        color: 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border-indigo-500/25' },
+  'attachment.deleted':  { label: 'Deleted file',         color: 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/25' },
 };
 
 function fmtAuditDate(iso: string) {
@@ -305,6 +305,9 @@ const SKIP_REASON_LABEL: Record<string, string> = {
   unknown_project: 'No such project',
   no_email: 'No email',
   no_project: 'No project',
+  no_description: 'No description',
+  no_developer: 'No developer',
+  bad_date: 'Bad date',
   bad_date_or_time: 'Bad date or time',
   future_date: 'Future date',
   locked_week: 'Week already submitted',
@@ -329,6 +332,11 @@ export default function SettingsPage() {
   const [clockifyBusy, setClockifyBusy] = useState(false);
   const [clockifyReport, setClockifyReport] = useState<ClockifyImportReport | null>(null);
 
+  // Tasks delivery-sheet CSV import (superadmin)
+  const tasksInputRef = useRef<HTMLInputElement>(null);
+  const [tasksBusy, setTasksBusy] = useState(false);
+  const [tasksReport, setTasksReport] = useState<TasksImportReport | null>(null);
+
   const uploadClockifyCsv = useCallback(async (file: File) => {
     setClockifyBusy(true);
     setClockifyReport(null);
@@ -346,6 +354,26 @@ export default function SettingsPage() {
       toast.error(e instanceof Error ? e.message : 'Could not import the CSV');
     } finally {
       setClockifyBusy(false);
+    }
+  }, []);
+
+  const uploadTasksCsv = useCallback(async (file: File) => {
+    setTasksBusy(true);
+    setTasksReport(null);
+    try {
+      const report = await api.importTasksCsv(file);
+      setTasksReport(report);
+      if (report.imported > 0) {
+        toast.success(`Imported ${report.imported} task${report.imported === 1 ? '' : 's'}`);
+      } else if (report.duplicates === report.totalRows) {
+        toast.info('Every row in this file was already imported');
+      } else {
+        toast.warning('Nothing was imported — see the details below');
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not import the tasks CSV');
+    } finally {
+      setTasksBusy(false);
     }
   }, []);
 
@@ -529,7 +557,7 @@ export default function SettingsPage() {
                   <p className="text-xs text-muted-foreground/60 mb-3">Click the avatar to upload a photo. Max 2 MB.</p>
                   {avatarPreview && avatarPreview !== (currentUser.avatar ?? '') && (
                     <div className="flex items-center gap-2">
-                      <span className="text-xs text-emerald-400 flex items-center gap-1 font-semibold">
+                      <span className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1 font-semibold">
                         <Check className="h-3 w-3" /> New photo ready
                       </span>
                       <button
@@ -717,7 +745,7 @@ export default function SettingsPage() {
                     disabled={savingPw}
                   />
                   {confirmPw && confirmPw !== newPw && (
-                    <p className="text-xs text-red-400">Passwords do not match</p>
+                    <p className="text-xs text-red-600 dark:text-red-400">Passwords do not match</p>
                   )}
                 </div>
               </div>
@@ -735,6 +763,7 @@ export default function SettingsPage() {
           </div>
 
           {isSuperadmin && (
+            <>
             <div className="rounded-2xl border border-border/40 bg-card shadow-sm overflow-hidden p-5">
               <div className="flex items-center gap-3">
                 <div className="h-9 w-9 rounded-xl bg-primary/10 flex items-center justify-center">
@@ -756,7 +785,8 @@ export default function SettingsPage() {
                   Export → CSV</span>. The Summary export will not work — it has no dates or users.
                   A row&apos;s <span className="font-medium text-foreground">Task</span> becomes its
                   section, and rows with no Task go to a section called{' '}
-                  <span className="font-medium text-foreground">General</span>.
+                  <span className="font-medium text-foreground">General</span>. Projects, clients
+                  and people the file mentions but ZET does not have are created automatically.
                 </p>
 
                 <input
@@ -803,6 +833,49 @@ export default function SettingsPage() {
                     </span>
                   </div>
 
+                  {/* What the import added to the workspace. */}
+                  {(clockifyReport.createdProjects.length > 0 ||
+                    clockifyReport.createdUsers.length > 0 ||
+                    clockifyReport.createdClients.length > 0) && (
+                    <div className="border-t border-border/30 px-4 py-3 space-y-2 text-xs">
+                      <p className="font-semibold text-foreground">Created for you</p>
+                      {clockifyReport.createdProjects.length > 0 && (
+                        <p className="text-muted-foreground">
+                          <span className="font-medium text-foreground">
+                            {clockifyReport.createdProjects.length} project
+                            {clockifyReport.createdProjects.length > 1 ? 's' : ''}:
+                          </span>{' '}
+                          {clockifyReport.createdProjects.join(', ')}
+                        </p>
+                      )}
+                      {clockifyReport.createdClients.length > 0 && (
+                        <p className="text-muted-foreground">
+                          <span className="font-medium text-foreground">
+                            {clockifyReport.createdClients.length} client
+                            {clockifyReport.createdClients.length > 1 ? 's' : ''}:
+                          </span>{' '}
+                          {clockifyReport.createdClients.join(', ')}
+                        </p>
+                      )}
+                      {clockifyReport.createdUsers.length > 0 && (
+                        <p className="text-amber-500">
+                          <span className="font-medium">
+                            {clockifyReport.createdUsers.length} account
+                            {clockifyReport.createdUsers.length > 1 ? 's' : ''}:
+                          </span>{' '}
+                          {clockifyReport.createdUsers.join(', ')} — created inactive, approve
+                          them on the Superadmin page before they can sign in.
+                        </p>
+                      )}
+                      {clockifyReport.membershipsAdded > 0 && (
+                        <p className="text-muted-foreground">
+                          {clockifyReport.membershipsAdded} project membership
+                          {clockifyReport.membershipsAdded > 1 ? 's' : ''} added
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   {clockifyReport.skipped.length > 0 && (
                     <div className="max-h-56 overflow-y-auto divide-y divide-border/30">
                       {clockifyReport.skipped.map(sk => (
@@ -821,6 +894,128 @@ export default function SettingsPage() {
                 </div>
               )}
             </div>
+
+            <div className="rounded-2xl border border-border/40 bg-card shadow-sm overflow-hidden p-5">
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-xl bg-primary/10 flex items-center justify-center">
+                  <ListTodo className="h-4 w-4 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="font-semibold text-foreground">Tasks</h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Import a delivery sheet CSV. Each row becomes a task assigned to the
+                    Developer named in that row.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-xl border border-border/40 bg-muted/20 p-4">
+                <p className="text-xs font-semibold text-foreground">Expected columns</p>
+                <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                  Header must include{' '}
+                  <span className="font-medium text-foreground">Application</span>.
+                  Application maps to a project (created if missing), Feature becomes the
+                  section, Description is the task title (falls back to Feature), and{' '}
+                  <span className="font-medium text-foreground">Developer</span> is optional —
+                  blank rows are imported unassigned so you can assign later. Dates like{' '}
+                  <span className="font-medium text-foreground">10/8/2026</span> are read as
+                  day-first. Missing people are created inactive — approve them on Superadmin.
+                </p>
+
+                <input
+                  ref={tasksInputRef}
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="hidden"
+                  onChange={e => {
+                    const f = e.target.files?.[0];
+                    e.target.value = '';
+                    if (f) void uploadTasksCsv(f);
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => tasksInputRef.current?.click()}
+                  disabled={tasksBusy}
+                  className="mt-3 inline-flex items-center gap-2 rounded-xl bg-primary px-3.5 py-2 text-sm font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
+                >
+                  <Upload className="h-4 w-4" />
+                  {tasksBusy ? 'Importing…' : 'Upload CSV'}
+                </button>
+              </div>
+
+              {tasksReport && (
+                <div className="mt-3 rounded-xl border border-border/40 overflow-hidden">
+                  <div className="flex flex-wrap items-center gap-x-5 gap-y-1 bg-muted/25 px-4 py-3 text-xs">
+                    <span className="font-semibold text-foreground truncate">{tasksReport.filename}</span>
+                    <span className="text-emerald-500 font-semibold tabular-nums">
+                      {tasksReport.imported} imported
+                    </span>
+                    {tasksReport.duplicates > 0 && (
+                      <span className="text-muted-foreground tabular-nums">
+                        {tasksReport.duplicates} already imported
+                      </span>
+                    )}
+                    {tasksReport.skippedCount > 0 && (
+                      <span className="text-amber-500 font-semibold tabular-nums">
+                        {tasksReport.skippedCount} skipped
+                      </span>
+                    )}
+                    <span className="text-muted-foreground/70">
+                      dates read as {tasksReport.dateOrder}
+                    </span>
+                  </div>
+
+                  {(tasksReport.createdProjects.length > 0 || tasksReport.createdUsers.length > 0) && (
+                    <div className="border-t border-border/30 px-4 py-3 space-y-2 text-xs">
+                      <p className="font-semibold text-foreground">Created for you</p>
+                      {tasksReport.createdProjects.length > 0 && (
+                        <p className="text-muted-foreground">
+                          <span className="font-medium text-foreground">
+                            {tasksReport.createdProjects.length} project
+                            {tasksReport.createdProjects.length > 1 ? 's' : ''}:
+                          </span>{' '}
+                          {tasksReport.createdProjects.join(', ')}
+                        </p>
+                      )}
+                      {tasksReport.createdUsers.length > 0 && (
+                        <p className="text-amber-500">
+                          <span className="font-medium">
+                            {tasksReport.createdUsers.length} account
+                            {tasksReport.createdUsers.length > 1 ? 's' : ''}:
+                          </span>{' '}
+                          {tasksReport.createdUsers.join(', ')} — created inactive, approve
+                          them on the Superadmin page before they can sign in.
+                        </p>
+                      )}
+                      {tasksReport.membershipsAdded > 0 && (
+                        <p className="text-muted-foreground">
+                          {tasksReport.membershipsAdded} project membership
+                          {tasksReport.membershipsAdded > 1 ? 's' : ''} added
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {tasksReport.skipped.length > 0 && (
+                    <div className="max-h-56 overflow-y-auto divide-y divide-border/30">
+                      {tasksReport.skipped.map(sk => (
+                        <div key={sk.line} className="flex items-start gap-3 px-4 py-2 text-xs">
+                          <span className="shrink-0 font-mono text-muted-foreground/70 tabular-nums">
+                            line {sk.line}
+                          </span>
+                          <span className="shrink-0 font-semibold text-amber-500">
+                            {SKIP_REASON_LABEL[sk.reason] ?? sk.reason}
+                          </span>
+                          <span className="text-muted-foreground min-w-0">{sk.detail}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </>
           )}
 
           {/* ── Developer Settings (MCP) ──────────────────────────── */}
@@ -891,7 +1086,7 @@ export default function SettingsPage() {
                           <button
                             onClick={() => void revokeToken(t.id)}
                             disabled={revoking === t.id}
-                            className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-red-500/30 text-red-400 text-xs font-semibold hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                            className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-red-500/30 text-red-600 dark:text-red-400 text-xs font-semibold hover:bg-red-500/10 transition-colors disabled:opacity-50"
                           >
                             <Trash2 className="h-3.5 w-3.5" /> {revoking === t.id ? 'Revoking…' : 'Revoke'}
                           </button>

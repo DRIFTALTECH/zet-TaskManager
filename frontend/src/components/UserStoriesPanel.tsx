@@ -332,7 +332,7 @@ export default function UserStoriesPanel({
                         type="button"
                         size="sm"
                         variant="ghost"
-                        className="h-7 text-[11px] text-red-400"
+                        className="h-7 text-[11px] text-red-600 dark:text-red-400"
                         onClick={() => void onDelete(story.id)}
                       >
                         <Trash2 className="h-3 w-3 mr-1" /> Delete
@@ -585,7 +585,7 @@ function StoryAttachments({ storyId }: { storyId: string }) {
               <span className="truncate">{att.filename}</span>
               <button
                 type="button"
-                className="text-red-400 shrink-0"
+                className="text-red-600 dark:text-red-400 shrink-0"
                 onClick={async () => {
                   try {
                     await api.deleteUserStoryAttachment(storyId, att.id);
@@ -919,7 +919,7 @@ function CreateUserStoryDialog({
                     <span className="truncate">{f.name}</span>
                     <button
                       type="button"
-                      className="text-red-400"
+                      className="text-red-600 dark:text-red-400"
                       onClick={() => setPendingFiles(prev => prev.filter((_, j) => j !== i))}
                     >
                       remove

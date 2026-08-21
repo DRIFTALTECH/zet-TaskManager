@@ -471,5 +471,29 @@ export interface ClockifyImportReport {
   skippedCount: number;
   /** Date order the server detected in the file, e.g. "DD/MM/YYYY". */
   dateOrder: string;
+  /** Records the import created rather than skipping. */
+  createdProjects: string[];
+  createdClients: string[];
+  createdUsers: string[];
+  membershipsAdded: number;
   skipped: ClockifyImportSkip[];
+}
+
+export interface TasksImportSkip {
+  line: number;
+  reason: string;
+  detail: string;
+}
+
+export interface TasksImportReport {
+  filename: string;
+  totalRows: number;
+  imported: number;
+  duplicates: number;
+  skippedCount: number;
+  dateOrder: string;
+  createdProjects: string[];
+  createdUsers: string[];
+  membershipsAdded: number;
+  skipped: TasksImportSkip[];
 }

@@ -21,10 +21,10 @@ import { cn } from '@/lib/utils';
 // ── Priority badge styles ──────────────────────────────────────────────────────
 
 const PRIORITY_BADGE: Record<string, string> = {
-  Urgent: 'bg-red-500/15 text-red-400 border-red-500/20',
-  High:   'bg-orange-500/15 text-orange-400 border-orange-500/20',
-  Medium: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/20',
-  Low:    'bg-green-500/15 text-green-400 border-green-500/20',
+  Urgent: 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/20',
+  High:   'bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/20',
+  Medium: 'bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border-yellow-500/20',
+  Low:    'bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/20',
 };
 
 // ── Zani Z-mark icon ──────────────────────────────────────────────────────────
@@ -42,7 +42,7 @@ function ZaniIcon({ className }: { className?: string }) {
       />
       <defs>
         <linearGradient id={`zg-${uid}`} x1="7" y1="9" x2="25" y2="23" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#8b5cf6" />
+          <stop stopColor="hsl(var(--chart-3))" />
           <stop offset="1" stopColor="#6d28d9" />
         </linearGradient>
       </defs>
@@ -162,8 +162,8 @@ function ProposalCard({
         transition={snappy}
         className="rounded-xl border border-green-500/20 bg-green-500/5 px-4 py-3 flex items-center gap-3"
       >
-        <CheckCircle2 className="h-4 w-4 text-green-400 shrink-0" />
-        <span className="text-sm font-semibold text-green-400">Done</span>
+        <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
+        <span className="text-sm font-semibold text-green-600 dark:text-green-400">Done</span>
         <span className="text-sm text-muted-foreground truncate">{cardTitle(proposal)}</span>
       </motion.div>
     );
@@ -178,7 +178,7 @@ function ProposalCard({
         transition={snappy}
         className="rounded-xl border border-violet-500/30 bg-violet-500/5 p-4 space-y-3"
       >
-        <div className="flex items-center gap-2 text-xs font-semibold text-violet-400">
+        <div className="flex items-center gap-2 text-xs font-semibold text-violet-600 dark:text-violet-400">
           {cardIcon(proposal.type)}
           Edit {typeLabel(proposal.type)}
         </div>
@@ -259,7 +259,7 @@ function ProposalCard({
     >
       {/* Header row */}
       <div className="flex items-center gap-2">
-        <span className="p-1.5 rounded-lg bg-violet-500/10 text-violet-400">
+        <span className="p-1.5 rounded-lg bg-violet-500/10 text-violet-600 dark:text-violet-400">
           {cardIcon(proposal.type)}
         </span>
         <span className="text-[10px] font-semibold uppercase tracking-wider text-violet-400/70">
@@ -436,8 +436,8 @@ function ExtractedTaskCard({ task, onEdit }: { task: AIExtractedTask; onEdit: (p
     return (
       <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} transition={snappy}
         className="rounded-xl border border-green-500/20 bg-green-500/5 px-4 py-3 flex items-center gap-3">
-        <CheckCircle2 className="h-4 w-4 text-green-400 shrink-0" />
-        <span className="text-sm font-semibold text-green-400">Created</span>
+        <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
+        <span className="text-sm font-semibold text-green-600 dark:text-green-400">Created</span>
         <span className="text-sm text-muted-foreground truncate">{task.title}</span>
       </motion.div>
     );
@@ -466,7 +466,7 @@ function ExtractedTaskCard({ task, onEdit }: { task: AIExtractedTask; onEdit: (p
         {task.due_date && <span className="flex items-center gap-1.5"><Calendar className="h-3 w-3" /> {task.due_date}</span>}
       </div>
       {task.suggest_create_section && (
-        <p className="text-[11px] text-amber-400 flex items-center gap-1.5">
+        <p className="text-[11px] text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
           <span>⚠</span> No suitable section found — consider creating one first.
         </p>
       )}
@@ -511,11 +511,11 @@ function AgentTaskCard({ data }: { data: AICardTaskData }) {
       <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground pl-4">
         <span className="flex items-center gap-1">
           <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-medium border ${
-            data.is_overdue ? 'bg-red-500/15 text-red-400 border-red-500/20' : 'bg-muted/50 text-muted-foreground border-border/40'
+            data.is_overdue ? 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/20' : 'bg-muted/50 text-muted-foreground border-border/40'
           }`}>{data.is_overdue ? '⚠ Overdue' : data.status}</span>
         </span>
         {data.due_date && (
-          <span className={`flex items-center gap-1 ${data.is_overdue ? 'text-red-400' : ''}`}>
+          <span className={`flex items-center gap-1 ${data.is_overdue ? 'text-red-600 dark:text-red-400' : ''}`}>
             <Calendar className="h-3 w-3" /> {data.due_date}
           </span>
         )}
@@ -532,10 +532,10 @@ function AgentTaskCard({ data }: { data: AICardTaskData }) {
 
 function AgentStatCard({ data }: { data: AICardStatData }) {
   const stats = [
-    { label: 'Assigned', value: data.assigned_total, icon: <ListTodo className="h-4 w-4" />, color: 'text-violet-400 bg-violet-500/10' },
-    { label: 'In Progress', value: data.in_progress, icon: <Timer className="h-4 w-4" />, color: 'text-blue-400 bg-blue-500/10' },
-    { label: 'Done this week', value: data.completed_this_week, icon: <CheckCircle2 className="h-4 w-4" />, color: 'text-green-400 bg-green-500/10' },
-    { label: 'Overdue', value: data.overdue, icon: <AlarmClock className="h-4 w-4" />, color: data.overdue > 0 ? 'text-red-400 bg-red-500/10' : 'text-muted-foreground bg-muted/30' },
+    { label: 'Assigned', value: data.assigned_total, icon: <ListTodo className="h-4 w-4" />, color: 'text-violet-600 dark:text-violet-400 bg-violet-500/10' },
+    { label: 'In Progress', value: data.in_progress, icon: <Timer className="h-4 w-4" />, color: 'text-blue-600 dark:text-blue-400 bg-blue-500/10' },
+    { label: 'Done this week', value: data.completed_this_week, icon: <CheckCircle2 className="h-4 w-4" />, color: 'text-green-600 dark:text-green-400 bg-green-500/10' },
+    { label: 'Overdue', value: data.overdue, icon: <AlarmClock className="h-4 w-4" />, color: data.overdue > 0 ? 'text-red-600 dark:text-red-400 bg-red-500/10' : 'text-muted-foreground bg-muted/30' },
   ];
   return (
     <motion.div
@@ -570,7 +570,7 @@ function AgentProjectCard({ data }: { data: AICardProjectData }) {
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <span className="p-1.5 rounded-lg bg-violet-500/10">
-            <Briefcase className="h-3.5 w-3.5 text-violet-400" />
+            <Briefcase className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />
           </span>
           <p className="text-sm font-semibold truncate">{data.name}</p>
         </div>
@@ -679,7 +679,7 @@ function ActionBadge({ action }: { action: AIChatAction }) {
   if (action.status === 'already_exists') {
     return (
       <motion.div initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={snappy}
-        className="flex items-start gap-2 text-xs px-3 py-2 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-400">
+        className="flex items-start gap-2 text-xs px-3 py-2 rounded-lg bg-blue-500/10 border border-blue-500/20 text-blue-600 dark:text-blue-400">
         <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
         <span><span className="font-semibold">Already exists:</span> {action.summary}</span>
       </motion.div>
@@ -696,7 +696,7 @@ function ActionBadge({ action }: { action: AIChatAction }) {
   if (action.status === 'success') {
     return (
       <motion.div initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={snappy}
-        className="flex items-start gap-2 text-xs px-3 py-2 rounded-lg bg-green-500/10 border border-green-500/20 text-green-400">
+        className="flex items-start gap-2 text-xs px-3 py-2 rounded-lg bg-green-500/10 border border-green-500/20 text-green-600 dark:text-green-400">
         <CheckCircle2 className="h-3.5 w-3.5 shrink-0 mt-0.5" />
         <span><span className="font-semibold">{label}:</span> {action.summary}</span>
       </motion.div>
@@ -705,7 +705,7 @@ function ActionBadge({ action }: { action: AIChatAction }) {
   if (action.status === 'denied') {
     return (
       <motion.div initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={snappy}
-        className="flex items-start gap-2 text-xs px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400">
+        className="flex items-start gap-2 text-xs px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400">
         <ShieldOff className="h-3.5 w-3.5 shrink-0 mt-0.5" />
         <span><span className="font-semibold">Access denied:</span> {action.summary}</span>
       </motion.div>
@@ -713,7 +713,7 @@ function ActionBadge({ action }: { action: AIChatAction }) {
   }
   return (
     <motion.div initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} transition={snappy}
-      className="flex items-start gap-2 text-xs px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400">
+      className="flex items-start gap-2 text-xs px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400">
       <XCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
       <span><span className="font-semibold">Error:</span> {action.summary}</span>
     </motion.div>
@@ -1038,7 +1038,7 @@ export function TaskCreatorModal({
       <DialogContent className="rounded-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-lg font-bold">
-            <Sparkles className="h-4 w-4 text-violet-400" /> Create tasks with AI
+            <Sparkles className="h-4 w-4 text-violet-600 dark:text-violet-400" /> Create tasks with AI
           </DialogTitle>
         </DialogHeader>
 
@@ -1160,7 +1160,7 @@ export function TaskCreatorModal({
           <div className="space-y-4 pt-1">
             <div className="flex items-center justify-between">
               <p className="text-sm font-semibold">{results.length} task{results.length !== 1 ? 's' : ''} found</p>
-              <button onClick={() => setResults(null)} className="text-xs text-violet-400 hover:underline">← Back to input</button>
+              <button onClick={() => setResults(null)} className="text-xs text-violet-600 dark:text-violet-400 hover:underline">← Back to input</button>
             </div>
             {sourceText && (
               <details className="rounded-lg border border-border/40 bg-muted/20 px-3 py-2">
@@ -1282,7 +1282,7 @@ const AIPage = () => {
                 ))}
               </div>
               {!users.length && (
-                <div className="flex items-center gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
                   <AlertCircle className="h-3.5 w-3.5 shrink-0" />
                   No team members loaded — Zani won't be able to assign tasks.
                 </div>

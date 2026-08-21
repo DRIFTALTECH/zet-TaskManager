@@ -35,7 +35,7 @@ function ZMark({ onPrimary, className }: { onPrimary: boolean; className?: strin
             </>
           ) : (
             <>
-              <stop stopColor="#6366f1" />
+              <stop stopColor="hsl(var(--chart-1))" />
               <stop offset="1" stopColor="#7c3aed" />
             </>
           )}

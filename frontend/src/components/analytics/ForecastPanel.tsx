@@ -75,10 +75,10 @@ function makeWorkloadLookup(empById: Map<string, TaskDueForecastEmployee>): Work
 }
 
 const STATUS_STYLE: Record<TaskForecastStatus, string> = {
-  'On Track': 'text-emerald-400',
-  'At Risk': 'text-amber-400',
-  Delayed: 'text-red-400',
-  Completed: 'text-emerald-400',
+  'On Track': 'text-emerald-600 dark:text-emerald-400',
+  'At Risk': 'text-amber-600 dark:text-amber-400',
+  Delayed: 'text-red-600 dark:text-red-400',
+  Completed: 'text-emerald-600 dark:text-emerald-400',
   Cancelled: 'text-gray-400',
 };
 
@@ -93,10 +93,10 @@ function scrubDelayDays(text: string): string {
 }
 
 const RISK_CHIP: Record<DeadlineRiskLabel, string> = {
-  Healthy: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25',
-  Moderate: 'bg-amber-500/10 text-amber-400 border-amber-500/25',
-  High: 'bg-orange-500/10 text-orange-400 border-orange-500/25',
-  Critical: 'bg-red-500/10 text-red-400 border-red-500/25',
+  Healthy: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/25',
+  Moderate: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/25',
+  High: 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/25',
+  Critical: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/25',
 };
 
 function InfoTip({ text }: { text: string }) {
@@ -295,7 +295,7 @@ function DeadlineCard({
   return (
     <article className="rounded-xl border border-border/40 bg-card/50 overflow-hidden">
       <header className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 border-b border-border/25 bg-muted/[0.04]">
-        <CalendarClock className="h-4 w-4 text-blue-400 shrink-0" />
+        <CalendarClock className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
         <div className="flex flex-wrap items-center gap-2 min-w-0 flex-1">
           <div>
             <FieldLabel>Due Date</FieldLabel>
@@ -311,19 +311,19 @@ function DeadlineCard({
           {deadline.onTrackTasks != null && (
             <div className="text-right">
               <FieldLabel>On Track</FieldLabel>
-              <p className="text-sm font-semibold tabular-nums text-emerald-400">{deadline.onTrackTasks}</p>
+              <p className="text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">{deadline.onTrackTasks}</p>
             </div>
           )}
           {deadline.atRiskTasks != null && deadline.atRiskTasks > 0 && (
             <div className="text-right">
               <FieldLabel>At Risk</FieldLabel>
-              <p className="text-sm font-semibold tabular-nums text-amber-400">{deadline.atRiskTasks}</p>
+              <p className="text-sm font-semibold tabular-nums text-amber-600 dark:text-amber-400">{deadline.atRiskTasks}</p>
             </div>
           )}
           {deadline.delayedTasks > 0 && (
             <div className="text-right">
               <FieldLabel>Delayed</FieldLabel>
-              <p className="text-sm font-semibold tabular-nums text-red-400">{deadline.delayedTasks}</p>
+              <p className="text-sm font-semibold tabular-nums text-red-600 dark:text-red-400">{deadline.delayedTasks}</p>
             </div>
           )}
         </div>
@@ -535,7 +535,7 @@ export function ForecastPanel({
   if (isLoading) {
     return (
       <div className="flex flex-col items-center gap-3 py-16 text-muted-foreground text-sm">
-        <Loader2 className="h-6 w-6 animate-spin text-violet-400" />
+        <Loader2 className="h-6 w-6 animate-spin text-violet-600 dark:text-violet-400" />
         {copy.loading}
       </div>
     );
@@ -543,7 +543,7 @@ export function ForecastPanel({
 
   if (error) {
     return (
-      <div className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-4 text-sm text-red-400 space-y-2">
+      <div className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-4 text-sm text-red-600 dark:text-red-400 space-y-2">
         <p>{(error as Error).message}</p>
         <button type="button" onClick={() => void refetch()} className="text-xs font-medium underline hover:no-underline">
           Try again
@@ -588,7 +588,7 @@ export function ForecastPanel({
       <div className={cn('space-y-6 relative', (isRefreshing || pendingVisibility) && 'pointer-events-none')}>
         {(isRefreshing || pendingVisibility) && (
           <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-background/70">
-            <Loader2 className="h-6 w-6 animate-spin text-violet-400" />
+            <Loader2 className="h-6 w-6 animate-spin text-violet-600 dark:text-violet-400" />
           </div>
         )}
 
@@ -614,7 +614,7 @@ export function ForecastPanel({
         {isPage && (
           <section className="space-y-2">
             <div className="flex items-center gap-2">
-              <Users className="h-4 w-4 text-emerald-400" />
+              <Users className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
               <h2 className="text-sm font-semibold text-foreground">People with free time</h2>
             </div>
             {available.length > 0 ? (
@@ -644,7 +644,7 @@ export function ForecastPanel({
         {isPage && (
           <section className="space-y-3">
             <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-violet-400" />
+              <Sparkles className="h-4 w-4 text-violet-600 dark:text-violet-400" />
               <div>
                 <h2 className="text-sm font-semibold text-foreground">Who could help?</h2>
                 <p className="text-xs text-muted-foreground/70 mt-0.5">
@@ -676,7 +676,7 @@ export function ForecastPanel({
         <section className="space-y-3">
           {isPage && (
             <div className="flex items-center gap-2">
-              <CalendarClock className="h-4 w-4 text-blue-400" />
+              <CalendarClock className="h-4 w-4 text-blue-600 dark:text-blue-400" />
               <h2 className="text-sm font-semibold text-foreground">Deadline outlook</h2>
             </div>
           )}

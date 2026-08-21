@@ -56,7 +56,7 @@ function OverdueCard({ task, accent }: { task: OverdueTask; accent?: boolean }) 
       </div>
       <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
         <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{task.assigneeName}</span>
-        <span className={cn('font-semibold', task.daysOverdue > 7 ? 'text-red-400' : 'text-amber-400')}>
+        <span className={cn('font-semibold', task.daysOverdue > 7 ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400')}>
           {task.daysOverdue}d overdue
         </span>
         <span>Due {task.dueDate}</span>
@@ -75,7 +75,7 @@ function PriorityCard({ task }: { task: PriorityTaskRow }) {
       <p className="text-[11px] text-muted-foreground">
         {task.projectName} · {task.assigneeName}
         {task.dueDate && ` · due ${task.dueDate}`}
-        {task.isOverdue && <span className="text-red-400 font-semibold ml-1">· past due</span>}
+        {task.isOverdue && <span className="text-red-600 dark:text-red-400 font-semibold ml-1">· past due</span>}
       </p>
     </div>
   );
@@ -90,21 +90,21 @@ function ProjectStatusCard({ project }: { project: ProjectProgressCard }) {
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
         <div>
           <dt className="text-[11px] text-muted-foreground">Progress</dt>
-          <dd className="font-semibold tabular-nums text-violet-400">{project.progress}%</dd>
+          <dd className="font-semibold tabular-nums text-violet-600 dark:text-violet-400">{project.progress}%</dd>
         </div>
         <div>
           <dt className="text-[11px] text-muted-foreground">Open Tasks</dt>
-          <dd className="font-semibold tabular-nums text-blue-400">{project.activeTasks}</dd>
+          <dd className="font-semibold tabular-nums text-blue-600 dark:text-blue-400">{project.activeTasks}</dd>
         </div>
         <div>
           <dt className="text-[11px] text-muted-foreground">Overdue Tasks</dt>
-          <dd className={cn('font-semibold tabular-nums', project.overdueTasks > 0 ? 'text-red-400' : 'text-foreground')}>
+          <dd className={cn('font-semibold tabular-nums', project.overdueTasks > 0 ? 'text-red-600 dark:text-red-400' : 'text-foreground')}>
             {project.overdueTasks}
           </dd>
         </div>
         <div>
           <dt className="text-[11px] text-muted-foreground">{ANALYTICS_LABELS.blockedTasks}</dt>
-          <dd className={cn('font-semibold tabular-nums', (project.blockedTasks ?? 0) > 0 ? 'text-amber-400' : 'text-foreground')}>
+          <dd className={cn('font-semibold tabular-nums', (project.blockedTasks ?? 0) > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-foreground')}>
             {project.blockedTasks ?? 0}
           </dd>
         </div>
@@ -179,7 +179,7 @@ export default function DeliveryPage({ embedded = false }: DeliveryPageProps) {
       )}
 
       {error && (
-        <p className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        <p className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-400">
           {(error as Error).message}
         </p>
       )}
@@ -210,7 +210,7 @@ export default function DeliveryPage({ embedded = false }: DeliveryPageProps) {
             />
           </div>
 
-          <AnalyticsSection title={ANALYTICS_LABELS.projectProgress} icon={FolderKanban} iconClassName="text-violet-400" tone="muted">
+          <AnalyticsSection title={ANALYTICS_LABELS.projectProgress} icon={FolderKanban} iconClassName="text-violet-600 dark:text-violet-400" tone="muted">
             {projectProgress.length === 0 ? (
               <p className="text-sm text-muted-foreground py-4">No active projects yet.</p>
             ) : (
@@ -224,10 +224,10 @@ export default function DeliveryPage({ embedded = false }: DeliveryPageProps) {
             <AnalyticsSection
               title={ANALYTICS_LABELS.overdueTasks}
               icon={Clock}
-              iconClassName="text-red-400"
+              iconClassName="text-red-600 dark:text-red-400"
               tone="alert"
               badge={
-                <span className="rounded-full bg-red-500/10 border border-red-500/20 px-2 py-0.5 text-[10px] font-bold text-red-400">
+                <span className="rounded-full bg-red-500/10 border border-red-500/20 px-2 py-0.5 text-[10px] font-bold text-red-600 dark:text-red-400">
                   {data.overdueTasks.length}
                 </span>
               }
@@ -247,10 +247,10 @@ export default function DeliveryPage({ embedded = false }: DeliveryPageProps) {
             <AnalyticsSection
               title={ANALYTICS_LABELS.blockedTasks}
               icon={ShieldAlert}
-              iconClassName="text-amber-400"
+              iconClassName="text-amber-600 dark:text-amber-400"
               tone="warm"
               badge={
-                <span className="rounded-full bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-400">
+                <span className="rounded-full bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400">
                   {data.blockedTasks.length}
                 </span>
               }
@@ -269,7 +269,7 @@ export default function DeliveryPage({ embedded = false }: DeliveryPageProps) {
           </div>
 
           {data.highPriorityPending.length > 0 && (
-            <AnalyticsSection title={ANALYTICS_LABELS.highPriorityPending} icon={Star} iconClassName="text-orange-400" tone="warm">
+            <AnalyticsSection title={ANALYTICS_LABELS.highPriorityPending} icon={Star} iconClassName="text-orange-600 dark:text-orange-400" tone="warm">
               <div className="grid gap-2 sm:grid-cols-2">
                 {data.highPriorityPending.map(t => <PriorityCard key={t.id} task={t} />)}
               </div>

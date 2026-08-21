@@ -1,4 +1,4 @@
-import type { AuditLog, ClockifyImportReport, Client, KanbanColumn, Notification, Project, Role, Skill, Task, TaskAttachment, TaskChecklist, TaskFeedback, TimesheetSubmission, TimesheetSubmissionReview, TimesheetWorkEntry, User } from '@/types';
+import type { AuditLog, ClockifyImportReport, Client, KanbanColumn, Notification, Project, Role, Skill, Task, TaskAttachment, TaskChecklist, TaskFeedback, TimesheetSubmission, TimesheetSubmissionReview, TimesheetWorkEntry, TasksImportReport, User } from '@/types';
 import { getApiUrl } from '@/lib/env';
 
 const TOKEN_KEY = 'tm_token';
@@ -183,6 +183,13 @@ export const api = {
     const form = new FormData();
     form.append('file', file);
     return request('/timesheet/import/clockify', { method: 'POST', body: form });
+  },
+
+  /** Import a delivery-sheet CSV into tasks (superadmin only). */
+  async importTasksCsv(file: File): Promise<TasksImportReport> {
+    const form = new FormData();
+    form.append('file', file);
+    return request('/tasks/import', { method: 'POST', body: form });
   },
 
   async createClient(name: string): Promise<Client> {
@@ -617,12 +624,18 @@ export const api = {
   async getManagerTimesheetSubmissions(params?: {
     status?: 'submitted' | 'approved' | 'rejected';
     userId?: string;
+    /** Exact single week. Prefer weekFrom/weekTo for a range. */
     weekStart?: string;
+    /** Inclusive range: every week starting inside it is returned. */
+    weekFrom?: string;
+    weekTo?: string;
   }): Promise<TimesheetSubmission[]> {
     const q = new URLSearchParams();
     if (params?.status) q.set('status', params.status);
     if (params?.userId) q.set('user_id', params.userId);
     if (params?.weekStart) q.set('week_start', params.weekStart);
+    if (params?.weekFrom) q.set('week_from', params.weekFrom);
+    if (params?.weekTo) q.set('week_to', params.weekTo);
     const qs = q.toString();
     return request(`/timesheet/submissions${qs ? `?${qs}` : ''}`);
   },

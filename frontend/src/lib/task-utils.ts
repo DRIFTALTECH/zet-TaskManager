@@ -14,14 +14,23 @@ export function isTaskDone(task: Task): boolean {
   return task.status === 'completed' || task.status === 'done';
 }
 
-/** All user IDs assigned to the task (API sends assigneeIds; fallback for older clients). */
+/** Sentinel for Dashboard / board “Person” filter — match tasks with no assignees. */
+export const UNASSIGNED_FILTER_ID = '__unassigned__';
+
+/**
+ * All user IDs assigned to the task.
+ * Empty `assigneeIds` from the API is authoritative (unassigned) — including CSV imports
+ * that store the creator only as a denormalized placeholder in `assignedTo`.
+ */
 export function taskAssigneeIds(task: Task): string[] {
   if (Array.isArray(task.assigneeIds)) {
-    if (task.assigneeIds.length > 0) return task.assigneeIds;
-    // Empty list is authoritative for story-linked tasks (unassigned until assigned).
-    if (task.userStoryId) return [];
+    return task.assigneeIds;
   }
   return task.assignedTo ? [task.assignedTo] : [];
+}
+
+export function isTaskUnassigned(task: Task): boolean {
+  return taskAssigneeIds(task).length === 0;
 }
 
 /** Story assignees — mirrors taskAssigneeIds. */
@@ -34,10 +43,13 @@ export function isTaskAssignedTo(task: Task, userId: string): boolean {
   return taskAssigneeIds(task).includes(userId);
 }
 
-/** Assignee filter: empty set = no restriction (show all). */
+/** Assignee filter: empty set = no restriction (show all). Supports UNASSIGNED_FILTER_ID. */
 export function taskMatchesAssigneeFilter(task: Task, selectedUserIds: Set<string>): boolean {
   if (selectedUserIds.size === 0) return true;
+  const wantUnassigned = selectedUserIds.has(UNASSIGNED_FILTER_ID);
+  if (wantUnassigned && isTaskUnassigned(task)) return true;
   for (const id of selectedUserIds) {
+    if (id === UNASSIGNED_FILTER_ID) continue;
     if (isTaskAssignedTo(task, id)) return true;
   }
   return false;

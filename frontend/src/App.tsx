@@ -68,7 +68,7 @@ function PageSkeleton() {
 function AppLayout({ children }: { children: React.ReactNode }) {
   useLiveSync(); // live updates (tasks, projects, users) via smart polling
   return (
-    <div className="flex min-h-screen w-full">
+    <div className="flex h-screen w-full overflow-hidden">
       <AppSidebar />
       <div className="flex-1 flex flex-col min-w-0">
         <AppNavbar />

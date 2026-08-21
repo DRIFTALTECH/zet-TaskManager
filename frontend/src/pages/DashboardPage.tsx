@@ -1,4 +1,5 @@
 import { useAppStore } from '@/stores/appStore';
+import DateRangeField from '@/components/DateRangeField';
 import { projectPickerLabel } from '@/lib/project-utils';
 import { Task, Priority, KanbanColumn } from '@/types';
 import { motion } from 'framer-motion';
@@ -52,9 +53,8 @@ import {
   taskMatchesPriorityFilter,
   type DashboardDueFilter,
 } from '@/lib/due-date-utils';
-import { isTopLevelTask, storyAssigneeIds, taskMatchesAssigneeFilter } from '@/lib/task-utils';
+import { isTopLevelTask, storyAssigneeIds, taskMatchesAssigneeFilter, UNASSIGNED_FILTER_ID } from '@/lib/task-utils';
 import UserAvatar from '@/components/UserAvatar';
-import { DatePickerInput } from '@/components/DatePickerInput';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Checkbox } from '@/components/ui/checkbox';
 import AssigneeMultiSelect from '@/components/AssigneeMultiSelect';
@@ -65,10 +65,10 @@ const PROTECTED_IDS = new Set(['backlog', 'in_progress', 'in_review', 'done']);
 const DONE_COL_KEY = 'tm_done_col';
 
 const priorityBadgeStyles: Record<Priority, string> = {
-  Urgent: 'bg-red-500/15 text-red-400 border-red-500/20',
-  High: 'bg-orange-500/15 text-orange-400 border-orange-500/20',
-  Medium: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/20',
-  Low: 'bg-green-500/15 text-green-400 border-green-500/20',
+  Urgent: 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/20',
+  High: 'bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/20',
+  Medium: 'bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border-yellow-500/20',
+  Low: 'bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/20',
 };
 
 function KanbanColumnPanel({
@@ -95,7 +95,7 @@ function KanbanColumnPanel({
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition: transition ?? undefined, opacity: isDragging ? 0.4 : 1 }}
-      className={`min-w-[300px] w-[85vw] sm:min-w-[380px] sm:w-[380px] flex flex-col shrink-0 rounded-2xl transition-[box-shadow,background-color] duration-150 ease-out ${isDropTarget ? 'ring-2 ring-blue-500/50 bg-blue-500/5' : ''}`}
+      className={`min-w-[300px] w-[85vw] shrink-0 sm:min-w-[340px] sm:w-[340px] lg:w-auto lg:min-w-0 lg:flex-1 lg:basis-0 lg:shrink flex flex-col rounded-2xl transition-[box-shadow,background-color] duration-150 ease-out ${isDropTarget ? 'ring-2 ring-blue-500/50 bg-blue-500/5' : ''}`}
     >
       <div className="flex items-center justify-between mb-4 px-1">
         <div className="flex items-center gap-2">
@@ -106,7 +106,7 @@ function KanbanColumnPanel({
           <h3 className="text-sm font-semibold text-foreground">{column.label}</h3>
           <span className="text-[11px] text-muted-foreground bg-muted/80 px-2.5 py-0.5 rounded-full font-medium border border-border/40">{tasks.length}</span>
           {isDoneColumn && (
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/15 text-green-400 border border-green-500/20 font-semibold">✓ Done</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/15 text-green-600 dark:text-green-400 border border-green-500/20 font-semibold">✓ Done</span>
           )}
         </div>
         <DropdownMenu>
@@ -138,7 +138,7 @@ function KanbanColumnPanel({
         </DropdownMenu>
       </div>
 
-      <div className="space-y-4 flex-1 px-0.5 min-h-[200px]">
+      <div className="space-y-4 flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-1 pt-3 pb-3">
         <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
           {tasks.map(task => (
             <SortableTaskCard
@@ -563,7 +563,7 @@ const DashboardPage = () => {
   const dashPriorityOptions: Priority[] = ['Urgent', 'High', 'Medium', 'Low'];
 
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={pageEnter} className="p-6 h-full flex flex-col">
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={pageEnter} className="p-4 sm:p-6 h-full flex flex-col overflow-hidden">
       <div className="mb-6 shrink-0 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold text-foreground">{selectedProjectName}</h1>
@@ -586,8 +586,20 @@ const DashboardPage = () => {
             </PopoverTrigger>
             <PopoverContent align="end" className="w-72">
               <p className="text-xs font-semibold text-foreground mb-1">Filter by person</p>
-              <p className="text-[10px] text-muted-foreground mb-3">Show tasks assigned to selected people. Leave all off to show everyone.</p>
+              <p className="text-[10px] text-muted-foreground mb-3">
+                Show tasks for selected people, or Unassigned. Leave all off to show everyone.
+              </p>
               <div className="space-y-1 max-h-56 overflow-y-auto">
+                <label className="flex items-center gap-2.5 py-1.5 cursor-pointer rounded-lg hover:bg-muted/50 px-1 -mx-1">
+                  <Checkbox
+                    checked={dashAssigneeFilter.has(UNASSIGNED_FILTER_ID)}
+                    onCheckedChange={() => toggleDashAssignee(UNASSIGNED_FILTER_ID)}
+                  />
+                  <span className="size-6 rounded-full bg-muted/60 ring-1 ring-border/50 flex items-center justify-center shrink-0">
+                    <Users className="h-3 w-3 text-muted-foreground" />
+                  </span>
+                  <span className="text-sm text-foreground truncate">Unassigned</span>
+                </label>
                 {dashFilterableMembers.map(u => (
                   <label key={u.id} className="flex items-center gap-2.5 py-1.5 cursor-pointer rounded-lg hover:bg-muted/50 px-1 -mx-1">
                     <Checkbox
@@ -665,33 +677,15 @@ const DashboardPage = () => {
               <option value="later">Due in 7+ days</option>
             </select>
           </div>
-          <div className="flex flex-col gap-1 min-w-[10rem]">
-            <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Due from</span>
-            <DatePickerInput
-              value={dashDateFrom}
-              onChange={setDashDateFrom}
-              aria-label="Due from"
+          <div className="flex flex-col gap-1 min-w-[15rem]">
+            <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Due between</span>
+            <DateRangeField
+              from={dashDateFrom}
+              to={dashDateTo}
+              onChange={(f, t) => { setDashDateFrom(f); setDashDateTo(t); }}
+              placeholder="Any due date"
             />
           </div>
-          <div className="flex flex-col gap-1 min-w-[10rem]">
-            <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Due to</span>
-            <DatePickerInput
-              value={dashDateTo}
-              onChange={setDashDateTo}
-              aria-label="Due to"
-            />
-          </div>
-          {(dashDateFrom || dashDateTo) && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="rounded-xl text-xs self-end"
-              onClick={() => { setDashDateFrom(''); setDashDateTo(''); }}
-            >
-              Clear dates
-            </Button>
-          )}
         </div>
       </div>
 
@@ -757,7 +751,7 @@ const DashboardPage = () => {
         onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}>
         <SortableContext items={boardColumns.map(c => c.id)} strategy={horizontalListSortingStrategy}>
-          <KanbanBoardPan className="flex gap-6 flex-1 pb-4">
+          <KanbanBoardPan className="flex gap-4 lg:gap-3 flex-1 min-h-0 pb-4">
             {boardColumns.map(col => (
               <KanbanColumnPanel
                 key={col.id} column={col}
@@ -777,25 +771,20 @@ const DashboardPage = () => {
               />
             ))}
 
-            {/* Add column button */}
-            <div className="min-w-[180px] shrink-0 pt-10">
-              <motion.button onClick={() => { setNewColName(''); setAddColOpen(true); }}
-                transition={snappy} whileHover={{ scale: 1.02, y: -1 }} whileTap={{ scale: 0.98 }}
-                className="h-12 w-full flex items-center justify-center gap-2 text-sm text-muted-foreground rounded-2xl border-2 border-dashed border-border/50 hover:border-foreground/30 hover:text-foreground hover:bg-muted/30 transition-colors duration-100">
-                <Plus className="h-4 w-4" /> Add Column
-              </motion.button>
-            </div>
+            {/* "Add Column" is hidden: it competed for board width with the
+                columns themselves, which now share the screen. The dialog and
+                addColumn action remain wired up if it is brought back. */}
           </KanbanBoardPan>
         </SortableContext>
 
         <DragOverlay dropAnimation={null}>
           {activeTask && (
-            <div className="w-[380px] cursor-grabbing rotate-1 scale-[1.02] pointer-events-none">
+            <div className="w-[280px] sm:w-[320px] cursor-grabbing rotate-1 scale-[1.02] pointer-events-none">
               <TaskCard task={activeTask} onClick={() => {}} showProjectPill={isAllProjects} />
             </div>
           )}
           {activeColumn && (
-            <div className="rounded-2xl border-2 border-primary/30 bg-card/95 backdrop-blur-sm p-4 shadow-2xl w-[380px] cursor-grabbing rotate-1 opacity-90">
+            <div className="rounded-2xl border-2 border-primary/30 bg-card/95 backdrop-blur-sm p-4 shadow-2xl w-[280px] sm:w-[320px] cursor-grabbing rotate-1 opacity-90">
               <div className="flex items-center gap-2">
                 <GripVertical className="h-4 w-4 text-muted-foreground" />
                 <span className="text-sm font-semibold">{activeColumn.label}</span>

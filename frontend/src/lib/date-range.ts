@@ -13,25 +13,33 @@
 /** Widest span the API will read in one request — mirrors MAX_RANGE_DAYS on the server. */
 export const MAX_RANGE_DAYS = 400;
 
-export type RangePresetId = 'day' | 'week' | 'month' | 'last7' | 'last30' | 'custom';
+export type RangePresetId = 'all' | 'day' | 'week' | 'lastweek' | 'month' | 'last7' | 'last30' | 'custom';
 
 export interface DateRangeValue {
   start: string;
   end: string;
 }
 
+/** A custom selection in progress: the end is absent until the second click. */
+export interface PartialDateRange {
+  start: string;
+  end?: string;
+}
+
 export interface RangeSelection {
   preset: RangePresetId;
   /** How many whole periods to step back (positive) or forward (negative is future). */
   offset: number;
-  /** Only meaningful when preset === 'custom'. */
-  custom?: DateRangeValue;
+  /** Only meaningful when preset === 'custom'. `end` is unset mid-selection. */
+  custom?: PartialDateRange;
 }
 
 export const RANGE_PRESETS: { id: RangePresetId; label: string }[] = [
-  { id: 'day', label: 'Day' },
-  { id: 'week', label: 'Week' },
-  { id: 'month', label: 'Month' },
+  { id: 'all', label: 'All time' },
+  { id: 'day', label: 'Today' },
+  { id: 'week', label: 'This week' },
+  { id: 'lastweek', label: 'Last week' },
+  { id: 'month', label: 'This month' },
   { id: 'last7', label: 'Last 7 days' },
   { id: 'last30', label: 'Last 30 days' },
   { id: 'custom', label: 'Custom range' },
@@ -84,9 +92,18 @@ export function datesInRange(start: string, end: string): string[] {
  * stepping back from 31 March lands on all of February, not on 3 March), and for
  * the day-count presets it moves by that many days.
  */
+/** Lower bound for the "All time" preset — comfortably before any real data. */
+const ALL_TIME_START = '2000-01-01';
+
 export function resolveRange(sel: RangeSelection): DateRangeValue {
   const { preset, offset, custom } = sel;
   const today = new Date();
+
+  if (preset === 'all') {
+    // Wide enough to mean "no filter" while still being a concrete range, so
+    // callers never need to special-case a missing bound.
+    return { start: ALL_TIME_START, end: addDays(todayIso(), 365) };
+  }
 
   if (preset === 'custom') {
     if (custom?.start) {
@@ -104,8 +121,11 @@ export function resolveRange(sel: RangeSelection): DateRangeValue {
     return { start: d, end: d };
   }
 
-  if (preset === 'week') {
-    const monday = addDays(weekMonday(todayIso()), offset * 7);
+  if (preset === 'week' || preset === 'lastweek') {
+    // 'lastweek' is simply the week preset anchored one week back; the arrows then
+    // step from there like any other period.
+    const base = preset === 'lastweek' ? -1 : 0;
+    const monday = addDays(weekMonday(todayIso()), (offset + base) * 7);
     return { start: monday, end: addDays(monday, 6) };
   }
 
@@ -124,6 +144,8 @@ export function resolveRange(sel: RangeSelection): DateRangeValue {
 
 /** Human label for the resolved range, e.g. "3 – 9 Mar 2026" or "March 2026". */
 export function formatRangeLabel(range: DateRangeValue, preset: RangePresetId): string {
+  if (preset === 'all') return 'All time';
+
   const s = fromIso(range.start);
   const e = fromIso(range.end);
 

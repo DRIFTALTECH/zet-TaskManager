@@ -37,17 +37,17 @@ type CustomFieldRow = { localId: string; key: string; value: string };
 
 // ── Config maps ───────────────────────────────────────────────────────────────
 const priorityConfig: Record<Priority, { style: string; dot: string; ring: string }> = {
-  Urgent: { style: 'bg-red-500/15 text-red-400 border-red-500/30', dot: 'bg-red-400', ring: 'ring-red-400/40' },
-  High:   { style: 'bg-orange-500/15 text-orange-400 border-orange-500/30', dot: 'bg-orange-400', ring: 'ring-orange-400/40' },
-  Medium: { style: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30', dot: 'bg-yellow-400', ring: 'ring-yellow-400/40' },
-  Low:    { style: 'bg-green-500/15 text-green-400 border-green-500/30', dot: 'bg-green-400', ring: 'ring-green-400/40' },
+  Urgent: { style: 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30', dot: 'bg-red-400', ring: 'ring-red-400/40' },
+  High:   { style: 'bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/30', dot: 'bg-orange-400', ring: 'ring-orange-400/40' },
+  Medium: { style: 'bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border-yellow-500/30', dot: 'bg-yellow-400', ring: 'ring-yellow-400/40' },
+  Low:    { style: 'bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/30', dot: 'bg-green-400', ring: 'ring-green-400/40' },
 };
 const statusConfig: Record<TaskStatus, { style: string; label: string; bar: string }> = {
-  backlog:     { style: 'bg-slate-500/15 text-slate-400 border-slate-500/30', label: 'Backlog',     bar: 'bg-slate-500' },
-  in_progress: { style: 'bg-blue-500/15 text-blue-400 border-blue-500/30',   label: 'In Progress', bar: 'bg-blue-500' },
-  in_review:   { style: 'bg-violet-500/15 text-violet-400 border-violet-500/30', label: 'In Review', bar: 'bg-violet-500' },
-  done:        { style: 'bg-green-500/15 text-green-400 border-green-500/30', label: 'Done',        bar: 'bg-green-500' },
-  completed:   { style: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30', label: 'Completed', bar: 'bg-emerald-500' },
+  backlog:     { style: 'bg-slate-500/15 text-slate-600 dark:text-slate-400 border-slate-500/30', label: 'Backlog',     bar: 'bg-slate-500' },
+  in_progress: { style: 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30',   label: 'In Progress', bar: 'bg-blue-500' },
+  in_review:   { style: 'bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-500/30', label: 'In Review', bar: 'bg-violet-500' },
+  done:        { style: 'bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/30', label: 'Done',        bar: 'bg-green-500' },
+  completed:   { style: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30', label: 'Completed', bar: 'bg-emerald-500' },
 };
 
 // ── Avatar helpers ────────────────────────────────────────────────────────────
@@ -530,7 +530,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                 {canDeleteTask && (
                   <button
                     onClick={() => setDeleteConfirmOpen(true)}
-                    className="p-2.5 rounded-xl hover:bg-red-500/10 text-muted-foreground/30 hover:text-red-400 transition-all duration-150 group"
+                    className="p-2.5 rounded-xl hover:bg-red-500/10 text-muted-foreground/30 hover:text-red-600 dark:text-red-400 transition-all duration-150 group"
                     title="Delete task"
                   >
                     <Trash2 className="h-4 w-4 group-hover:scale-110 transition-transform" />
@@ -549,17 +549,17 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                 {displayPriority}
               </span>
               {task.isStarted && (
-                <span title="Started" className="w-6 h-6 rounded-full font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20 inline-flex items-center justify-center">
+                <span title="Started" className="w-6 h-6 rounded-full font-semibold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 inline-flex items-center justify-center">
                   <CircleDot className="h-3 w-3" />
                 </span>
               )}
               {task.approvedByManager && (
-                <span title="Approved" className="w-6 h-6 rounded-full font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 inline-flex items-center justify-center">
+                <span title="Approved" className="w-6 h-6 rounded-full font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 inline-flex items-center justify-center">
                   <CheckCircle2 className="h-3 w-3" />
                 </span>
               )}
               {isOverdue && (
-                <span title="Overdue" className="w-6 h-6 rounded-full font-semibold bg-red-500/15 text-red-400 border border-red-500/20 inline-flex items-center justify-center">
+                <span title="Overdue" className="w-6 h-6 rounded-full font-semibold bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/20 inline-flex items-center justify-center">
                   <AlertTriangle className="h-3 w-3" />
                 </span>
               )}
@@ -684,7 +684,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                           />
                           <button
                             onClick={() => setDraftCustomRows(prev => prev.filter(r => r.localId !== row.localId))}
-                            className="p-2 rounded-lg hover:bg-red-500/10 text-muted-foreground/50 hover:text-red-400 transition-colors"
+                            className="p-2 rounded-lg hover:bg-red-500/10 text-muted-foreground/50 hover:text-red-600 dark:text-red-400 transition-colors"
                           >
                             <X className="h-3.5 w-3.5" />
                           </button>
@@ -726,7 +726,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                     <div className="mb-3">
                       <div className="flex items-center justify-between text-[10px] text-muted-foreground/50 mb-1">
                         <span>Progress</span>
-                        <span className={nestedPct === 100 ? 'text-emerald-400 font-bold' : ''}>
+                        <span className={nestedPct === 100 ? 'text-emerald-600 dark:text-emerald-400 font-bold' : ''}>
                           {nestedDone}/{nestedTotal} · {nestedPct}%
                         </span>
                       </div>
@@ -767,7 +767,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                               aria-label={done ? 'Mark as not completed' : 'Mark as completed'}
                             >
                               {done
-                                ? <CheckSquare className="h-4 w-4 text-emerald-400" />
+                                ? <CheckSquare className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                                 : <Square className="h-4 w-4" />}
                             </button>
                             <span
@@ -865,7 +865,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                               {(currentUser?.id === att.uploadedBy || isManager) && (
                                 <button
                                   onClick={() => void handleDelete(att)}
-                                  className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-500/10 text-muted-foreground/40 hover:text-red-400 transition-all shrink-0"
+                                  className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-500/10 text-muted-foreground/40 hover:text-red-600 dark:text-red-400 transition-all shrink-0"
                                   title="Delete"
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
@@ -1023,7 +1023,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                                       >Edit</button>
                                       <button
                                         onClick={() => void deleteFeedback(fb.id)}
-                                        className="text-[11px] text-muted-foreground/50 hover:text-red-400 px-2 py-0.5 rounded-md hover:bg-red-500/10 transition-colors"
+                                        className="text-[11px] text-muted-foreground/50 hover:text-red-600 dark:text-red-400 px-2 py-0.5 rounded-md hover:bg-red-500/10 transition-colors"
                                       >Delete</button>
                                     </div>
                                   )}

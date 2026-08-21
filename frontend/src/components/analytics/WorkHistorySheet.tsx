@@ -123,7 +123,7 @@ export function WorkHistorySheet({
         )}
 
         {(performanceQuery.isError || timesheetQuery.isError) && (
-          <p className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-400 mt-4">
+          <p className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-400 mt-4">
             {(performanceQuery.error ?? timesheetQuery.error as Error)?.message ?? 'Failed to load'}
           </p>
         )}
@@ -202,7 +202,7 @@ export function WorkHistorySheet({
                   <p><span className="text-muted-foreground">Billable:</span> {ts.summary.billablePct}% ({ts.summary.billableHours}h)</p>
                   <p><span className="text-muted-foreground">Avg daily:</span> {ts.summary.avgDailyHours}h</p>
                   {ts.summary.overtimeDays > 0 && (
-                    <p className={cn('text-amber-400')}>{ts.summary.overtimeDays} overtime day(s)</p>
+                    <p className={cn('text-amber-600 dark:text-amber-400')}>{ts.summary.overtimeDays} overtime day(s)</p>
                   )}
                 </div>
               </section>

@@ -10,9 +10,9 @@ import {
 import { cn } from '@/lib/utils';
 
 const WORKLOAD_STYLE: Record<WorkloadLevel, string> = {
-  Light: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/25',
-  Medium: 'text-amber-400 bg-amber-500/10 border-amber-500/25',
-  Busy: 'text-orange-400 bg-orange-500/10 border-orange-500/25',
+  Light: 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/25',
+  Medium: 'text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/25',
+  Busy: 'text-orange-600 dark:text-orange-400 bg-orange-500/10 border-orange-500/25',
 };
 
 function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
@@ -96,7 +96,7 @@ export function RecommendationCard({
     return (
       <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.03] p-4 flex items-start justify-between gap-4 w-full max-w-full">
         <div className="flex items-start gap-3 min-w-0">
-          <span className="mt-0.5 shrink-0 text-emerald-400 text-base">✓</span>
+          <span className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-400 text-base">✓</span>
           <div className="min-w-0">
             <p className="text-sm font-semibold text-foreground leading-snug truncate">{taskTitle}</p>
             <p className="text-xs text-muted-foreground/70 mt-0.5">
@@ -136,7 +136,7 @@ export function RecommendationCard({
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 pt-1 border-t border-border/10">
           <FieldRow label="Status">
-            <span className="font-semibold text-emerald-400">Completed ✅</span>
+            <span className="font-semibold text-emerald-600 dark:text-emerald-400">Completed ✅</span>
           </FieldRow>
           <FieldRow label="Completed On">
             <span className="tabular-nums font-medium text-foreground">{dueDate || 'N/A'}</span>
@@ -234,9 +234,9 @@ export function RecommendationCard({
           {expectedResult ? (
             <span className={cn(
               'inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-bold',
-              expectedResult === 'On Track' && 'text-emerald-400 bg-emerald-500/10 border-emerald-500/25',
-              expectedResult === 'At Risk' && 'text-amber-400 bg-amber-500/10 border-amber-500/25',
-              expectedResult === 'Delayed' && 'text-red-400 bg-red-500/10 border-red-500/25',
+              expectedResult === 'On Track' && 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/25',
+              expectedResult === 'At Risk' && 'text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/25',
+              expectedResult === 'Delayed' && 'text-red-600 dark:text-red-400 bg-red-500/10 border-red-500/25',
             )}>
               {expectedResult}
             </span>
@@ -265,7 +265,7 @@ export function RecommendationCard({
           <div className="rounded-lg border border-violet-500/20 bg-violet-500/[0.06] p-4 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="space-y-0.5">
-                <p className="text-[10px] uppercase tracking-wider text-violet-400 font-semibold">Recommended Owner</p>
+                <p className="text-[10px] uppercase tracking-wider text-violet-600 dark:text-violet-400 font-semibold">Recommended Owner</p>
                 {onAssigneeClick ? (
                   <button
                     type="button"
@@ -281,7 +281,7 @@ export function RecommendationCard({
 
               {workload && (
                 <div className="space-y-0.5">
-                  <p className="text-[10px] uppercase tracking-wider text-violet-400 font-semibold">Current Workload</p>
+                  <p className="text-[10px] uppercase tracking-wider text-violet-600 dark:text-violet-400 font-semibold">Current Workload</p>
                   <span className={cn('inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold mt-0.5', WORKLOAD_STYLE[workload])}>
                     {workload}
                   </span>
@@ -307,13 +307,13 @@ export function RecommendationCard({
 
             {friendlyWhy.length > 0 && (
               <div className="pt-3 border-t border-violet-500/10">
-                <p className="text-[10px] uppercase tracking-wider text-violet-400 font-semibold mb-2">
+                <p className="text-[10px] uppercase tracking-wider text-violet-600 dark:text-violet-400 font-semibold mb-2">
                   Reasoning
                 </p>
                 <ul className="space-y-1.5">
                   {friendlyWhy.map((bullet, i) => (
                     <li key={i} className="flex items-start gap-2 text-xs text-foreground/85 leading-snug">
-                      <span className="text-emerald-400 shrink-0 mt-0.5">✓</span>
+                      <span className="text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5">✓</span>
                       <span>{bullet}</span>
                     </li>
                   ))}

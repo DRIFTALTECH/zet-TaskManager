@@ -5,10 +5,10 @@ import type { Task, Priority } from '@/types';
 import { normalizePriority } from '@/lib/task-utils';
 
 const PRIORITY_PILL: Record<Priority, string> = {
-  Urgent: 'bg-red-500/20 text-red-400 border-red-500/30',
-  High:   'bg-orange-500/20 text-orange-400 border-orange-500/30',
-  Medium: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-  Low:    'bg-green-500/20 text-green-400 border-green-500/30',
+  Urgent: 'bg-red-500/20 text-red-600 dark:text-red-400 border-red-500/30',
+  High:   'bg-orange-500/20 text-orange-600 dark:text-orange-400 border-orange-500/30',
+  Medium: 'bg-yellow-500/20 text-yellow-600 dark:text-yellow-400 border-yellow-500/30',
+  Low:    'bg-green-500/20 text-green-600 dark:text-green-400 border-green-500/30',
 };
 const PRIORITY_DOT: Record<Priority, string> = {
   Urgent: 'bg-red-400',

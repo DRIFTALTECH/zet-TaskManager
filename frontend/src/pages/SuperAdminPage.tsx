@@ -286,7 +286,7 @@ const SuperAdminPage = () => {
     <div className="mx-auto max-w-6xl px-4 sm:px-6 py-6">
       <header className="flex flex-wrap items-center justify-between gap-3 pb-5">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-400">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
             <ShieldCheck className="h-5 w-5" />
           </div>
           <div>

@@ -9,34 +9,34 @@ import type { ProjectStatusLabel } from '@/lib/analyticsApi';
 
 export const KPI_VARIANTS = {
   blue: {
-    card: 'border-blue-500/20 bg-blue-500/[0.06]',
-    icon: 'text-blue-400',
-    value: 'text-blue-400',
+    card: 'border-blue-500/25 bg-blue-500/[0.08] dark:border-blue-500/20 dark:bg-blue-500/[0.06]',
+    icon: 'text-blue-600 dark:text-blue-400',
+    value: 'text-blue-700 dark:text-blue-400',
   },
   emerald: {
-    card: 'border-emerald-500/20 bg-emerald-500/[0.06]',
-    icon: 'text-emerald-400',
-    value: 'text-emerald-400',
+    card: 'border-emerald-500/25 bg-emerald-500/[0.08] dark:border-emerald-500/20 dark:bg-emerald-500/[0.06]',
+    icon: 'text-emerald-600 dark:text-emerald-400',
+    value: 'text-emerald-700 dark:text-emerald-400',
   },
   red: {
-    card: 'border-red-500/20 bg-red-500/[0.06]',
-    icon: 'text-red-400',
-    value: 'text-red-400',
+    card: 'border-red-500/25 bg-red-500/[0.08] dark:border-red-500/20 dark:bg-red-500/[0.06]',
+    icon: 'text-red-600 dark:text-red-400',
+    value: 'text-red-700 dark:text-red-400',
   },
   amber: {
-    card: 'border-amber-500/20 bg-amber-500/[0.06]',
-    icon: 'text-amber-400',
-    value: 'text-amber-400',
+    card: 'border-amber-500/25 bg-amber-500/[0.08] dark:border-amber-500/20 dark:bg-amber-500/[0.06]',
+    icon: 'text-amber-600 dark:text-amber-400',
+    value: 'text-amber-700 dark:text-amber-400',
   },
   orange: {
-    card: 'border-orange-500/20 bg-orange-500/[0.06]',
-    icon: 'text-orange-400',
-    value: 'text-orange-400',
+    card: 'border-orange-500/25 bg-orange-500/[0.08] dark:border-orange-500/20 dark:bg-orange-500/[0.06]',
+    icon: 'text-orange-600 dark:text-orange-400',
+    value: 'text-orange-700 dark:text-orange-400',
   },
   violet: {
-    card: 'border-violet-500/20 bg-violet-500/[0.06]',
-    icon: 'text-violet-400',
-    value: 'text-violet-400',
+    card: 'border-violet-500/25 bg-violet-500/[0.08] dark:border-violet-500/20 dark:bg-violet-500/[0.06]',
+    icon: 'text-violet-600 dark:text-violet-400',
+    value: 'text-violet-700 dark:text-violet-400',
   },
   neutral: {
     card: 'border-border/30 bg-muted/[0.04]',
@@ -74,11 +74,11 @@ export function AnalyticsKpiCard({
 }
 
 export const PRIORITY_CHIP: Record<string, string> = {
-  Urgent: 'text-red-400 border-red-500/30 bg-red-500/10',
-  Critical: 'text-red-400 border-red-500/30 bg-red-500/10',
-  High: 'text-orange-400 border-orange-500/30 bg-orange-500/10',
+  Urgent: 'text-red-600 dark:text-red-400 border-red-500/30 bg-red-500/10',
+  Critical: 'text-red-600 dark:text-red-400 border-red-500/30 bg-red-500/10',
+  High: 'text-orange-600 dark:text-orange-400 border-orange-500/30 bg-orange-500/10',
   Medium: 'text-yellow-500 border-yellow-500/30 bg-yellow-500/10',
-  Low: 'text-slate-400 border-slate-500/25 bg-slate-500/10',
+  Low: 'text-slate-600 dark:text-slate-400 border-slate-500/25 bg-slate-500/10',
 };
 
 export function PriorityChip({ priority, className }: { priority: string; className?: string }) {
@@ -97,12 +97,12 @@ export function PriorityChip({ priority, className }: { priority: string; classN
 }
 
 export const TASK_STATUS_CHIP: Record<string, string> = {
-  in_progress: 'bg-blue-500/10 text-blue-400 border-blue-500/25',
+  in_progress: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/25',
   todo: 'bg-muted/50 text-muted-foreground border-border/40',
-  in_review: 'bg-amber-500/10 text-amber-400 border-amber-500/25',
+  in_review: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/25',
   backlog: 'bg-muted/40 text-muted-foreground/70 border-border/30',
-  completed: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25',
-  cancelled: 'bg-red-500/10 text-red-400 border-red-500/25',
+  completed: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/25',
+  cancelled: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/25',
 };
 
 export const TASK_STATUS_LABEL: Record<string, string> = {
@@ -128,9 +128,9 @@ export function TaskStatusChip({ status }: { status: string }) {
 }
 
 export const PROJECT_STATUS_CHIP: Record<ProjectStatusLabel, string> = {
-  'On Track': 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25',
-  'Needs Attention': 'bg-amber-500/10 text-amber-400 border-amber-500/25',
-  'At Risk': 'bg-red-500/10 text-red-400 border-red-500/25',
+  'On Track': 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/25',
+  'Needs Attention': 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/25',
+  'At Risk': 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/25',
 };
 
 export function ProjectStatusChip({ status }: { status: ProjectStatusLabel | string }) {
@@ -149,7 +149,7 @@ export function ProjectStatusChip({ status }: { status: ProjectStatusLabel | str
 
 export function OverdueChip() {
   return (
-    <span className="rounded-full border px-2 py-0.5 text-[10px] font-bold bg-red-500/10 text-red-400 border-red-500/25">
+    <span className="rounded-full border px-2 py-0.5 text-[10px] font-bold bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/25">
       Overdue
     </span>
   );
@@ -182,7 +182,7 @@ export function AnalyticsSection({
   return (
     <section className={cn('rounded-2xl border p-5 space-y-3', toneClass, className)}>
       <div className="flex items-center gap-2">
-        {Icon && <Icon className={cn('h-4 w-4', iconClassName ?? 'text-violet-400')} />}
+        {Icon && <Icon className={cn('h-4 w-4', iconClassName ?? 'text-violet-600 dark:text-violet-400')} />}
         <h2 className="text-sm font-semibold text-foreground">{title}</h2>
         {badge}
       </div>

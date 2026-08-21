@@ -27,7 +27,7 @@ export const navItems: NavItem[] = [
     label: 'Zani',
     labelNode: (
       <>
-        <span className="text-violet-400 font-bold">Z</span>ani
+        <span className="text-violet-600 dark:text-violet-400 font-bold">Z</span>ani
       </>
     ),
     icon: Sparkles,

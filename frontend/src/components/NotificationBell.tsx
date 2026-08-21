@@ -20,11 +20,11 @@ function timeAgo(iso: string) {
 }
 
 const TYPE_ICON: Record<string, React.ReactNode> = {
-  task_assigned: <UserPlus className="h-3.5 w-3.5 text-blue-400" />,
-  task_mentioned: <AtSign className="h-3.5 w-3.5 text-violet-400" />,
-  task_status_changed: <ArrowRightLeft className="h-3.5 w-3.5 text-amber-400" />,
-  task_commented: <MessageSquare className="h-3.5 w-3.5 text-sky-400" />,
-  task_approved: <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />,
+  task_assigned: <UserPlus className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />,
+  task_mentioned: <AtSign className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />,
+  task_status_changed: <ArrowRightLeft className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />,
+  task_commented: <MessageSquare className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400" />,
+  task_approved: <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />,
 };
 
 export default function NotificationBell() {
@@ -147,7 +147,7 @@ export default function NotificationBell() {
                 <Bell className="h-3.5 w-3.5 text-muted-foreground/60" />
                 <span className="text-sm font-semibold text-foreground">Notifications</span>
                 {unread > 0 && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 font-bold border border-red-500/25">
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-600 dark:text-red-400 font-bold border border-red-500/25">
                     {unread} new
                   </span>
                 )}

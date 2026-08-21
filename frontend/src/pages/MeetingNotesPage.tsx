@@ -351,7 +351,7 @@ function ScrumCard({ scrum, users, onChanged, onDeleted }: {
                 <ListChecks className="h-3.5 w-3.5" />
               </button>
               <button onClick={() => void remove()} disabled={busy}
-                title="Delete scrum" className="p-1.5 rounded-lg hover:bg-red-500/10 text-muted-foreground hover:text-red-400 transition-colors">
+                title="Delete scrum" className="p-1.5 rounded-lg hover:bg-red-500/10 text-muted-foreground hover:text-red-600 dark:text-red-400 transition-colors">
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
             </>
@@ -370,7 +370,7 @@ function ScrumCard({ scrum, users, onChanged, onDeleted }: {
             <motion.div key="view" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-3">
               {scrum.summary && <p className="text-xs text-muted-foreground/75">{scrum.summary}</p>}
               {scrum.parseStatus === 'failed' && (
-                <div className="flex items-center justify-between gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                <div className="flex items-center justify-between gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
                   <span className="flex items-center gap-1.5"><AlertCircle className="h-3.5 w-3.5" /> Parsing failed.</span>
                   <button onClick={() => void reparse()} disabled={busy} className="shrink-0 px-2 py-1 rounded-md bg-amber-500/20 font-bold hover:bg-amber-500/30 transition-colors disabled:opacity-50">
                     {busy ? '…' : 'Re-parse'}
@@ -434,7 +434,7 @@ function ScrumCard({ scrum, users, onChanged, onDeleted }: {
                       placeholder="Person name"
                       className="flex-1 px-2.5 py-1.5 text-sm font-semibold rounded-lg border border-border/60 bg-background/60 focus:outline-none focus:border-primary/50" />
                     <button onClick={() => setMembers(ms => ms.filter((_, i) => i !== mi))}
-                      className="p-1.5 rounded-lg hover:bg-red-500/10 text-muted-foreground hover:text-red-400 transition-colors">
+                      className="p-1.5 rounded-lg hover:bg-red-500/10 text-muted-foreground hover:text-red-600 dark:text-red-400 transition-colors">
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
@@ -868,7 +868,7 @@ function NewScrumForm({ date, onCancel, onCreated }: {
           className={[
             'flex items-center justify-center gap-2 rounded-xl border px-3 py-3 text-xs font-semibold transition-colors shrink-0 disabled:opacity-50',
             recording
-              ? 'border-red-500/60 bg-red-500/15 text-red-400 hover:bg-red-500/25'
+              ? 'border-red-500/60 bg-red-500/15 text-red-600 dark:text-red-400 hover:bg-red-500/25'
               : 'border-border/60 text-muted-foreground hover:border-primary/50 hover:text-primary',
           ].join(' ')}
         >

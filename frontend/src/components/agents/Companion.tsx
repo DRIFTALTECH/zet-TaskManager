@@ -59,7 +59,7 @@ function MovingCard() {
     <svg width="72" height="60" viewBox="0 0 66 56" aria-hidden>
       <rect x="4" y="10" width="24" height="42" rx="4" fill="#fff" stroke="#16161a" strokeWidth="2" opacity="0.5" />
       <rect x="38" y="10" width="24" height="42" rx="4" fill="#fff" stroke="#16161a" strokeWidth="2" opacity="0.5" />
-      <motion.rect width="18" height="12" rx="3" fill="#f97316" stroke="#16161a" strokeWidth="1.5"
+      <motion.rect width="18" height="12" rx="3" fill="#f59e0b" stroke="#16161a" strokeWidth="1.5"
         initial={{ x: 7, y: 16 }} animate={{ x: [7, 24, 42], y: [16, 2, 16] }} transition={{ duration: 1.2, ease: 'easeInOut', repeat: Infinity, repeatDelay: 0.3 }} />
     </svg>
   );
@@ -70,7 +70,7 @@ function Stopwatch() {
       initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 300, damping: 14 }}>
       <rect x="26" y="3" width="8" height="6" rx="2" fill="#16161a" />
       <circle cx="30" cy="34" r="20" fill="#fff" stroke="#16161a" strokeWidth="3" />
-      <motion.circle r="3" fill="#f97316"
+      <motion.circle r="3" fill="#f59e0b"
         animate={{ cx: [30, 44, 30, 16, 30], cy: [18, 34, 50, 34, 18] }}
         transition={{ repeat: Infinity, duration: 2, ease: 'linear' }} />
       <circle cx="30" cy="34" r="2.5" fill="#16161a" />
@@ -135,7 +135,7 @@ function StandupModal({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-violet-500/15 text-violet-400">
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-violet-500/15 text-violet-600 dark:text-violet-400">
               <ScrollText className="h-4 w-4" />
             </span>
             Your day, wrapped
@@ -145,14 +145,14 @@ function StandupModal({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
         {loading ? (
           <div className="flex flex-col items-center justify-center gap-3 py-10">
             <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1.1, ease: 'linear' }}>
-              <RefreshCw className="h-6 w-6 text-violet-400" />
+              <RefreshCw className="h-6 w-6 text-violet-600 dark:text-violet-400" />
             </motion.div>
             <p className="text-sm text-muted-foreground">Tasker is reviewing your day…</p>
           </div>
         ) : error ? (
           <div className="py-8 text-center">
             <p className="text-sm text-muted-foreground">{error}</p>
-            <button onClick={() => void load()} className="mt-4 text-sm font-medium text-violet-400 hover:underline">Try again</button>
+            <button onClick={() => void load()} className="mt-4 text-sm font-medium text-violet-600 dark:text-violet-400 hover:underline">Try again</button>
           </div>
         ) : data ? (
           <div className="space-y-4">
@@ -168,7 +168,7 @@ function StandupModal({ open, onOpenChange }: { open: boolean; onOpenChange: (o:
               {lines.map((l, i) =>
                 l.startsWith('-') || l.startsWith('•') ? (
                   <div key={i} className="flex gap-2 text-sm text-foreground/90 leading-relaxed">
-                    <span className="text-violet-400 mt-0.5">•</span>
+                    <span className="text-violet-600 dark:text-violet-400 mt-0.5">•</span>
                     <span>{l.replace(/^[-•]\s*/, '').replace(/\*\*/g, '')}</span>
                   </div>
                 ) : (
@@ -446,7 +446,7 @@ export default function Companion() {
                               {proj?.name?.slice(0, 10) ?? '—'}
                             </span>
                             <span className="flex-1 min-w-0 truncate text-xs text-foreground/90">{t.title}</span>
-                            <span className="shrink-0 text-[10px] font-bold text-rose-400">{days}d</span>
+                            <span className="shrink-0 text-[10px] font-bold text-rose-600 dark:text-rose-400">{days}d</span>
                           </button>
                         );
                       })}

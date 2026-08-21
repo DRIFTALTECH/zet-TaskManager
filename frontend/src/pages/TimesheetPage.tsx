@@ -2,10 +2,11 @@ import { useSearchParams } from 'react-router-dom';
 import { useAppStore } from '@/stores/appStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import type { ReactNode } from 'react';
 import {
   ChevronLeft, ChevronRight, Download, Plus, Send,
-  Trash2, CalendarX2, Clock, CalendarDays,
-  Tag, DollarSign, List, X, Mail, Sparkles, Check, Pencil,
+  Trash2, CalendarX2, Clock, CalendarDays, CalendarRange,
+  Tag, DollarSign, List, X, Mail, Sparkles, Check, Pencil, User as UserIcon, FolderKanban,
   AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Lock, Users, BarChart2, RefreshCw,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
@@ -60,8 +61,132 @@ const dayShort = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
  * via `onPatch`. Project/section render as plain coloured text (the picker is
  * borderless), stable colour per id.
  */
+
+/** One node of the grouped drill-down: a heading plus either sub-groups or entries. */
+type GroupNode = {
+  /** Full path, so expansion state survives re-grouping of unrelated branches. */
+  path: string;
+  title: string;
+  seconds: number;
+  entryCount: number;
+  children: GroupNode[];
+  entries: TimesheetWorkEntry[];
+};
+
+/**
+ * Build a collapsed tree from the selected dimensions.
+ *
+ * Grouping only helps if you can SCAN the groups: with "By week" you should see
+ * a short list of weeks and open the one you care about, not every entry of
+ * every week at once. Each level here is a heading with its own total; the
+ * entries live at the leaves.
+ */
+function buildGroupTree(
+  entries: TimesheetWorkEntry[],
+  dims: readonly ('week' | 'person' | 'project')[],
+  label: (dim: 'week' | 'person' | 'project', e: TimesheetWorkEntry) => string,
+  keyOf: (dim: 'week' | 'person' | 'project', e: TimesheetWorkEntry) => string,
+  parentPath = '',
+): GroupNode[] {
+  if (dims.length === 0) return [];
+  const [dim, ...rest] = dims;
+  const buckets = new Map<string, { title: string; rows: TimesheetWorkEntry[] }>();
+  for (const e of entries) {
+    const k = keyOf(dim, e);
+    const b = buckets.get(k) ?? { title: label(dim, e), rows: [] };
+    b.rows.push(e);
+    buckets.set(k, b);
+  }
+  return [...buckets.entries()]
+    .map(([k, b]) => {
+      const path = parentPath ? `${parentPath}/${k}` : k;
+      return {
+        path,
+        title: b.title,
+        seconds: b.rows.reduce((sum, e) => sum + e.seconds, 0),
+        entryCount: b.rows.length,
+        children: buildGroupTree(b.rows, rest, label, keyOf, path),
+        entries: b.rows,
+      };
+    })
+    .sort((a, b) =>
+      // Weeks read chronologically, newest first; everything else biggest first.
+      dim === 'week' ? b.path.localeCompare(a.path) : b.seconds - a.seconds,
+    );
+}
+
+
+/**
+ * A collapsed group row. Renders its own children when opened, so three selected
+ * dimensions become three levels of drill-down rather than one long list.
+ */
+function GroupRow({
+  node, depth, expanded, onToggle, renderEntries,
+}: {
+  node: GroupNode;
+  depth: number;
+  expanded: Set<string>;
+  onToggle: (path: string) => void;
+  renderEntries: (entries: TimesheetWorkEntry[]) => ReactNode;
+}) {
+  const open = expanded.has(node.path);
+  const hasChildren = node.children.length > 0;
+
+  return (
+    <div className={cn(depth === 0 && 'rounded-2xl border border-border/30 overflow-hidden bg-card shadow-sm')}>
+      <button
+        type="button"
+        onClick={() => onToggle(node.path)}
+        aria-expanded={open}
+        className={cn(
+          'w-full flex flex-wrap items-center justify-between gap-3 text-left transition-colors',
+          depth === 0
+            ? 'px-7 py-4 bg-muted/10 hover:bg-muted/20 border-b border-border/20'
+            : 'px-5 py-2.5 hover:bg-muted/20 border-b border-border/15',
+        )}
+        style={depth > 0 ? { paddingLeft: `${1.75 + depth * 1.25}rem` } : undefined}
+      >
+        <div className="flex items-center gap-2.5 min-w-0">
+          <ChevronRight className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} />
+          <span className={cn('font-bold text-foreground truncate', depth === 0 ? 'text-base sm:text-lg' : 'text-sm')}>
+            {node.title}
+          </span>
+          <span className="text-xs text-muted-foreground/60 tabular-nums shrink-0">
+            {node.entryCount} {node.entryCount === 1 ? 'entry' : 'entries'}
+          </span>
+        </div>
+        <span className={cn(
+          'font-bold tabular-nums px-3.5 py-1.5 rounded-xl border shrink-0',
+          depth === 0 ? 'text-base' : 'text-sm',
+          node.seconds > 0
+            ? 'bg-primary/10 text-primary border-primary/20'
+            : 'text-muted-foreground/40 bg-muted/30 border-border/30',
+        )}>
+          {node.seconds > 0 ? formatDuration(node.seconds) : '0m'}
+        </span>
+      </button>
+
+      {open && (
+        hasChildren
+          ? node.children.map(child => (
+              <GroupRow
+                key={child.path}
+                node={child}
+                depth={depth + 1}
+                expanded={expanded}
+                onToggle={onToggle}
+                renderEntries={renderEntries}
+              />
+            ))
+          : renderEntries(node.entries)
+      )}
+    </div>
+  );
+}
+
 function InlineEntryRow({
   entry, userProjects, onPatch, onDelete, onToggleBillable, togglingBill, createSection, readOnly = false,
+  showDate = false,
 }: {
   entry: TimesheetWorkEntry;
   userProjects: Project[];
@@ -71,6 +196,8 @@ function InlineEntryRow({
   togglingBill: boolean;
   createSection: (projId: string, name: string) => Promise<string | null>;
   readOnly?: boolean;
+  /** Grouped views span several days, so the row has to say which day it is. */
+  showDate?: boolean;
 }) {
   const [desc, setDesc] = useState(entry.description);
   const [from, setFrom] = useState(apiTimeToCompactDisplay(entry.timeFrom));
@@ -104,6 +231,11 @@ function InlineEntryRow({
 
   return (
     <li className="flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-4 px-4 sm:px-5 py-3 sm:py-3.5 hover:bg-muted/20 transition-colors group">
+      {showDate && (
+        <span className="shrink-0 text-xs font-mono tabular-nums text-muted-foreground/60 w-[4.5rem]">
+          {formatDisplayDate(entry.workDate)}
+        </span>
+      )}
       {/* Description — inline editable */}
       <input
         value={desc}
@@ -156,7 +288,7 @@ function InlineEntryRow({
           title={entry.billable ? 'Billable — click to mark non-billable' : 'Non-billable — click to mark billable'}
           aria-pressed={entry.billable}
           className={`flex items-center justify-center h-8 w-8 rounded-lg transition-colors disabled:opacity-50 shrink-0 ${
-            entry.billable ? 'text-emerald-500 hover:text-emerald-400' : 'text-muted-foreground/30 hover:text-muted-foreground/60'
+            entry.billable ? 'text-emerald-500 hover:text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground/30 hover:text-muted-foreground/60'
           }`}
         >
           <DollarSign className="h-4 w-4" />
@@ -394,7 +526,7 @@ function RowPreviewCard({
               {sectionOpts.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
             <button onClick={() => { setShowNewSec(true); setNewSecName(row.suggested_section_name ?? ''); }}
-              className="shrink-0 flex items-center gap-1 px-2.5 py-2 rounded-lg border border-violet-500/40 text-violet-400 text-xs font-semibold hover:bg-violet-500/10 transition-colors">
+              className="shrink-0 flex items-center gap-1 px-2.5 py-2 rounded-lg border border-violet-500/40 text-violet-600 dark:text-violet-400 text-xs font-semibold hover:bg-violet-500/10 transition-colors">
               <Plus className="h-3 w-3" /> New
             </button>
           </div>
@@ -442,7 +574,7 @@ function RowPreviewCard({
             <Pencil className="h-3.5 w-3.5" />
           </button>
           <button onClick={onRemove}
-            className="p-1.5 rounded-lg hover:bg-red-500/10 text-muted-foreground hover:text-red-400 transition-colors">
+            className="p-1.5 rounded-lg hover:bg-red-500/10 text-muted-foreground hover:text-red-600 dark:text-red-400 transition-colors">
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -452,13 +584,13 @@ function RowPreviewCard({
         <span className="font-mono font-semibold text-foreground/80">{row.time_from} – {row.time_to}</span>
         {row.project_name
           ? <span className="flex items-center gap-1"><Tag className="h-3 w-3" />{row.project_name}</span>
-          : <span className="flex items-center gap-1 text-red-400"><AlertCircle className="h-3 w-3" />No project — edit to pick one</span>}
+          : <span className="flex items-center gap-1 text-red-600 dark:text-red-400"><AlertCircle className="h-3 w-3" />No project — edit to pick one</span>}
         {row.section_name && <span className="opacity-60">/ {row.section_name}</span>}
       </div>
 
       {/* Missing section → require a section before this row can be saved */}
       {row.project_id && !row.section_id && (
-        <div className="flex items-center gap-2 text-[11px] text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2.5 py-1.5">
+        <div className="flex items-center gap-2 text-[11px] text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-2.5 py-1.5">
           <AlertCircle className="h-3 w-3 shrink-0" />
           {row.suggested_section_name ? (
             <>
@@ -475,7 +607,7 @@ function RowPreviewCard({
       )}
 
       {row.needs_clarification && row.clarification_note && (
-        <div className="flex items-start gap-1.5 text-[11px] text-amber-400">
+        <div className="flex items-start gap-1.5 text-[11px] text-amber-600 dark:text-amber-400">
           <AlertCircle className="h-3 w-3 shrink-0 mt-0.5" />
           <span>{row.clarification_note}</span>
         </div>
@@ -620,7 +752,7 @@ function TimesheetAIPanel({
       <div className="px-5 py-4 space-y-3">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-sm font-semibold text-violet-400">
+          <div className="flex items-center gap-2 text-sm font-semibold text-violet-600 dark:text-violet-400">
             <Sparkles className="h-4 w-4" />
             Fill with AI — describe your day
           </div>
@@ -660,7 +792,7 @@ function TimesheetAIPanel({
           <div className="space-y-3">
             {/* AI message */}
             {message && (
-              <div className="flex items-start gap-2 text-xs text-violet-400 bg-violet-500/10 border border-violet-500/20 rounded-lg px-3 py-2">
+              <div className="flex items-start gap-2 text-xs text-violet-600 dark:text-violet-400 bg-violet-500/10 border border-violet-500/20 rounded-lg px-3 py-2">
                 <Sparkles className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                 <span>{message}</span>
               </div>
@@ -668,7 +800,7 @@ function TimesheetAIPanel({
 
             {/* Gaps */}
             {gaps.length > 0 && (
-              <div className="flex items-start gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+              <div className="flex items-start gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
                 <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                 <span>Unaccounted: {gaps.join(' · ')}</span>
               </div>
@@ -700,7 +832,7 @@ function TimesheetAIPanel({
                 {totalHours > 0 && <span>{totalHours.toFixed(1)}h total</span>}
                 <button
                   onClick={() => { setRows(null); setSummary(''); setGaps([]); setMessage(''); }}
-                  className="text-violet-400 hover:underline"
+                  className="text-violet-600 dark:text-violet-400 hover:underline"
                 >
                   ← Edit summary
                 </button>
@@ -728,6 +860,20 @@ const TimesheetPage = () => {
   const isManager = currentUser?.role === 'manager' || currentUser?.role === 'superadmin';
   const manageOpen = isManager && searchParams.get('manage') === '1';
   const analyticsOpen = searchParams.get('analytics') === '1';
+  /**
+   * Grouping dimensions, in the order they were clicked — that order IS the
+   * nesting order. Project then person then week nests project > person > week;
+   * clicking person first puts people on the outside instead. Nothing is
+   * selected by default, which is the normal day list.
+   */
+  type GroupDim = 'week' | 'person' | 'project';
+  const [groupDims, setGroupDims] = useState<GroupDim[]>([]);
+  const toggleGroupDim = (d: GroupDim) =>
+    setGroupDims(prev => (prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]));
+  const activeDims = groupDims;
+  // Asking about people only means anything across the team, and only a manager
+  // may see it; an employee always groups their own entries.
+  const teamMode = isManager && (groupDims.includes('person') || groupDims.includes('project'));
   const setManageOpen = (open: boolean) => {
     if (open) setSearchParams({ manage: '1' }, { replace: true });
     else setSearchParams({}, { replace: true });
@@ -842,6 +988,26 @@ const TimesheetPage = () => {
     }
   }, [rangeStart, rangeEnd, weeksInSelection]);
 
+  // Person/project group across the whole team, which is a different endpoint
+  // from the personal timesheet. Only fetched when one of those is selected.
+  const [teamEntries, setTeamEntries] = useState<TimesheetWorkEntry[]>([]);
+  useEffect(() => {
+    if (!teamMode) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const rows = await api.getTeamTimesheetEntries(rangeStart, rangeEnd);
+        if (!cancelled) setTeamEntries(rows);
+      } catch (e) {
+        if (!cancelled) {
+          toast.error(e instanceof Error ? e.message : 'Could not load team time');
+          setTeamEntries([]);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [teamMode, rangeStart, rangeEnd]);
+
   const timesheetEpoch = useAppStore(s => s.timesheetEpoch);
   useEffect(() => { void reloadWeek(); }, [reloadWeek, timesheetEpoch]);
 
@@ -870,6 +1036,14 @@ const TimesheetPage = () => {
     [entries, todayStr],
   );
 
+  // How many days are painted at once. Days, not entries, because the list is
+  // grouped by day and a day carries its own entries with it.
+  const DAYS_PER_PAGE = 31;
+  const [visibleDayCount, setVisibleDayCount] = useState(DAYS_PER_PAGE);
+  // Reset the window whenever the period changes, so switching to a new week
+  // does not inherit a huge window from a previous "all time" view.
+  useEffect(() => { setVisibleDayCount(DAYS_PER_PAGE); }, [rangeStart, rangeEnd, groupDims]);
+
   const dayView = useMemo(
     () => visibleWeekDates
       .map(date => {
@@ -889,6 +1063,39 @@ const TimesheetPage = () => {
     () => weeksInSelection.filter(ws => submissions[ws] && submissions[ws].status !== 'draft'),
     [weeksInSelection, submissions],
   );
+
+  /**
+   * The list below, grouped. Every mode produces the same shape so the existing
+   * day card renders all of them — the UI does not change, only what a card holds.
+   * `date` is set only for day groups, which are the only ones that support the
+   * day-specific actions (On Leave, AI, Add entry).
+   */
+  // Grouped drill-down. Day view (no dimensions) keeps its own expanded cards
+  // below; this only builds the collapsed tree.
+  const groupTree = useMemo(() => {
+    if (activeDims.length === 0) return [];
+    const source = teamMode ? teamEntries : entries.filter(e => e.workDate <= todayStr);
+    const label = (dim: GroupDim, e: TimesheetWorkEntry) =>
+      dim === 'week' ? `Week of ${formatDisplayDate(isoWeekMonday(e.workDate))}`
+        : dim === 'person' ? (users.find(u => u.id === e.userId)?.name ?? 'Unknown person')
+          : (projects.find(pr => pr.id === e.projectId)?.name ?? 'Unknown project');
+    const keyOf = (dim: GroupDim, e: TimesheetWorkEntry) =>
+      dim === 'week' ? isoWeekMonday(e.workDate) : dim === 'person' ? e.userId : e.projectId;
+    return buildGroupTree(source, activeDims, label, keyOf);
+  }, [activeDims, teamMode, entries, teamEntries, todayStr, users, projects]);
+
+  // Which groups are open. Collapsed by default: the point of grouping is to
+  // scan a short list first and open only what you need.
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const toggleGroup = useCallback((path: string) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path); else next.add(path);
+      return next;
+    });
+  }, []);
+  // A new grouping means new paths; stale ones would leave rows half-open.
+  useEffect(() => { setExpandedGroups(new Set()); }, [groupDims, rangeStart, rangeEnd]);
 
   const weekSubmissionData = useMemo(
     () => buildSelectedSubmissionData(weekSubmitDates, entries),
@@ -1354,7 +1561,12 @@ const TimesheetPage = () => {
       <div className="shrink-0 px-3 sm:px-8 pt-3 sm:pt-7 pb-3 sm:pb-5 border-b border-border/30 bg-gradient-to-b from-muted/20 to-transparent">
         <div className="flex flex-col lg:flex-row lg:items-center gap-3 w-full min-w-0">
           <div className="flex items-start gap-2 flex-1 min-w-0">
-            <DateRangePicker value={selection} onChange={setSelection} className="min-w-0 flex-1" />
+            <DateRangePicker
+              value={selection}
+              onChange={setSelection}
+              allowedPresets={['week', 'lastweek', 'custom']}
+              className="min-w-0 flex-1"
+            />
             {loadingEntries && (
               <div className="mt-2 w-3.5 h-3.5 rounded-full border-2 border-primary/30 border-t-primary animate-spin shrink-0" />
             )}
@@ -1451,6 +1663,36 @@ const TimesheetPage = () => {
                 <span className="hidden sm:inline">Manage timesheets</span>
               </motion.button>
             )}
+            {isManager && ([
+              ['week', 'By week', CalendarRange],
+              ['person', 'By person', UserIcon],
+              ['project', 'By project', FolderKanban],
+            ] as const).map(([id, label, Icon]) => (
+              <motion.button
+                key={id}
+                transition={snappy}
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={() => toggleGroupDim(id)}
+                aria-label={label}
+                title={label}
+                className={cn(
+                  'flex items-center gap-2 text-sm px-3 sm:px-4 py-2 rounded-xl border transition-all font-medium',
+                  groupDims.includes(id)
+                    ? 'border-primary/40 bg-primary/10 text-primary'
+                    : 'border-border/50 hover:bg-muted/50 hover:border-border/80 text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {groupDims.includes(id) ? (
+                  <span className="h-4 w-4 shrink-0 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center tabular-nums">
+                    {groupDims.indexOf(id) + 1}
+                  </span>
+                ) : (
+                  <Icon className="h-4 w-4" />
+                )}
+                <span className="hidden sm:inline">{label}</span>
+              </motion.button>
+            ))}
             <motion.button
               transition={snappy}
               whileHover={{ scale: 1.03 }}
@@ -1662,15 +1904,55 @@ const TimesheetPage = () => {
         )}
 
         {/* ── Day cards ───────────────────────────────────────────────────── */}
-        {visibleWeekDates.length === 0 ? (
+        {activeDims.length > 0 ? (
+          groupTree.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-border/40 bg-muted/10 px-6 py-10 text-center text-sm text-muted-foreground/50">
+              Nothing logged in this period.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {groupTree.map(node => (
+                <GroupRow
+                  key={node.path}
+                  node={node}
+                  depth={0}
+                  expanded={expandedGroups}
+                  onToggle={toggleGroup}
+                  renderEntries={rows => (
+                    <ul className="divide-y divide-border/20">
+                      {[...rows]
+                        .sort((a, b) =>
+                          b.workDate.localeCompare(a.workDate) || b.timeFrom.localeCompare(a.timeFrom))
+                        .map(entry => (
+                          <InlineEntryRow
+                            key={entry.id}
+                            entry={entry}
+                            userProjects={userProjects}
+                            onPatch={patchEntryInline}
+                            onDelete={setEntryToDelete}
+                            onToggleBillable={toggleBillable}
+                            togglingBill={togglingBillId === entry.id}
+                            createSection={createSectionReturningId}
+                            readOnly={teamMode || isDateLocked(entry.workDate)}
+                            showDate
+                          />
+                        ))}
+                    </ul>
+                  )}
+                />
+              ))}
+            </div>
+          )
+        ) : visibleWeekDates.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-border/40 bg-muted/10 px-6 py-10 text-center text-sm text-muted-foreground/50">
             No days in this range — future days are hidden.
           </div>
         ) : (
           <div className="space-y-4">
             <AnimatePresence initial={false}>
-              {dayView.map((day, idx) => {
+              {dayView.slice(0, visibleDayCount).map((day, idx) => {
                 const isToday = day.date === todayStr;
+                const isDay = true;
                 return (
                   <motion.section
                     key={day.date}
@@ -1702,9 +1984,10 @@ const TimesheetPage = () => {
                           {day.totalSeconds > 0 ? formatDuration(day.totalSeconds) : '0m'}
                         </span>
 
+                        {isDay && (
                         <button
                           type="button"
-                          onClick={() => toggleOnLeave(day.date)}
+                          onClick={() => toggleOnLeave(day.date!)}
                           className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg transition-all font-medium ${
                             onLeaveDays.has(day.date)
                               ? 'bg-amber-500/15 text-amber-600 border border-amber-500/30 hover:bg-amber-500/25'
@@ -1712,10 +1995,11 @@ const TimesheetPage = () => {
                           }`}
                         >
                           <CalendarX2 className="h-3.5 w-3.5" />
-                          {onLeaveDays.has(day.date) ? 'On Leave ✓' : 'On Leave'}
+                          {onLeaveDays.has(day.date!) ? 'On Leave ✓' : 'On Leave'}
                         </button>
+                        )}
 
-                        {!onLeaveDays.has(day.date) && !isDateLocked(day.date) && (
+                        {isDay && !onLeaveDays.has(day.date!) && !isDateLocked(day.date!) && (
                           <>
                             <button
                               type="button"
@@ -1723,8 +2007,8 @@ const TimesheetPage = () => {
                               onClick={() => setAiOpenDay(prev => prev === day.date ? null : day.date)}
                               className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl font-semibold border transition-all disabled:opacity-40 ${
                                 aiOpenDay === day.date
-                                  ? 'border-violet-500/40 bg-violet-500/15 text-violet-400'
-                                  : 'border-violet-500/20 bg-violet-500/5 hover:bg-violet-500/15 text-violet-400'
+                                  ? 'border-violet-500/40 bg-violet-500/15 text-violet-600 dark:text-violet-400'
+                                  : 'border-violet-500/20 bg-violet-500/5 hover:bg-violet-500/15 text-violet-600 dark:text-violet-400'
                               }`}
                             >
                               <Sparkles className="h-3.5 w-3.5" /> AI
@@ -1744,18 +2028,18 @@ const TimesheetPage = () => {
 
                     {/* AI Panel */}
                     <AnimatePresence>
-                      {aiOpenDay === day.date && !onLeaveDays.has(day.date) && !isDateLocked(day.date) && (
+                      {isDay && aiOpenDay === day.date && !onLeaveDays.has(day.date!) && !isDateLocked(day.date!) && (
                         <TimesheetAIPanel
-                          date={day.date}
+                          date={day.date!}
                           onClose={() => setAiOpenDay(null)}
                           onEntriesAdded={reloadWeek}
-                          disabled={isDateLocked(day.date)}
+                          disabled={isDateLocked(day.date!)}
                         />
                       )}
                     </AnimatePresence>
 
                     {/* Entries */}
-                    {onLeaveDays.has(day.date) ? (
+                    {isDay && onLeaveDays.has(day.date!) ? (
                       <div className="px-5 py-6 flex items-center justify-center gap-2.5 text-amber-500/70">
                         <CalendarX2 className="h-4 w-4 shrink-0" />
                         <span className="text-sm font-medium">On leave — no entries for this day</span>
@@ -1765,8 +2049,8 @@ const TimesheetPage = () => {
                         Nothing logged yet —{' '}
                         <button
                           type="button"
-                          onClick={() => !isDateLocked(day.date) && openNewModal(day.date)}
-                          disabled={userProjects.length === 0 || isDateLocked(day.date)}
+                          onClick={() => isDay && !isDateLocked(day.date!) && openNewModal(day.date!)}
+                          disabled={!isDay || userProjects.length === 0 || isDateLocked(day.date!)}
                           className="font-semibold text-primary/60 hover:text-primary transition-colors disabled:opacity-40 hover:underline"
                         >
                           add an entry
@@ -1774,7 +2058,10 @@ const TimesheetPage = () => {
                       </div>
                     ) : (
                       <ul className="divide-y divide-border/20">
-                        {[...day.entriesForDay].sort((a, b) => b.timeFrom.localeCompare(a.timeFrom)).map(entry => (
+                        {[...day.entriesForDay]
+                          .sort((a, b) =>
+                            b.workDate.localeCompare(a.workDate) || b.timeFrom.localeCompare(a.timeFrom))
+                          .map(entry => (
                           <InlineEntryRow
                             key={entry.id}
                             entry={entry}
@@ -1784,7 +2071,7 @@ const TimesheetPage = () => {
                             onToggleBillable={toggleBillable}
                             togglingBill={togglingBillId === entry.id}
                             createSection={createSectionReturningId}
-                            readOnly={isDateLocked(day.date)}
+                            readOnly={teamMode || !isDay || isDateLocked(day.date!)}
                           />
                         ))}
                       </ul>
@@ -1793,6 +2080,21 @@ const TimesheetPage = () => {
                 );
               })}
             </AnimatePresence>
+
+            {dayView.length > visibleDayCount && (
+              <div className="flex flex-col items-center gap-1.5 py-4">
+                <p className="text-xs text-muted-foreground">
+                  Showing {visibleDayCount} of {dayView.length} days
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setVisibleDayCount(n => n + DAYS_PER_PAGE)}
+                  className="rounded-xl border border-border/60 px-4 py-2 text-sm font-semibold hover:bg-muted/60 transition-colors"
+                >
+                  Show {Math.min(DAYS_PER_PAGE, dayView.length - visibleDayCount)} more days
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

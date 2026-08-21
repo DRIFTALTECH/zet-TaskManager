@@ -60,7 +60,7 @@ function OrgNodeCard({ node, depth = 0, selectedId, onSelect }: OrgNodeCardProps
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-semibold text-sm text-foreground group-hover:text-violet-400 transition-colors">
+              <span className="font-semibold text-sm text-foreground group-hover:text-violet-600 dark:text-violet-400 transition-colors">
                 {node.name}
               </span>
               {onSelect && (

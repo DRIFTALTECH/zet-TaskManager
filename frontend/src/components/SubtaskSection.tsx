@@ -194,7 +194,7 @@ export function SubtaskManager({ taskId, className }: ManagerProps) {
         <div className="mb-3">
           <div className="flex items-center justify-between text-[10px] text-muted-foreground/50 mb-1">
             <span>Progress</span>
-            <span className={pct === 100 ? 'text-emerald-400 font-bold' : ''}>
+            <span className={pct === 100 ? 'text-emerald-600 dark:text-emerald-400 font-bold' : ''}>
               {done}/{total} · {pct}%
             </span>
           </div>
@@ -228,7 +228,7 @@ export function SubtaskManager({ taskId, className }: ManagerProps) {
                   aria-label={item.isDone ? 'Mark as not completed' : 'Mark as completed'}
                 >
                   {item.isDone
-                    ? <CheckSquare className="h-4 w-4 text-emerald-400" />
+                    ? <CheckSquare className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                     : <Square className="h-4 w-4" />}
                 </button>
                 {isEditing ? (
@@ -262,7 +262,7 @@ export function SubtaskManager({ taskId, className }: ManagerProps) {
                 <button
                   type="button"
                   onClick={() => void deleteSubtask(item.id)}
-                  className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-500/10 text-muted-foreground/40 hover:text-red-400 transition-all shrink-0"
+                  className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-500/10 text-muted-foreground/40 hover:text-red-600 dark:text-red-400 transition-all shrink-0"
                   aria-label="Delete subtask"
                 >
                   <X className="h-3 w-3" />

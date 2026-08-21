@@ -215,11 +215,11 @@ const MyTasksPage = () => {
                   className="w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm hover:bg-muted/50 transition-colors"
                 >
                   {s.kind === 'project' ? (
-                    <span className="inline-flex items-center gap-1 shrink-0 text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-violet-500/15 text-violet-400 border border-violet-500/20">
+                    <span className="inline-flex items-center gap-1 shrink-0 text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-violet-500/15 text-violet-600 dark:text-violet-400 border border-violet-500/20">
                       <FolderOpen className="h-3 w-3" /> Project
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 shrink-0 text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
+                    <span className="inline-flex items-center gap-1 shrink-0 text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
                       <CheckSquare className="h-3 w-3" /> Task
                     </span>
                   )}

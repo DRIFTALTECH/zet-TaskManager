@@ -21,16 +21,12 @@ import { AnalyticsKpiCard, AnalyticsSection } from '@/components/analytics/analy
 import { ANALYTICS_LABELS } from '@/lib/analyticsLabels';
 import { healthScoreToCondition } from '@/lib/healthStatus';
 import { pageEnter } from '@/lib/motion';
-
-function defaultRange() {
-  const end = new Date();
-  const start = new Date(end);
-  start.setDate(start.getDate() - 29);
-  return {
-    startDate: start.toISOString().slice(0, 10),
-    endDate: end.toISOString().slice(0, 10),
-  };
-}
+import { cn } from '@/lib/utils';
+import DateRangePicker from '@/components/DateRangePicker';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import { formatRangeLabel, resolveRange, type RangeSelection } from '@/lib/date-range';
 
 const CHART_TOOLTIP = {
   background: 'hsl(var(--card))',
@@ -44,8 +40,17 @@ export default function OverviewPage() {
   const projects = useAppStore(s => s.projects);
   const isManager = currentUser?.role === 'manager' || currentUser?.role === 'superadmin';
 
-  const [range, setRange] = useState(defaultRange);
-  const [projectId, setProjectId] = useState('');
+  // Same period control as Timesheet, Calendar and Reports.
+  const [selection, setSelection] = useState<RangeSelection>({ preset: 'last30', offset: 0 });
+  const [projectId, setProjectId] = useState('all');
+
+  // The analytics API takes startDate/endDate. resolveRange works in LOCAL dates —
+  // the previous defaultRange() used toISOString(), which shifts to UTC and picked
+  // the wrong day for anyone east of Greenwich in the early hours.
+  const range = useMemo(() => {
+    const r = resolveRange(selection);
+    return { startDate: r.start, endDate: r.end };
+  }, [selection]);
 
   const visibleProjects = useMemo(() => {
     if (!currentUser) return [];
@@ -57,7 +62,7 @@ export default function OverviewPage() {
 
   const { data, isLoading, isFetching, error } = useQuery({
     queryKey: ['overview', range, projectId],
-    queryFn: () => analyticsExtApi.getOverview(range, projectId || undefined),
+    queryFn: () => analyticsExtApi.getOverview(range, projectId === 'all' ? undefined : projectId),
     staleTime: 0,
     enabled: isManager,
   });
@@ -67,7 +72,7 @@ export default function OverviewPage() {
     const { onTimeCompletionPct: _omit, ...kpis } = data.kpis;
     return {
       dateRange: range,
-      projectId: projectId || null,
+      projectId: projectId === 'all' ? null : projectId,
       projectName: selectedProject?.name ?? 'All Projects',
       overallCondition: healthScoreToCondition(data.healthScore),
       ...kpis,
@@ -96,44 +101,41 @@ export default function OverviewPage() {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={pageEnter}
-      className="min-h-full px-4 sm:px-8 py-6 space-y-8"
+      className="min-h-full flex flex-col"
     >
-      <div className="flex flex-wrap items-end justify-between gap-4">
+      {/* Header strip — matches Reports and Timesheet. */}
+      <div className="shrink-0 px-4 sm:px-8 pt-6 sm:pt-7 pb-5 border-b border-border/30 bg-gradient-to-b from-muted/20 to-transparent">
+        <div className="flex flex-wrap items-end justify-between gap-4 max-w-[1400px] w-full mx-auto">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Overview</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {selectedProject ? selectedProject.name : 'Team snapshot'} · {range.startDate} → {range.endDate}
+            {selectedProject ? selectedProject.name : 'Team snapshot'} ·{' '}
+            {formatRangeLabel(resolveRange(selection), selection.preset)}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <select
-            value={projectId}
-            onChange={e => setProjectId(e.target.value)}
-            className="rounded-lg border border-border/40 bg-background px-3 py-1.5 max-w-[200px]"
-            aria-label="Filter by project"
-          >
-            <option value="">All Projects</option>
-            {visibleProjects.map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-          <span className="text-muted-foreground">From</span>
-          <input
-            type="date"
-            value={range.startDate}
-            onChange={e => setRange(r => ({ ...r, startDate: e.target.value }))}
-            className="rounded-lg border border-border/40 bg-background px-3 py-1.5"
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
+          <Select value={projectId} onValueChange={setProjectId}>
+            <SelectTrigger className="h-9 w-auto min-w-[170px] max-w-[240px] text-sm">
+              <SelectValue placeholder="Project" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All projects</SelectItem>
+              {visibleProjects.map(p => (
+                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <DateRangePicker
+            value={selection}
+            onChange={setSelection}
+            allowedPresets={['week', 'lastweek', 'month', 'last30', 'custom']}
           />
-          <span className="text-muted-foreground">to</span>
-          <input
-            type="date"
-            value={range.endDate}
-            onChange={e => setRange(r => ({ ...r, endDate: e.target.value }))}
-            className="rounded-lg border border-border/40 bg-background px-3 py-1.5"
-          />
+        </div>
         </div>
       </div>
 
+      <div className="flex-1 p-4 sm:p-8 space-y-8 max-w-[1400px] w-full mx-auto">
       {isLoading && (
         <div className="flex items-center gap-3 justify-center text-muted-foreground text-sm py-24">
           <div className="h-6 w-6 rounded-full border-2 border-violet-400/30 border-t-violet-400 animate-spin" />
@@ -146,39 +148,120 @@ export default function OverviewPage() {
       )}
 
       {error && (
-        <p className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        <p className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-600 dark:text-red-400">
           {(error as Error).message}
         </p>
       )}
 
       {data && (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <AnalyticsKpiCard icon={ListTodo} label={ANALYTICS_LABELS.activeTasks} value={data.kpis.activeTasks} sub="active in this period" variant="blue" />
-            <AnalyticsKpiCard icon={CheckCircle2} label={ANALYTICS_LABELS.completedTasks} value={data.kpis.completedTasks} sub="finished in this period" variant="emerald" />
-            <AnalyticsKpiCard icon={AlertTriangle} label={ANALYTICS_LABELS.overdueTasks} value={data.kpis.overdueTasks} sub={`overdue as of ${range.endDate}`} variant={data.kpis.overdueTasks > 0 ? 'red' : 'neutral'} />
-            <AnalyticsKpiCard icon={Star} label={ANALYTICS_LABELS.highPriorityPending} value={data.kpis.highPriorityPending} sub="urgent or high priority" variant="amber" />
-            <AnalyticsKpiCard icon={FolderOpen} label="Active Projects" value={data.kpis.activeProjects} sub="with open tasks" variant="violet" />
-            <AnalyticsKpiCard icon={Clock} label={ANALYTICS_LABELS.loggedHours} value={`${data.kpis.totalLoggedHours}h`} sub="logged in this period" variant="blue" />
-            <AnalyticsKpiCard icon={Users} label="Team Size" value={data.kpis.totalTeam} sub="people" variant="neutral" />
+          {/* Headline: the one judgement an admin needs before any number.
+              healthScore and onTimeCompletionPct were computed by the API and
+              never shown — this is where they belong. */}
+          {(() => {
+            const condition = healthScoreToCondition(data.healthScore);
+            const tone =
+              data.healthScore >= 70
+                ? { ring: 'border-emerald-500/30 bg-emerald-500/[0.06]', text: 'text-emerald-600 dark:text-emerald-400' }
+                : data.healthScore >= 50
+                  ? { ring: 'border-amber-500/30 bg-amber-500/[0.06]', text: 'text-amber-600 dark:text-amber-400' }
+                  : { ring: 'border-red-500/30 bg-red-500/[0.06]', text: 'text-red-600 dark:text-red-400' };
+            const attention = data.needsAttentionToday.length;
+            return (
+              <div className={cn('rounded-2xl border p-5 flex flex-wrap items-center gap-x-10 gap-y-4', tone.ring)}>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Health
+                  </p>
+                  <div className="flex items-baseline gap-2.5 mt-1">
+                    <span className={cn('text-4xl font-bold tabular-nums', tone.text)}>
+                      {data.healthScore}
+                    </span>
+                    <span className={cn('text-sm font-semibold', tone.text)}>{condition}</span>
+                  </div>
+                </div>
+
+                <div className="h-10 w-px bg-border/50 hidden sm:block" />
+
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Needs action now
+                  </p>
+                  <p className={cn('text-2xl font-bold tabular-nums mt-1',
+                    attention > 0 ? 'text-red-600 dark:text-red-400' : 'text-foreground')}>
+                    {attention}
+                    <span className="text-sm font-medium text-muted-foreground ml-1.5">
+                      {attention === 1 ? 'task' : 'tasks'}
+                    </span>
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Delivered on time
+                  </p>
+                  <p className="text-2xl font-bold tabular-nums mt-1 text-foreground">
+                    {data.kpis.onTimeCompletionPct}
+                    <span className="text-sm font-medium text-muted-foreground">%</span>
+                  </p>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* The actionable list comes BEFORE the summary numbers — it was last. */}
+          <AnalyticsSection
+            title="Needs attention"
+            icon={AlertTriangle}
+            iconClassName={data.needsAttentionToday.length > 0 ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground'}
+            tone={data.needsAttentionToday.length > 0 ? 'alert' : 'muted'}
+          >
+            <NeedsAttentionList tasks={data.needsAttentionToday} />
+          </AnalyticsSection>
+
+          {/* Supporting counts. Colour is SEMANTIC here: a number is only red or
+              amber when it actually calls for action, so colour means something
+              rather than decorating every tile a different hue. */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <AnalyticsKpiCard icon={AlertTriangle} label={ANALYTICS_LABELS.overdueTasks} value={data.kpis.overdueTasks} sub="past their due date" variant={data.kpis.overdueTasks > 0 ? 'red' : 'neutral'} />
+            <AnalyticsKpiCard icon={Star} label={ANALYTICS_LABELS.highPriorityPending} value={data.kpis.highPriorityPending} sub="urgent or high, still open" variant={data.kpis.highPriorityPending > 0 ? 'amber' : 'neutral'} />
+            <AnalyticsKpiCard icon={ListTodo} label={ANALYTICS_LABELS.activeTasks} value={data.kpis.activeTasks} sub="in progress" variant="neutral" />
+            <AnalyticsKpiCard icon={CheckCircle2} label={ANALYTICS_LABELS.completedTasks} value={data.kpis.completedTasks} sub="finished this period" variant="neutral" />
+            <AnalyticsKpiCard icon={Clock} label={ANALYTICS_LABELS.loggedHours} value={`${data.kpis.totalLoggedHours}h`} sub="logged this period" variant="neutral" />
+            <AnalyticsKpiCard icon={FolderOpen} label="Active projects" value={data.kpis.activeProjects} sub={`${data.kpis.totalTeam} people`} variant="neutral" />
           </div>
 
           <div className="grid gap-4 xl:grid-cols-2">
-            <AnalyticsSection title={ANALYTICS_LABELS.weeklyTrend} icon={TrendingUp} iconClassName="text-violet-400" tone="muted">
-              <ResponsiveContainer width="100%" height={180}>
-                <BarChart data={data.weeklyTrend} margin={{ top: 4, right: 4, bottom: 0, left: 0 }} barGap={4}>
-                  <XAxis dataKey="weekLabel" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                  <YAxis yAxisId="tasks" tick={{ fontSize: 10, fill: '#94a3b8' }} width={24} allowDecimals={false} />
-                  <YAxis yAxisId="hours" orientation="right" tick={{ fontSize: 10, fill: '#94a3b8' }} width={28} unit="h" />
-                  <Tooltip contentStyle={CHART_TOOLTIP} />
-                  <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
-                  <Bar yAxisId="tasks" dataKey="completedTasks" name="Completed tasks" fill="#10b981" radius={[3, 3, 0, 0]} barSize={14} />
-                  <Bar yAxisId="hours" dataKey="loggedHours" name="Logged hours" fill="#8b5cf6" radius={[3, 3, 0, 0]} barSize={14} />
-                </BarChart>
-              </ResponsiveContainer>
+            <AnalyticsSection title={ANALYTICS_LABELS.weeklyTrend} icon={TrendingUp} iconClassName="text-violet-600 dark:text-violet-400" tone="muted">
+              <div className="space-y-4">
+                {/* Tasks and hours are different units, so they get their own
+                    scales in their own plots rather than a second y-axis. */}
+                <div>
+                  <p className="text-[11px] font-medium text-muted-foreground mb-1">Completed tasks</p>
+                  <ResponsiveContainer width="100%" height={110}>
+                    <BarChart data={data.weeklyTrend} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+                      <XAxis dataKey="weekLabel" tick={{ fontSize: 10, fill: 'hsl(var(--chart-axis))' }} />
+                      <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--chart-axis))' }} width={24} allowDecimals={false} />
+                      <Tooltip contentStyle={CHART_TOOLTIP} cursor={{ fill: 'hsl(var(--muted) / 0.3)' }} />
+                      <Bar dataKey="completedTasks" name="Completed tasks" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} barSize={18} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <div>
+                  <p className="text-[11px] font-medium text-muted-foreground mb-1">Logged hours</p>
+                  <ResponsiveContainer width="100%" height={110}>
+                    <BarChart data={data.weeklyTrend} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+                      <XAxis dataKey="weekLabel" tick={{ fontSize: 10, fill: 'hsl(var(--chart-axis))' }} />
+                      <YAxis tick={{ fontSize: 10, fill: 'hsl(var(--chart-axis))' }} width={28} unit="h" />
+                      <Tooltip contentStyle={CHART_TOOLTIP} cursor={{ fill: 'hsl(var(--muted) / 0.3)' }} />
+                      <Bar dataKey="loggedHours" name="Logged hours" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} barSize={18} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
             </AnalyticsSection>
 
-            <AnalyticsSection title={ANALYTICS_LABELS.topContributors} icon={Award} iconClassName="text-amber-400" tone="muted">
+            <AnalyticsSection title={ANALYTICS_LABELS.topContributors} icon={Award} iconClassName="text-amber-600 dark:text-amber-400" tone="muted">
               <p className="text-xs text-muted-foreground -mt-1">
                 Ranked by completed work and priority — not hours alone.
               </p>
@@ -193,9 +276,9 @@ export default function OverviewPage() {
                         <span className="font-medium text-foreground truncate">{c.name}</span>
                       </div>
                       <span className="text-[11px] tabular-nums shrink-0 text-right">
-                        <span className="font-semibold text-emerald-400">{c.completedTasks}</span>
+                        <span className="font-semibold text-emerald-600 dark:text-emerald-400">{c.completedTasks}</span>
                         <span className="text-muted-foreground"> done · </span>
-                        <span className="font-semibold text-amber-400">{c.loggedHours}h</span>
+                        <span className="font-semibold text-amber-600 dark:text-amber-400">{c.loggedHours}h</span>
                       </span>
                     </li>
                   ))}
@@ -204,22 +287,76 @@ export default function OverviewPage() {
             </AnalyticsSection>
           </div>
 
-          <AnalyticsSection
-            title={`Needs attention (${range.startDate} → ${range.endDate})`}
-            icon={AlertTriangle}
-            iconClassName="text-red-400"
-            tone="alert"
-          >
-            <NeedsAttentionList tasks={data.needsAttentionToday} />
-          </AnalyticsSection>
+
+          {data.projectProgress.length > 0 && (
+            <AnalyticsSection title="Projects" icon={FolderOpen} iconClassName="text-muted-foreground" tone="muted">
+              <p className="text-xs text-muted-foreground -mt-1 mb-2">
+                Sorted by what needs attention first.
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[34rem]">
+                  <thead>
+                    <tr className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
+                      <th className="text-left font-semibold py-2 pr-3">Project</th>
+                      <th className="text-left font-semibold py-2 px-3 w-[38%]">Progress</th>
+                      <th className="text-right font-semibold py-2 px-3 tabular-nums">Open</th>
+                      <th className="text-right font-semibold py-2 px-3 tabular-nums">Overdue</th>
+                      <th className="text-right font-semibold py-2 pl-3 tabular-nums">Hours</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border/15">
+                    {[...data.projectProgress]
+                      .sort((a, b) => (b.overdueTasks - a.overdueTasks) || (b.activeTasks - a.activeTasks))
+                      .map(p => (
+                        <tr key={p.id} className="hover:bg-muted/20 transition-colors">
+                          <td className="py-2.5 pr-3">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="font-medium text-foreground truncate">{p.name}</span>
+                              {p.atRisk && (
+                                <span className="shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded border border-red-500/30 bg-red-500/10 text-red-600 dark:text-red-400">
+                                  At risk
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <div className="flex items-center gap-2">
+                              <div className="h-1.5 flex-1 rounded-full bg-muted/40 overflow-hidden">
+                                <div
+                                  className={cn('h-full rounded-full',
+                                    p.atRisk ? 'bg-red-400/70' : 'bg-emerald-400/70')}
+                                  style={{ width: `${Math.min(100, Math.max(0, p.progress))}%` }}
+                                />
+                              </div>
+                              <span className="text-[11px] tabular-nums text-muted-foreground w-9 text-right">
+                                {Math.round(p.progress)}%
+                              </span>
+                            </div>
+                          </td>
+                          <td className="py-2.5 px-3 text-right tabular-nums text-muted-foreground">{p.activeTasks}</td>
+                          <td className={cn('py-2.5 px-3 text-right tabular-nums font-semibold',
+                            p.overdueTasks > 0 ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground')}>
+                            {p.overdueTasks}
+                          </td>
+                          <td className="py-2.5 pl-3 text-right tabular-nums text-muted-foreground">
+                            {p.loggedHours ?? 0}h
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </AnalyticsSection>
+          )}
 
           <AIInsightsPanel
-            key={projectId || 'all'}
+            key={projectId}
             scope="overview_team_summary"
             context={insightContext}
           />
         </>
       )}
+      </div>
     </motion.div>
   );
 }

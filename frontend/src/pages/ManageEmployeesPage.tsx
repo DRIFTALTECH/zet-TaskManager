@@ -21,22 +21,22 @@ import UserAvatar from '@/components/UserAvatar';
 
 // ── Project accent colors ──────────────────────────────────────────────────────
 const PROJECT_ACCENTS = [
-  { border: 'border-l-blue-500', bg: 'bg-blue-500', light: 'bg-blue-500/10', text: 'text-blue-400', ring: 'ring-blue-500/20', pill: 'bg-blue-500/15 text-blue-400 border-blue-500/30' },
-  { border: 'border-l-violet-500', bg: 'bg-violet-500', light: 'bg-violet-500/10', text: 'text-violet-400', ring: 'ring-violet-500/20', pill: 'bg-violet-500/15 text-violet-400 border-violet-500/30' },
-  { border: 'border-l-emerald-500', bg: 'bg-emerald-500', light: 'bg-emerald-500/10', text: 'text-emerald-400', ring: 'ring-emerald-500/20', pill: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },
-  { border: 'border-l-orange-500', bg: 'bg-orange-500', light: 'bg-orange-500/10', text: 'text-orange-400', ring: 'ring-orange-500/20', pill: 'bg-orange-500/15 text-orange-400 border-orange-500/30' },
-  { border: 'border-l-pink-500', bg: 'bg-pink-500', light: 'bg-pink-500/10', text: 'text-pink-400', ring: 'ring-pink-500/20', pill: 'bg-pink-500/15 text-pink-400 border-pink-500/30' },
-  { border: 'border-l-teal-500', bg: 'bg-teal-500', light: 'bg-teal-500/10', text: 'text-teal-400', ring: 'ring-teal-500/20', pill: 'bg-teal-500/15 text-teal-400 border-teal-500/30' },
-  { border: 'border-l-amber-500', bg: 'bg-amber-500', light: 'bg-amber-500/10', text: 'text-amber-400', ring: 'ring-amber-500/20', pill: 'bg-amber-500/15 text-amber-400 border-amber-500/30' },
-  { border: 'border-l-cyan-500', bg: 'bg-cyan-500', light: 'bg-cyan-500/10', text: 'text-cyan-400', ring: 'ring-cyan-500/20', pill: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30' },
+  { border: 'border-l-blue-500', bg: 'bg-blue-500', light: 'bg-blue-500/10', text: 'text-blue-600 dark:text-blue-400', ring: 'ring-blue-500/20', pill: 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30' },
+  { border: 'border-l-violet-500', bg: 'bg-violet-500', light: 'bg-violet-500/10', text: 'text-violet-600 dark:text-violet-400', ring: 'ring-violet-500/20', pill: 'bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-500/30' },
+  { border: 'border-l-emerald-500', bg: 'bg-emerald-500', light: 'bg-emerald-500/10', text: 'text-emerald-600 dark:text-emerald-400', ring: 'ring-emerald-500/20', pill: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30' },
+  { border: 'border-l-orange-500', bg: 'bg-orange-500', light: 'bg-orange-500/10', text: 'text-orange-600 dark:text-orange-400', ring: 'ring-orange-500/20', pill: 'bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/30' },
+  { border: 'border-l-pink-500', bg: 'bg-pink-500', light: 'bg-pink-500/10', text: 'text-pink-600 dark:text-pink-400', ring: 'ring-pink-500/20', pill: 'bg-pink-500/15 text-pink-600 dark:text-pink-400 border-pink-500/30' },
+  { border: 'border-l-teal-500', bg: 'bg-teal-500', light: 'bg-teal-500/10', text: 'text-teal-600 dark:text-teal-400', ring: 'ring-teal-500/20', pill: 'bg-teal-500/15 text-teal-600 dark:text-teal-400 border-teal-500/30' },
+  { border: 'border-l-amber-500', bg: 'bg-amber-500', light: 'bg-amber-500/10', text: 'text-amber-600 dark:text-amber-400', ring: 'ring-amber-500/20', pill: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30' },
+  { border: 'border-l-cyan-500', bg: 'bg-cyan-500', light: 'bg-cyan-500/10', text: 'text-cyan-600 dark:text-cyan-400', ring: 'ring-cyan-500/20', pill: 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border-cyan-500/30' },
 ];
 
 
 const PRIORITY_STYLES: Record<string, string> = {
-  Urgent: 'bg-red-500/15 text-red-400 border-red-500/25',
-  High:   'bg-orange-500/15 text-orange-400 border-orange-500/25',
-  Medium: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/25',
-  Low:    'bg-green-500/15 text-green-400 border-green-500/25',
+  Urgent: 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/25',
+  High:   'bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/25',
+  Medium: 'bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border-yellow-500/25',
+  Low:    'bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/25',
 };
 
 function projectAccent(id: string) {
@@ -328,7 +328,7 @@ const ManageEmployeesPage = () => {
                                 whileHover={{ scale: 1.1 }}
                                 whileTap={{ scale: 0.9 }}
                                 onClick={() => setMemberToRemove({ id: user.id, name: user.name })}
-                                className="p-2 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-500/10 text-muted-foreground/40 hover:text-red-400 transition-all shrink-0"
+                                className="p-2 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-500/10 text-muted-foreground/40 hover:text-red-600 dark:text-red-400 transition-all shrink-0"
                                 aria-label={`Remove ${user.name}`}
                               >
                                 <X className="h-3.5 w-3.5" />
@@ -433,7 +433,7 @@ const ManageEmployeesPage = () => {
                           <button
                             type="button"
                             onClick={() => setSectionToDelete({ id: s.id, name: s.name })}
-                            className="p-0.5 rounded-md opacity-0 group-hover:opacity-100 hover:bg-red-500/15 text-muted-foreground/40 hover:text-red-400 transition-all"
+                            className="p-0.5 rounded-md opacity-0 group-hover:opacity-100 hover:bg-red-500/15 text-muted-foreground/40 hover:text-red-600 dark:text-red-400 transition-all"
                             aria-label={`Delete section ${s.name}`}
                           >
                             <Trash2 className="h-3 w-3" />
@@ -493,10 +493,10 @@ const ManageEmployeesPage = () => {
                             </div>
                           </div>
                           <span className={`shrink-0 text-[10px] px-2.5 py-1 rounded-full border font-medium capitalize ${
-                            task.status === 'completed' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25' :
-                            task.status === 'in_progress' ? 'bg-blue-500/15 text-blue-400 border-blue-500/25' :
-                            task.status === 'in_review' ? 'bg-violet-500/15 text-violet-400 border-violet-500/25' :
-                            task.status === 'done' ? 'bg-green-500/15 text-green-400 border-green-500/25' :
+                            task.status === 'completed' ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/25' :
+                            task.status === 'in_progress' ? 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/25' :
+                            task.status === 'in_review' ? 'bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-500/25' :
+                            task.status === 'done' ? 'bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/25' :
                             'bg-muted text-muted-foreground border-border/40'
                           }`}>
                             {task.status.replace('_', ' ')}
@@ -554,7 +554,7 @@ const ManageEmployeesPage = () => {
               <div className="space-y-2 text-sm text-muted-foreground">
                 <p>They will lose access to this project. You can re-add them at any time.</p>
                 {memberRemoveStats && memberRemoveStats.assignedCount > 0 && (
-                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/8 px-3.5 py-2.5 text-amber-400 text-sm font-medium mt-2">
+                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/8 px-3.5 py-2.5 text-amber-600 dark:text-amber-400 text-sm font-medium mt-2">
                     This user has {memberRemoveStats.assignedCount} task{memberRemoveStats.assignedCount !== 1 ? 's' : ''} assigned in this project
                     {memberRemoveStats.activeCount > 0 && ` (${memberRemoveStats.activeCount} still open)`}.
                   </div>

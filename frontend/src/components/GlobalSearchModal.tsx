@@ -15,10 +15,10 @@ interface Props {
 }
 
 const PRIORITY_COLORS: Record<string, string> = {
-  Urgent: 'text-red-400',
-  High: 'text-orange-400',
-  Medium: 'text-yellow-400',
-  Low: 'text-green-400',
+  Urgent: 'text-red-600 dark:text-red-400',
+  High: 'text-orange-600 dark:text-orange-400',
+  Medium: 'text-yellow-600 dark:text-yellow-400',
+  Low: 'text-green-600 dark:text-green-400',
 };
 
 const STATUS_ICONS: Record<string, React.ElementType> = {

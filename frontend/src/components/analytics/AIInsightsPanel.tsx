@@ -27,7 +27,7 @@ function UnavailableMessage({ className, onRetry }: { className?: string; onRetr
       <button
         type="button"
         onClick={onRetry}
-        className="text-xs font-medium text-violet-400 hover:text-violet-300 transition-colors"
+        className="text-xs font-medium text-violet-600 dark:text-violet-400 hover:text-violet-300 transition-colors"
       >
         Retry
       </button>
@@ -92,7 +92,7 @@ export function AIInsightsPanel({
       >
         <div className="flex items-center gap-2.5">
           <div className="h-7 w-7 rounded-lg bg-violet-500/20 flex items-center justify-center shrink-0">
-            <Sparkles className="h-3.5 w-3.5 text-violet-400" />
+            <Sparkles className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />
           </div>
           <div>
             <span className="text-sm font-semibold text-foreground">{title}</span>
@@ -150,7 +150,7 @@ export function AIInsightsPanel({
                   <button
                     type="button"
                     onClick={retry}
-                    className="flex items-center gap-1.5 text-xs text-muted-foreground/50 hover:text-violet-400 transition-colors"
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground/50 hover:text-violet-600 dark:text-violet-400 transition-colors"
                   >
                     <RefreshCw className="h-3 w-3" />
                     Regenerate

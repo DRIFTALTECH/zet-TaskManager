@@ -3,6 +3,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowLeft, CheckCircle2, ChevronDown, Clock, Inbox, RefreshCw, RotateCcw, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
+import DateRangePicker from '@/components/DateRangePicker';
+import { resolveRange, type RangeSelection } from '@/lib/date-range';
 import type { TimesheetSubmission, TimesheetSubmissionReview, TimesheetSubmissionStatus, User } from '@/types';
 import {
   formatDurationHms,
@@ -43,7 +45,9 @@ export default function TimesheetManagePanel({ onClose }: { onClose: () => void 
   const [loading, setLoading] = useState(true);
   const [filterStatus, setFilterStatus] = useState<StatusFilter>('all');
   const [filterEmployee, setFilterEmployee] = useState('all');
-  const [filterWeek, setFilterWeek] = useState('');
+  // Same period control as the timesheet page. Submissions are per ISO week, so a
+  // range selects every week that starts inside it.
+  const [range, setRange] = useState<RangeSelection>({ preset: 'all', offset: 0 });
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [reviewById, setReviewById] = useState<Record<string, TimesheetSubmissionReview>>({});
   const [reviewLoadingId, setReviewLoadingId] = useState<string | null>(null);
@@ -65,13 +69,14 @@ export default function TimesheetManagePanel({ onClose }: { onClose: () => void 
     if (!isManagerial) return;
     if (!opts?.silent) setLoading(true);
     try {
-      const weekStart = filterWeek ? isoWeekMonday(filterWeek) : undefined;
+      const { start, end } = resolveRange(range);
       setRows(await api.getManagerTimesheetSubmissions({
         // 'draft' is never a manager filter (a draft has not been submitted yet),
         // and the endpoint only accepts the three submitted states.
         status: filterStatus === 'all' || filterStatus === 'draft' ? undefined : filterStatus,
         userId: filterEmployee === 'all' ? undefined : filterEmployee,
-        weekStart,
+        weekFrom: start,
+        weekTo: end,
       }));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not load timesheets');
@@ -79,7 +84,7 @@ export default function TimesheetManagePanel({ onClose }: { onClose: () => void 
     } finally {
       setLoading(false);
     }
-  }, [filterStatus, filterEmployee, filterWeek, isManagerial]);
+  }, [filterStatus, filterEmployee, range, isManagerial]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -118,7 +123,8 @@ export default function TimesheetManagePanel({ onClose }: { onClose: () => void 
     const matchesFilter = (sub: TimesheetSubmission) => {
       if (filterStatus !== 'all' && sub.status !== filterStatus) return false;
       if (filterEmployee !== 'all' && sub.userId !== filterEmployee) return false;
-      if (filterWeek && sub.weekStart !== isoWeekMonday(filterWeek)) return false;
+      const { start, end } = resolveRange(range);
+      if (sub.weekStart < isoWeekMonday(start) || sub.weekStart > isoWeekMonday(end)) return false;
       return true;
     };
     setRows(prev => (
@@ -131,7 +137,7 @@ export default function TimesheetManagePanel({ onClose }: { onClose: () => void 
       if (!review) return prev;
       return { ...prev, [updated.id!]: { ...review, submission: updated } };
     });
-  }, [filterStatus, filterEmployee, filterWeek]);
+  }, [filterStatus, filterEmployee, range]);
 
   const approve = async (sub: TimesheetSubmission) => {
     if (!sub.id) return;
@@ -230,20 +236,11 @@ export default function TimesheetManagePanel({ onClose }: { onClose: () => void 
               ))}
             </SelectContent>
           </Select>
-          <div className="flex items-center gap-2">
-            <input
-              type="date"
-              value={filterWeek}
-              onChange={e => setFilterWeek(e.target.value)}
-              className="h-8 rounded-lg border border-border/60 bg-background px-2.5 text-xs"
-              aria-label="Filter by week"
-            />
-            {filterWeek && (
-              <Button type="button" variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setFilterWeek('')}>
-                Clear week
-              </Button>
-            )}
-          </div>
+          <DateRangePicker
+            value={range}
+            onChange={setRange}
+            allowedPresets={['all', 'lastweek', 'week', 'month', 'custom']}
+          />
           <Button
             type="button"
             variant="outline"
@@ -258,7 +255,7 @@ export default function TimesheetManagePanel({ onClose }: { onClose: () => void 
         </div>
       </div>
 
-      <div className="flex-1 p-4 sm:p-8">
+      <div className="flex-1 p-4 sm:p-8 overflow-y-auto">
         {loading ? (
           <div className="flex justify-center py-16">
             <div className="h-8 w-8 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />

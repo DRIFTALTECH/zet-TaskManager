@@ -36,13 +36,13 @@ import { SkillsPicker } from '@/components/SkillsPicker';
 // ─── colour helpers ───────────────────────────────────────────────────────────
 
 const PROJECT_PALETTE = [
-  { hex: '#6366f1', ring: 'ring-indigo-500/40',  bg: 'bg-indigo-500/10',  text: 'text-indigo-400',  border: 'border-indigo-500/25'  },
-  { hex: '#f59e0b', ring: 'ring-amber-500/40',   bg: 'bg-amber-500/10',   text: 'text-amber-400',   border: 'border-amber-500/25'   },
-  { hex: '#06b6d4', ring: 'ring-cyan-500/40',    bg: 'bg-cyan-500/10',    text: 'text-cyan-400',    border: 'border-cyan-500/25'    },
-  { hex: '#10b981', ring: 'ring-emerald-500/40', bg: 'bg-emerald-500/10', text: 'text-emerald-400', border: 'border-emerald-500/25' },
-  { hex: '#f43f5e', ring: 'ring-rose-500/40',    bg: 'bg-rose-500/10',    text: 'text-rose-400',    border: 'border-rose-500/25'    },
-  { hex: '#8b5cf6', ring: 'ring-violet-500/40',  bg: 'bg-violet-500/10',  text: 'text-violet-400',  border: 'border-violet-500/25'  },
-  { hex: '#ec4899', ring: 'ring-pink-500/40',    bg: 'bg-pink-500/10',    text: 'text-pink-400',    border: 'border-pink-500/25'    },
+  { hex: '#6366f1', ring: 'ring-indigo-500/40',  bg: 'bg-indigo-500/10',  text: 'text-indigo-600 dark:text-indigo-400',  border: 'border-indigo-500/25'  },
+  { hex: '#f59e0b', ring: 'ring-amber-500/40',   bg: 'bg-amber-500/10',   text: 'text-amber-600 dark:text-amber-400',   border: 'border-amber-500/25'   },
+  { hex: '#06b6d4', ring: 'ring-cyan-500/40',    bg: 'bg-cyan-500/10',    text: 'text-cyan-600 dark:text-cyan-400',    border: 'border-cyan-500/25'    },
+  { hex: '#10b981', ring: 'ring-emerald-500/40', bg: 'bg-emerald-500/10', text: 'text-emerald-600 dark:text-emerald-400', border: 'border-emerald-500/25' },
+  { hex: '#f43f5e', ring: 'ring-rose-500/40',    bg: 'bg-rose-500/10',    text: 'text-rose-600 dark:text-rose-400',    border: 'border-rose-500/25'    },
+  { hex: '#8b5cf6', ring: 'ring-violet-500/40',  bg: 'bg-violet-500/10',  text: 'text-violet-600 dark:text-violet-400',  border: 'border-violet-500/25'  },
+  { hex: '#ec4899', ring: 'ring-pink-500/40',    bg: 'bg-pink-500/10',    text: 'text-pink-600 dark:text-pink-400',    border: 'border-pink-500/25'    },
 ];
 function projColor(id: string) {
   let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
@@ -50,18 +50,18 @@ function projColor(id: string) {
 }
 
 const STATUS_META: Record<string, { label: string; hex: string; bg: string; text: string }> = {
-  backlog:     { label: 'Backlog',     hex: '#64748b', bg: 'bg-slate-500/10',   text: 'text-slate-400'   },
-  in_progress: { label: 'In Progress', hex: '#3b82f6', bg: 'bg-blue-500/10',    text: 'text-blue-400'    },
-  in_review:   { label: 'In Review',   hex: '#f59e0b', bg: 'bg-amber-500/10',   text: 'text-amber-400'   },
-  done:        { label: 'Done',        hex: '#8b5cf6', bg: 'bg-violet-500/10',  text: 'text-violet-400'  },
-  completed:   { label: 'Completed',   hex: '#10b981', bg: 'bg-emerald-500/10', text: 'text-emerald-400' },
+  backlog:     { label: 'Backlog',     hex: '#64748b', bg: 'bg-slate-500/10',   text: 'text-slate-600 dark:text-slate-400'   },
+  in_progress: { label: 'In Progress', hex: '#3b82f6', bg: 'bg-blue-500/10',    text: 'text-blue-600 dark:text-blue-400'    },
+  in_review:   { label: 'In Review',   hex: '#f59e0b', bg: 'bg-amber-500/10',   text: 'text-amber-600 dark:text-amber-400'   },
+  done:        { label: 'Done',        hex: '#8b5cf6', bg: 'bg-violet-500/10',  text: 'text-violet-600 dark:text-violet-400'  },
+  completed:   { label: 'Completed',   hex: '#10b981', bg: 'bg-emerald-500/10', text: 'text-emerald-600 dark:text-emerald-400' },
 };
 
 const PRIORITY_META: Record<Priority, { hex: string; label: string; bg: string; text: string; border: string }> = {
-  Urgent: { hex: '#ef4444', label: 'Urgent', bg: 'bg-red-500/10',    text: 'text-red-400',    border: 'border-red-500/20'    },
-  High:   { hex: '#f97316', label: 'High',   bg: 'bg-orange-500/10', text: 'text-orange-400', border: 'border-orange-500/20' },
-  Medium: { hex: '#eab308', label: 'Medium', bg: 'bg-yellow-500/10', text: 'text-yellow-400', border: 'border-yellow-500/20' },
-  Low:    { hex: '#22c55e', label: 'Low',    bg: 'bg-green-500/10',  text: 'text-green-400',  border: 'border-green-500/20'  },
+  Urgent: { hex: '#ef4444', label: 'Urgent', bg: 'bg-red-500/10',    text: 'text-red-600 dark:text-red-400',    border: 'border-red-500/20'    },
+  High:   { hex: '#f97316', label: 'High',   bg: 'bg-orange-500/10', text: 'text-orange-600 dark:text-orange-400', border: 'border-orange-500/20' },
+  Medium: { hex: '#eab308', label: 'Medium', bg: 'bg-yellow-500/10', text: 'text-yellow-600 dark:text-yellow-400', border: 'border-yellow-500/20' },
+  Low:    { hex: '#22c55e', label: 'Low',    bg: 'bg-green-500/10',  text: 'text-green-600 dark:text-green-400',  border: 'border-green-500/20'  },
 };
 
 const PRI_RANK: Record<Priority, number> = { Urgent: 0, High: 1, Medium: 2, Low: 3 };
@@ -1015,21 +1015,21 @@ export default function UserDetailPage() {
                     label: 'Total Tasks', value: userTasks.length,
                     sub: `${compRate}% completed`,
                     icon: ListChecks,
-                    iconBg: 'bg-indigo-500/10', iconColor: 'text-indigo-400',
+                    iconBg: 'bg-indigo-500/10', iconColor: 'text-indigo-600 dark:text-indigo-400',
                     trend: null,
                   },
                   {
                     label: 'Active', value: active.length,
                     sub: 'currently in progress',
                     icon: Flame,
-                    iconBg: 'bg-blue-500/10', iconColor: 'text-blue-400',
+                    iconBg: 'bg-blue-500/10', iconColor: 'text-blue-600 dark:text-blue-400',
                     trend: null,
                   },
                   {
                     label: 'Completed', value: doneTasks.length,
                     sub: 'tasks finished',
                     icon: CheckCircle2,
-                    iconBg: 'bg-emerald-500/10', iconColor: 'text-emerald-400',
+                    iconBg: 'bg-emerald-500/10', iconColor: 'text-emerald-600 dark:text-emerald-400',
                     trend: null,
                   },
                   {
@@ -1037,7 +1037,7 @@ export default function UserDetailPage() {
                     sub: overdue.length > 0 ? 'need immediate attention' : 'none overdue',
                     icon: AlertTriangle,
                     iconBg: overdue.length > 0 ? 'bg-red-500/10' : 'bg-muted/30',
-                    iconColor: overdue.length > 0 ? 'text-red-400' : 'text-muted-foreground/30',
+                    iconColor: overdue.length > 0 ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground/30',
                     trend: null,
                   },
                 ].map((card, i) => (
@@ -1131,7 +1131,7 @@ export default function UserDetailPage() {
                   className="rounded-2xl border border-border/60 bg-card p-6 flex flex-col"
                 >
                   <div className="flex items-center gap-2 mb-1">
-                    <Flame className="h-4 w-4 text-blue-400" />
+                    <Flame className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                     <h2 className="text-sm font-semibold text-foreground">Currently in flight</h2>
                   </div>
                   <p className="text-xs text-muted-foreground/50 mb-4">Tasks actively being worked — highest priority first</p>
@@ -1177,7 +1177,7 @@ export default function UserDetailPage() {
                   className="rounded-2xl border border-border/60 bg-card p-6 flex flex-col"
                 >
                   <div className="flex items-center gap-2 mb-1">
-                    <AlertTriangle className="h-4 w-4 text-red-400" />
+                    <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400" />
                     <h2 className="text-sm font-semibold text-foreground">Overdue &amp; at-risk</h2>
                   </div>
                   <p className="text-xs text-muted-foreground/50 mb-4">Open tasks past due or due within 3 days</p>
@@ -1192,14 +1192,14 @@ export default function UserDetailPage() {
                         const col = proj ? projColor(proj.id) : PROJECT_PALETTE[0];
                         return (
                           <li key={t.id} className={cn('flex items-center gap-3 rounded-xl border px-3 py-2.5', overdue ? 'border-red-500/25 bg-red-500/[0.06]' : 'border-border/35 bg-muted/5')}>
-                            <AlertTriangle className={cn('h-3.5 w-3.5 shrink-0', overdue ? 'text-red-400' : 'text-amber-400')} />
+                            <AlertTriangle className={cn('h-3.5 w-3.5 shrink-0', overdue ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400')} />
                             <div className="min-w-0 flex-1">
                               <p className="text-sm font-medium text-foreground truncate">{t.title}</p>
                               <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
                                 {proj && (
                                   <span className={cn('text-[10px] px-2 py-0.5 rounded-md font-semibold border', col.bg, col.text, col.border)}>{proj.name}</span>
                                 )}
-                                <span className={cn('text-[10px] font-semibold', overdue ? 'text-red-400' : 'text-amber-400')}>
+                                <span className={cn('text-[10px] font-semibold', overdue ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400')}>
                                   {overdue ? 'Overdue' : 'Due'} {fmtISO(t.dueDate)}
                                 </span>
                               </div>
@@ -1218,7 +1218,7 @@ export default function UserDetailPage() {
                   className="rounded-2xl border border-border/60 bg-card p-6 flex flex-col"
                 >
                   <div className="flex items-center gap-2 mb-1">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
                     <h2 className="text-sm font-semibold text-foreground">Recent activity</h2>
                   </div>
                   <p className="text-xs text-muted-foreground/50 mb-4">Most recently completed work</p>
@@ -1233,7 +1233,7 @@ export default function UserDetailPage() {
                         const col = proj ? projColor(proj.id) : PROJECT_PALETTE[0];
                         return (
                           <li key={t.id} className="flex items-center gap-3 rounded-xl border border-border/35 bg-muted/5 px-3 py-2.5">
-                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
+                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
                             <div className="min-w-0 flex-1">
                               <p className="text-sm font-medium text-foreground truncate">{t.title}</p>
                               <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
@@ -1337,7 +1337,7 @@ export default function UserDetailPage() {
                                       <span className={cn(
                                         'text-[10px] px-2.5 py-0.5 rounded-full font-bold border whitespace-nowrap',
                                         isDone
-                                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
                                           : `${sm?.bg ?? 'bg-muted/20'} ${sm?.text ?? 'text-muted-foreground'} border-border/30`,
                                       )}>
                                         {isDone ? 'Done' : (sm?.label ?? t.status)}
@@ -1507,7 +1507,7 @@ export default function UserDetailPage() {
                               {t.title}
                             </p>
                             {isOvrd && (
-                              <p className="text-[10px] text-red-400 font-semibold flex items-center gap-0.5 mt-0.5">
+                              <p className="text-[10px] text-red-600 dark:text-red-400 font-semibold flex items-center gap-0.5 mt-0.5">
                                 <AlertTriangle className="h-2.5 w-2.5" /> Overdue · {fmtISO(t.dueDate)}
                               </p>
                             )}
@@ -1531,7 +1531,7 @@ export default function UserDetailPage() {
                           {/* status */}
                           <span className={`text-[10px] px-2.5 py-1 rounded-full font-bold whitespace-nowrap ${
                             isDone
-                              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
                               : `${sm?.bg ?? 'bg-muted/20'} ${sm?.text ?? 'text-muted-foreground'} border border-border/30`
                           }`}>
                             {isDone ? 'Completed' : (sm?.label ?? t.status)}

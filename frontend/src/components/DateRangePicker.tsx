@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useIsMobile } from '@/hooks/use-mobile';
 import type { DateRange } from 'react-day-picker';
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Calendar } from '@/components/ui/calendar';
@@ -37,6 +38,8 @@ export default function DateRangePicker({
   disableFuture?: boolean;
   className?: string;
 }) {
+  const isMobile = useIsMobile();
+
   const presets = useMemo(
     () => (allowedPresets ? RANGE_PRESETS.filter(p => allowedPresets.includes(p.id)) : RANGE_PRESETS),
     [allowedPresets],
@@ -61,6 +64,9 @@ export default function DateRangePicker({
     value.preset === 'custom' && value.custom?.start
       ? { from: fromIso(value.custom.start), to: value.custom.end ? fromIso(value.custom.end) : undefined }
       : undefined;
+
+  const formatDay = (iso: string) =>
+    fromIso(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 
   return (
     <div className={cn('flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 min-w-0', className)}>
@@ -106,6 +112,9 @@ export default function DateRangePicker({
             </button>
           </PopoverTrigger>
           <PopoverContent className="w-auto p-0" align="start">
+            {/* Two months side by side so a start and an end are visible at once —
+                picking a range in a single month means scrolling blind. One month
+                on phones, where two will not fit. */}
             <Calendar
               mode="range"
               selected={selectedForCalendar}
@@ -116,14 +125,38 @@ export default function DateRangePicker({
                 onChange({
                   preset: 'custom',
                   offset: 0,
-                  custom: { start: toIso(r.from), end: toIso(r.to ?? r.from) },
+                  custom: { start: toIso(r.from), end: r.to ? toIso(r.to) : undefined },
                 });
               }}
-              numberOfMonths={1}
+              numberOfMonths={isMobile ? 1 : 2}
               className="p-3"
             />
-            <div className="border-t border-border/40 px-3 py-2 text-[11px] text-muted-foreground">
-              Pick a start and end date for any period you want.
+            <div className="border-t border-border/40 px-3 py-2.5 flex items-center justify-between gap-4 text-xs">
+              <div className="flex items-center gap-4">
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70">From</p>
+                  <p className="font-semibold tabular-nums">
+                    {value.custom?.start ? formatDay(value.custom.start) : '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70">To</p>
+                  <p className="font-semibold tabular-nums">
+                    {value.custom?.end
+                      ? formatDay(value.custom.end)
+                      : <span className="text-muted-foreground font-normal">pick an end date</span>}
+                  </p>
+                </div>
+              </div>
+              {value.custom?.start && (
+                <button
+                  type="button"
+                  onClick={() => onChange({ preset: 'week', offset: 0 })}
+                  className="text-muted-foreground hover:text-foreground underline underline-offset-2"
+                >
+                  Clear
+                </button>
+              )}
             </div>
           </PopoverContent>
         </Popover>
