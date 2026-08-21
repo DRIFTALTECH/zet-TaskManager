@@ -70,12 +70,17 @@ def _build_task_out(t: Task, assignee_ids: list[str], time_log: dict[str, int]) 
     cf = json.loads(t.custom_fields_json or "{}")
     tags = json.loads(t.tags_json or "[]")
     if not assignee_ids:
-        # Story-linked tasks may be intentionally unassigned (empty assignee rows).
-        # Legacy standalone tasks still fall back to denormalized assigned_to.
-        if getattr(t, "user_story_id", None):
+        # Empty task_assignees = unassigned when assigned_to is only the creator
+        # placeholder (create / CSV import). Legacy rows without a junction still
+        # fall back to denormalized assigned_to when it differs from created_by.
+        if getattr(t, "user_story_id", None) or (
+            t.assigned_to and t.assigned_to == t.created_by
+        ):
             assignee_ids = []
-        else:
+        elif t.assigned_to:
             assignee_ids = [t.assigned_to]
+        else:
+            assignee_ids = []
     primary = assignee_ids[0] if assignee_ids else (t.assigned_to or t.created_by)
     return TaskOut(
         id=t.id,
@@ -110,10 +115,14 @@ def to_task_out(db: Db, t: Task, viewer_user_id: str) -> TaskOut:
     tags = json.loads(t.tags_json or "[]")
     assignee_ids = assignees_crud.list_user_ids_ordered(db, t.id)
     if not assignee_ids:
-        if getattr(t, "user_story_id", None):
+        if getattr(t, "user_story_id", None) or (
+            t.assigned_to and t.assigned_to == t.created_by
+        ):
             assignee_ids = []
-        else:
+        elif t.assigned_to:
             assignee_ids = [t.assigned_to]
+        else:
+            assignee_ids = []
     primary = assignee_ids[0] if assignee_ids else (t.assigned_to or t.created_by)
     return TaskOut(
         id=t.id,
@@ -179,15 +188,16 @@ def create_task(db: Db, current_user_id: str, body: TaskCreate) -> TaskOut:
     sec = sections_crud.get_by_id(db, body.sectionId)
     if not sec or sec.project_id != body.projectId:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid section for project")
+    assignee_ids = _unique_ordered(body.assigneeIds)
     mids = projects_crud.member_ids(db, body.projectId)
     if body.assignedBy not in mids:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "assignedBy must be a project member")
-    assignee_ids = _unique_ordered(body.assigneeIds)
-    if not assignee_ids:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "At least one assignee is required")
     for uid in assignee_ids:
         if uid not in mids:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Every assignee must be a project member")
+    # Empty assigneeIds = unassigned in the API; assigned_to is NOT NULL so we store
+    # the creator as a placeholder (same pattern as AI story task generation).
+    primary = assignee_ids[0] if assignee_ids else current_user_id
     user_story_id = (body.userStoryId or "").strip() or None
     parent_task_id = (body.parentTaskId or "").strip() or None
     if user_story_id:
@@ -211,7 +221,6 @@ def create_task(db: Db, current_user_id: str, body: TaskCreate) -> TaskOut:
     today = date.today().isoformat()
     created_at = datetime.now(timezone.utc).isoformat()
     due = (body.dueDate or "").strip() or today
-    primary = assignee_ids[0]
     min_log = 1
     if body.minLogMinutes is not None:
         project_logic.ensure_manager(db, current_user_id)
@@ -308,9 +317,7 @@ def patch_task(db: Db, current_user_id: str, task_id: str, body: TaskPatch) -> T
         mids = projects_crud.member_ids(db, t.project_id)
         assignee_ids = _unique_ordered(body.assigneeIds)
         if not assignee_ids:
-            # Story-linked tasks may be left unassigned (still under the story).
-            if not getattr(t, "user_story_id", None):
-                raise HTTPException(status.HTTP_400_BAD_REQUEST, "At least one assignee is required")
+            # Unassigned: clear junction rows; keep assigned_to as creator placeholder.
             assignees_crud.set_assignees(db, t.id, [])
             t.assigned_to = t.created_by
         else:

@@ -32,11 +32,14 @@ def list_manager_submissions(
     status: str | None = None,
     user_id: str | None = None,
     week_start: str | None = None,
+    week_from: str | None = None,
+    week_to: str | None = None,
     actor_id: str = Depends(get_current_user_id),
     db: Db = Depends(get_db),
 ):
     return timesheet_logic.list_manager_submissions(
         db, actor_id, submission_status=status, user_id=user_id, week_start=week_start,
+        week_from=week_from, week_to=week_to,
     )
 
 

@@ -110,6 +110,17 @@ def _parse_week_start(week_start: str) -> str:
     return week_start
 
 
+def _snap_to_week_start(value: str) -> str:
+    """Any date -> the Monday of its ISO week. Used for range filters, where the
+    caller picks arbitrary days rather than week boundaries."""
+    try:
+        return week_start_for(value)
+    except Exception:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "week_from / week_to must be dates in YYYY-MM-DD form"
+        )
+
+
 def _ensure_date_editable(db: Db, user_id: str, work_date: str) -> None:
     ws = week_start_for(work_date)
     sub = ts_crud.get_for_user_week(db, user_id, ws)
@@ -194,21 +205,32 @@ def list_manager_submissions(
     submission_status: str | None = None,
     user_id: str | None = None,
     week_start: str | None = None,
+    week_from: str | None = None,
+    week_to: str | None = None,
 ) -> list[TimesheetSubmissionOut]:
     if submission_status is not None and submission_status not in ("submitted", "approved", "rejected"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "status must be submitted, approved, or rejected")
     ws = _parse_week_start(week_start) if week_start is not None else None
+    # A range selects whole weeks. The bounds come from a free date picker, so they
+    # are SNAPPED to their ISO Monday rather than required to be one — a Wed-to-Fri
+    # custom range must still return that week's submission, not a 400.
+    wf = _snap_to_week_start(week_from) if week_from else None
+    wt = _snap_to_week_start(week_to) if week_to else None
+    if wf and wt and wf > wt:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "week_from must be on or before week_to")
     actor = user_logic.get_user_or_404(db, actor_id)
     if actor.role == "employee":
         if user_id is not None and user_id != actor_id:
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Not authorized to view other users' submissions")
         rows = ts_crud.list_for_reviewer(
             db, user_id=actor_id, status=submission_status, week_start=ws,
+            week_from=wf, week_to=wt,
         )
     else:
         project_logic.ensure_manager(db, actor_id)
         rows = ts_crud.list_for_reviewer(
             db, status=submission_status, user_id=user_id, week_start=ws,
+            week_from=wf, week_to=wt,
         )
     return [submission_to_out(db, r, user_id=r.user_id, week_start=r.week_start) for r in rows]
 

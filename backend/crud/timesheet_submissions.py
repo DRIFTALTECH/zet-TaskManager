@@ -38,6 +38,8 @@ def list_for_reviewer(
     status: str | None = None,
     user_id: str | None = None,
     week_start: str | None = None,
+    week_from: str | None = None,
+    week_to: str | None = None,
 ) -> list[TimesheetSubmission]:
     # ponytail: keyed on users.manager_id, not frozen reviewer_id — survives manager reassignment
     join_users = manager_id is not None
@@ -57,6 +59,14 @@ def list_for_reviewer(
     if week_start is not None:
         clauses.append(f"{pfx}week_start = %s")
         params.append(week_start)
+    # A submission is one row per ISO week, so a date range selects every week that
+    # starts inside it.
+    if week_from is not None:
+        clauses.append(f"{pfx}week_start >= %s")
+        params.append(week_from)
+    if week_to is not None:
+        clauses.append(f"{pfx}week_start <= %s")
+        params.append(week_to)
 
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     if join_users:

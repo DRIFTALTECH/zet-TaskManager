@@ -38,10 +38,19 @@ def _json_safe(value: Any) -> Any:
 
 
 def _transient_errors() -> tuple[type[BaseException], ...]:
+    """Errors worth retrying with a fresh pool.
+
+    PoolError belongs here even though it is NOT an OperationalError: it inherits
+    straight from psycopg2.Error. When one request hits a connection failure it
+    disposes the pools, and any request already holding the old pool object then
+    raises "connection pool is closed". That is recoverable — rebuild and retry —
+    but while PoolError was missing from this tuple it escaped as a 500.
+    """
     try:
         import psycopg2
+        import psycopg2.pool
 
-        return (psycopg2.OperationalError, psycopg2.InterfaceError)
+        return (psycopg2.OperationalError, psycopg2.InterfaceError, psycopg2.pool.PoolError)
     except ImportError:
         return (ConnectionError, OSError)
 

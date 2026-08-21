@@ -167,7 +167,17 @@ class ConnectionPools:
     def checkout(self, *, write: bool) -> Any:
         self._rebuild_pools_if_needed()
         p = self._write_pool if write else self._read_pool
-        assert p is not None
+        # Another thread may have disposed the pools between the rebuild check and
+        # here — or this object may be a stale instance that dispose_all() replaced.
+        # Rebuild rather than assert, so a concurrent dispose cannot 500 a request
+        # that is merely unlucky with timing.
+        if p is None or getattr(p, "closed", False):
+            with self._pool_lock:
+                self._pools_expire_at = 0.0
+            self._rebuild_pools_if_needed()
+            p = self._write_pool if write else self._read_pool
+        if p is None:
+            raise RuntimeError("Database connection pool is unavailable")
         conn = p.getconn()
         if conn.closed:
             p.putconn(conn, close=True)

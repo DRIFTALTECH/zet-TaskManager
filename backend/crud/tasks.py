@@ -68,6 +68,135 @@ def count_for_section(db: Db, section_id: str) -> int:
     return int(row["cnt"]) if row else 0
 
 
+def find_by_project_title_assignee(
+    db: Db, project_id: str, title: str, assigned_to: str,
+) -> Task | None:
+    """Dedup helper for delivery-sheet imports (matched assignee)."""
+    row = fetch_one(
+        db,
+        """
+        SELECT * FROM tasks
+        WHERE project_id = %s AND title = %s AND assigned_to = %s
+        LIMIT 1
+        """,
+        (project_id, title, assigned_to),
+    )
+    return row_to_model(Task, row)
+
+
+def find_by_project_title_unassigned(db: Db, project_id: str, title: str) -> Task | None:
+    """Dedup for unassigned imports — no rows in task_assignees."""
+    row = fetch_one(
+        db,
+        """
+        SELECT t.* FROM tasks t
+        WHERE t.project_id = %s AND t.title = %s
+          AND NOT EXISTS (
+            SELECT 1 FROM task_assignees a WHERE a.task_id = t.id
+          )
+        LIMIT 1
+        """,
+        (project_id, title),
+    )
+    return row_to_model(Task, row)
+
+
+def load_dedup_index(db: Db, project_ids: list[str]) -> tuple[set[tuple[str, str, str]], set[tuple[str, str]]]:
+    """One-shot load of (project, title, assignee) and unassigned (project, title) keys."""
+    assigned: set[tuple[str, str, str]] = set()
+    unassigned: set[tuple[str, str]] = set()
+    if not project_ids:
+        return assigned, unassigned
+    rows = fetch_all(
+        db,
+        """
+        SELECT t.project_id, t.title, t.assigned_to,
+               EXISTS (
+                 SELECT 1 FROM task_assignees a WHERE a.task_id = t.id
+               ) AS has_assignee
+        FROM tasks t
+        WHERE t.project_id = ANY(%s)
+        """,
+        (list(project_ids),),
+    )
+    for r in rows:
+        pid, title = r["project_id"], r["title"]
+        if r["has_assignee"]:
+            assigned.add((pid, title, r["assigned_to"]))
+        else:
+            unassigned.add((pid, title))
+    return assigned, unassigned
+
+
+def insert_imported_task(
+    db: Db,
+    *,
+    task_id: str,
+    title: str,
+    description: str,
+    project_id: str,
+    section_id: str,
+    assigned_to: str,
+    assigned_by: str,
+    created_by: str,
+    due_date: str,
+    priority: str,
+    status: str,
+    is_started: bool,
+    started_at: str | None,
+    completed_at: str | None,
+    approved_by_manager: bool,
+    time_tracked: int,
+    tags: list[str],
+    created_at: str,
+    custom_fields: dict[str, str] | None = None,
+) -> None:
+    """Bulk-import insert: one write, no re-fetch, no realtime bump."""
+    db.write(
+        """
+        INSERT INTO tasks (
+            id, title, description, project_id, section_id,
+            user_story_id, parent_task_id,
+            assigned_to, assigned_by, created_by, due_date,
+            priority, status, is_started, started_at, completed_at,
+            approved_by_manager, time_tracked, min_log_minutes,
+            tags_json, custom_fields_json, created_at
+        ) VALUES (
+            %s, %s, %s, %s, %s,
+            %s, %s,
+            %s, %s, %s, %s,
+            %s, %s, %s, %s, %s,
+            %s, %s, %s,
+            %s, %s, %s
+        )
+        """,
+        (
+            task_id,
+            title,
+            description,
+            project_id,
+            section_id,
+            None,
+            None,
+            assigned_to,
+            assigned_by,
+            created_by,
+            due_date,
+            priority,
+            status,
+            is_started,
+            started_at,
+            completed_at,
+            approved_by_manager,
+            time_tracked,
+            1,
+            json.dumps(tags),
+            json.dumps(custom_fields or {}),
+            created_at,
+        ),
+    )
+
+
 def create_task(
     db: Db,
     *,

@@ -14,6 +14,19 @@ def get_by_email(db: Db, email: str) -> User | None:
     return row_to_model(User, row)
 
 
+def get_by_name_ci(db: Db, name: str) -> User | None:
+    """Case-insensitive exact name match (delivery-sheet Developer column)."""
+    trimmed = (name or "").strip()
+    if not trimmed:
+        return None
+    row = fetch_one(
+        db,
+        "SELECT * FROM users WHERE LOWER(name) = LOWER(%s) LIMIT 1",
+        (trimmed,),
+    )
+    return row_to_model(User, row)
+
+
 def get_by_id(db: Db, user_id: str) -> User | None:
     row = fetch_one(db, "SELECT * FROM users WHERE id = %s", (user_id,))
     return row_to_model(User, row)

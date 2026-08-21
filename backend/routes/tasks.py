@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, File, Response, UploadFile
 
 import realtime
 from database.database import Db, get_db
-from logic import task_feedback_logic, task_logic, timer_logic
+from logic import task_feedback_logic, task_logic, tasks_import_logic, timer_logic
 from logic.schemas import (
     LogTimeBody,
     MinTimerPersistBody,
@@ -14,10 +14,12 @@ from logic.schemas import (
     TaskMoveBody,
     TaskOut,
     TaskPatch,
+    TasksImportReport,
     TimerRunOut,
     TimerStopBody,
 )
-from routes.deps import get_current_user_id
+from routes.deps import get_current_user_id, require_superadmin
+from upload_guard import read_limited
 
 router = APIRouter()
 
@@ -25,6 +27,17 @@ router = APIRouter()
 @router.get("", response_model=list[TaskOut])
 def list_tasks(user_id: str = Depends(get_current_user_id), db: Db = Depends(get_db)):
     return task_logic.list_tasks(db, user_id)
+
+
+@router.post("/import", response_model=TasksImportReport)
+async def import_tasks_csv(
+    file: UploadFile = File(...),
+    actor_id: str = Depends(require_superadmin),
+    db: Db = Depends(get_db),
+):
+    """Import a delivery-sheet CSV into tasks. Superadmin only."""
+    content = await read_limited(file, tasks_import_logic.MAX_CSV_BYTES, label="CSV")
+    return tasks_import_logic.import_delivery_csv(db, actor_id, file.filename, content)
 
 
 @router.get("/timers/active", response_model=list[TimerRunOut])

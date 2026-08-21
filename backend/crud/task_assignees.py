@@ -59,3 +59,12 @@ def set_assignees(db: Db, task_id: str, user_ids: list[str]) -> None:
             (task_id, uid, pos),
         )
     realtime.bump("tasks")
+
+
+def insert_assignees_quiet(db: Db, task_id: str, user_ids: list[str]) -> None:
+    """Insert assignees for a brand-new task. No DELETE, no realtime bump."""
+    for pos, uid in enumerate(user_ids):
+        db.write(
+            "INSERT INTO task_assignees (task_id, user_id, position) VALUES (%s, %s, %s)",
+            (task_id, uid, pos),
+        )

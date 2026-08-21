@@ -276,7 +276,8 @@ class TaskCreate(BaseModel):
     description: str = ""
     projectId: str
     sectionId: str
-    assigneeIds: list[str] = Field(..., min_length=1)
+    # Empty = unassigned (assigned_to stores creator as placeholder; assigneeIds stays []).
+    assigneeIds: list[str] = Field(default_factory=list)
     assignedBy: str
     createdBy: str
     dueDate: str
@@ -482,7 +483,34 @@ class ClockifyImportReport(BaseModel):
     duplicates: int
     skippedCount: int
     dateOrder: str
+    # Records the import created rather than skipping over. Surfaced so the
+    # superadmin can see exactly what a file added to the workspace.
+    createdProjects: list[str] = Field(default_factory=list)
+    createdClients: list[str] = Field(default_factory=list)
+    createdUsers: list[str] = Field(default_factory=list)
+    membershipsAdded: int = 0
     skipped: list[ClockifyImportSkip] = Field(default_factory=list)
+
+
+class TasksImportSkip(BaseModel):
+    line: int
+    reason: str
+    detail: str = ""
+
+
+class TasksImportReport(BaseModel):
+    """Result of a superadmin delivery-sheet CSV → tasks import."""
+
+    filename: str
+    totalRows: int
+    imported: int
+    duplicates: int
+    skippedCount: int
+    dateOrder: str
+    createdProjects: list[str] = Field(default_factory=list)
+    createdUsers: list[str] = Field(default_factory=list)
+    membershipsAdded: int = 0
+    skipped: list[TasksImportSkip] = Field(default_factory=list)
 
 
 class TimesheetEntryCreate(BaseModel):
