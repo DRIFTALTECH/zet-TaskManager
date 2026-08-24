@@ -150,6 +150,7 @@ def insert_imported_task(
     tags: list[str],
     created_at: str,
     custom_fields: dict[str, str] | None = None,
+    sprint: str = "",
 ) -> None:
     """Bulk-import insert: one write, no re-fetch, no realtime bump."""
     db.write(
@@ -157,14 +158,14 @@ def insert_imported_task(
         INSERT INTO tasks (
             id, title, description, project_id, section_id,
             user_story_id, parent_task_id,
-            assigned_to, assigned_by, created_by, due_date,
+            assigned_to, assigned_by, created_by, due_date, sprint,
             priority, status, is_started, started_at, completed_at,
             approved_by_manager, time_tracked, min_log_minutes,
             tags_json, custom_fields_json, created_at
         ) VALUES (
             %s, %s, %s, %s, %s,
             %s, %s,
-            %s, %s, %s, %s,
+            %s, %s, %s, %s, %s,
             %s, %s, %s, %s, %s,
             %s, %s, %s,
             %s, %s, %s
@@ -182,6 +183,7 @@ def insert_imported_task(
             assigned_by,
             created_by,
             due_date,
+            sprint,
             priority,
             status,
             is_started,
@@ -221,20 +223,21 @@ def create_task(
     custom_fields: dict[str, str] | None = None,
     user_story_id: str | None = None,
     parent_task_id: str | None = None,
+    sprint: str = "",
 ) -> Task:
     db.write(
         """
         INSERT INTO tasks (
             id, title, description, project_id, section_id,
             user_story_id, parent_task_id,
-            assigned_to, assigned_by, created_by, due_date,
+            assigned_to, assigned_by, created_by, due_date, sprint,
             priority, status, is_started, started_at, completed_at,
             approved_by_manager, time_tracked, min_log_minutes,
             tags_json, custom_fields_json, created_at
         ) VALUES (
             %s, %s, %s, %s, %s,
             %s, %s,
-            %s, %s, %s, %s,
+            %s, %s, %s, %s, %s,
             %s, %s, %s, %s, %s,
             %s, %s, %s,
             %s, %s, %s
@@ -252,6 +255,7 @@ def create_task(
             assigned_by,
             created_by,
             due_date,
+            sprint or "",
             priority,
             status,
             is_started,
@@ -278,7 +282,7 @@ def update_task(db: Db, task: Task) -> Task:
         UPDATE tasks SET
             title = %s, description = %s, project_id = %s, section_id = %s,
             user_story_id = %s, parent_task_id = %s,
-            assigned_to = %s, assigned_by = %s, created_by = %s, due_date = %s,
+            assigned_to = %s, assigned_by = %s, created_by = %s, due_date = %s, sprint = %s,
             priority = %s, status = %s, is_started = %s, started_at = %s,
             completed_at = %s, approved_by_manager = %s, time_tracked = %s,
             min_log_minutes = %s,
@@ -296,6 +300,7 @@ def update_task(db: Db, task: Task) -> Task:
             task.assigned_by,
             task.created_by,
             task.due_date,
+            getattr(task, "sprint", "") or "",
             task.priority,
             task.status,
             task.is_started,

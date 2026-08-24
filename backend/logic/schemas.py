@@ -254,6 +254,7 @@ class TaskOut(BaseModel):
     assignedBy: str
     createdBy: str
     dueDate: str
+    sprint: str = ""
     priority: str
     status: str
     isStarted: bool
@@ -281,7 +282,9 @@ class TaskCreate(BaseModel):
     assignedBy: str
     createdBy: str
     dueDate: str
+    sprint: str = ""
     priority: str
+    status: str | None = None
     tags: list[str] = []
     minLogMinutes: int | None = None
     userStoryId: str | None = None
@@ -293,10 +296,15 @@ class TaskPatch(BaseModel):
     description: str | None = None
     priority: str | None = None
     status: str | None = None
+    projectId: str | None = None
     sectionId: str | None = None
     assigneeIds: list[str] | None = None
     customFields: dict[str, str] | None = None
     dueDate: str | None = None
+    sprint: str | None = None
+    tags: list[str] | None = None
+    startedAt: str | None = None
+    completedAt: str | None = None
     minLogMinutes: int | None = None
     userStoryId: str | None = None
     parentTaskId: str | None = None

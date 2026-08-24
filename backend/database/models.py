@@ -156,6 +156,7 @@ class Task(Base):
     assigned_by = Column(String, ForeignKey("users.id"), nullable=False)
     created_by = Column(String, ForeignKey("users.id"), nullable=False)
     due_date = Column(String, nullable=False)
+    sprint = Column(String, nullable=False, default="")
     priority = Column(String, nullable=False)
     status = Column(String, nullable=False)
     is_started = Column(Boolean, nullable=False, default=False)

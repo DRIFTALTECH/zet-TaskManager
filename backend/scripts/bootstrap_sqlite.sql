@@ -98,6 +98,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     assigned_by VARCHAR NOT NULL REFERENCES users (id),
     created_by VARCHAR NOT NULL REFERENCES users (id),
     due_date VARCHAR NOT NULL,
+    sprint VARCHAR NOT NULL DEFAULT '',
     priority VARCHAR NOT NULL,
     status VARCHAR NOT NULL,
     is_started BOOLEAN NOT NULL DEFAULT FALSE,

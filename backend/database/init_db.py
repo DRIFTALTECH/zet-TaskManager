@@ -100,6 +100,12 @@ def _migrate_task_min_log_minutes() -> None:
         pass  # ponytail: column already exists
 
 
+def _migrate_task_sprint() -> None:
+    """Free-text sprint on every task. Existing rows get ''."""
+    db = get_database()
+    _add_column_if_missing(db, "tasks", "sprint", "VARCHAR NOT NULL DEFAULT ''")
+
+
 def _migrate_clients() -> None:
     db = get_database()
     db.write(
@@ -378,6 +384,7 @@ def init_db() -> None:
     _run_bootstrap()
     _migrate_submitted_dates()
     _migrate_task_min_log_minutes()
+    _migrate_task_sprint()
     _migrate_clients()
     _migrate_skills()
     _migrate_user_stories()

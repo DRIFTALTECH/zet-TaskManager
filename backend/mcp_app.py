@@ -476,10 +476,11 @@ def create_task(
     description: str = "",
     assignees: list[str] | None = None,
     due_date: str = "",
+    sprint: str = "",
     priority: str = "Medium",
 ) -> dict:
     """Create a task in a project section. assignees = names/ids (defaults to you).
-    priority: Urgent | High | Medium | Low."""
+    priority: Urgent | High | Medium | Low. sprint is free text."""
     db = SessionLocal()
     try:
         uid = _uid()
@@ -491,7 +492,7 @@ def create_task(
         body = TaskCreate(
             title=title, description=description, projectId=p.id, sectionId=sec.id,
             assigneeIds=ids, assignedBy=uid, createdBy=uid, dueDate=due_date,
-            priority=priority, tags=[],
+            sprint=sprint, priority=priority, tags=[],
         )
         return task_logic.create_task_action(db, uid, body).model_dump()
     finally:
@@ -531,8 +532,8 @@ def get_task(task_id: str) -> dict:
 
 
 @mcp.tool
-def update_task(task_id: str, description: str = "", priority: str = "", title: str = "") -> dict:
-    """Update a task's description, priority (Urgent|High|Medium|Low) and/or title.
+def update_task(task_id: str, description: str = "", priority: str = "", title: str = "", sprint: str = "") -> dict:
+    """Update a task's description, priority (Urgent|High|Medium|Low), title, and/or sprint.
     Only non-empty fields change. Use `move_task` for board status, not this."""
     db = SessionLocal()
     try:
@@ -542,6 +543,7 @@ def update_task(task_id: str, description: str = "", priority: str = "", title: 
             description=description or None,
             priority=priority or None,
             title=title or None,
+            sprint=sprint or None,
         )
         return task_logic.patch_task_action(db, uid, t.id, patch).model_dump()
     finally:

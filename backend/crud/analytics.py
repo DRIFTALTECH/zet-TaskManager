@@ -16,7 +16,7 @@ from crud._base import Db, fetch_all, fetch_one, row_to_model, rows_to_models
 _USER_COLS = """id, name, email, password_hash, role, avatar, job_title,
     experience_months, joined_at, is_active, manager_id"""
 _TASK_COLS = """id, title, description, project_id, section_id, assigned_to, assigned_by,
-    created_by, due_date, priority, status, is_started, started_at, completed_at,
+    created_by, due_date, sprint, priority, status, is_started, started_at, completed_at,
     approved_by_manager, time_tracked, tags_json, custom_fields_json, created_at"""
 _TS_COLS = """id, user_id, work_date, project_id, section_id, description,
     time_from, time_to, seconds, billable, created_at"""

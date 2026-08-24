@@ -51,6 +51,10 @@ def _is_task_creator(t: Task, user_id: str) -> bool:
     return t.created_by == user_id
 
 
+def _can_delete_task(db: Db, t: Task, user_id: str) -> bool:
+    return _is_task_creator(t, user_id) or project_logic.is_admin(db, user_id)
+
+
 def _can_move_task_on_board(db: Db, t: Task, user_id: str) -> bool:
     """Only the task's assignees may move it between columns — no exceptions."""
     if assignees_crud.is_assignee(db, t.id, user_id):
@@ -93,6 +97,7 @@ def _build_task_out(t: Task, assignee_ids: list[str], time_log: dict[str, int]) 
         assignedBy=t.assigned_by,
         createdBy=t.created_by,
         dueDate=t.due_date,
+        sprint=getattr(t, "sprint", "") or "",
         priority=_normalize_priority(t.priority),
         status=t.status,
         isStarted=t.is_started,
@@ -135,6 +140,7 @@ def to_task_out(db: Db, t: Task, viewer_user_id: str) -> TaskOut:
         assignedBy=t.assigned_by,
         createdBy=t.created_by,
         dueDate=t.due_date,
+        sprint=getattr(t, "sprint", "") or "",
         priority=_normalize_priority(t.priority),
         status=t.status,
         isStarted=t.is_started,
@@ -238,8 +244,9 @@ def create_task(db: Db, current_user_id: str, body: TaskCreate) -> TaskOut:
         assigned_by=body.assignedBy,
         created_by=body.createdBy,
         due_date=due,
+        sprint=(body.sprint or "").strip(),
         priority=body.priority,
-        status="backlog",
+        status=(body.status or "").strip()[:80] or "backlog",
         is_started=False,
         approved_by_manager=False,
         time_tracked=0,
@@ -253,53 +260,21 @@ def create_task(db: Db, current_user_id: str, body: TaskCreate) -> TaskOut:
     return to_task_out(db, t, current_user_id)
 
 
+def _date_or_none(value: str | None) -> str | None:
+    s = (value or "").strip()[:10]
+    return s or None
+
+
 def patch_task(db: Db, current_user_id: str, task_id: str, body: TaskPatch) -> TaskOut:
     t = tasks_crud.get_by_id(db, task_id)
     if not t:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Task not found")
     project_logic.ensure_project_member(db, t.project_id, current_user_id)
-    if t.status == "completed":
-        if body.assigneeIds is not None:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                "Completed tasks cannot be reassigned",
-            )
-        if body.status is not None and body.status != "completed":
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                "Completed tasks cannot be moved back to an active state",
-            )
-        if (
-            body.title is not None
-            or body.description is not None
-            or body.priority is not None
-            or body.sectionId is not None
-            or body.customFields is not None
-            or body.dueDate is not None
-            or body.minLogMinutes is not None
-        ):
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                "Completed tasks are read-only",
-            )
     if body.minLogMinutes is not None:
         project_logic.ensure_manager(db, current_user_id)
         if body.minLogMinutes < 0 or body.minLogMinutes > 180:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "minLogMinutes must be 0–180")
         t.min_log_minutes = int(body.minLogMinutes)
-    core_fields = (
-        body.title is not None
-        or body.description is not None
-        or body.priority is not None
-        or body.status is not None
-        or body.sectionId is not None
-        or body.customFields is not None
-    )
-    if core_fields and not _is_task_creator(t, current_user_id):
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN,
-            "Only the task creator can edit title, description, priority, section, status, and custom fields",
-        )
     if body.title is not None:
         t.title = body.title
     if body.description is not None:
@@ -308,11 +283,32 @@ def patch_task(db: Db, current_user_id: str, task_id: str, body: TaskPatch) -> T
         t.priority = body.priority
     if body.status is not None:
         t.status = body.status
+    if body.projectId is not None:
+        new_pid = (body.projectId or "").strip()
+        dest = projects_crud.get_by_id(db, new_pid) if new_pid else None
+        if not dest:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid projectId")
+        project_logic.ensure_project_member(db, new_pid, current_user_id)
+        t.project_id = new_pid
+        if t.user_story_id:
+            from crud import user_stories as stories_crud
+
+            story = stories_crud.get_by_id(db, t.user_story_id)
+            if not story or story.project_id != new_pid:
+                t.user_story_id = None
+        if getattr(t, "parent_task_id", None):
+            parent = tasks_crud.get_by_id(db, t.parent_task_id)
+            if not parent or parent.project_id != new_pid:
+                t.parent_task_id = None
     if body.sectionId is not None:
         sec = sections_crud.get_by_id(db, body.sectionId)
         if not sec or sec.project_id != t.project_id:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid section")
         t.section_id = body.sectionId
+    elif body.projectId is not None:
+        sec = sections_crud.get_by_id(db, t.section_id)
+        if not sec or sec.project_id != t.project_id:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Pick a section in the new project")
     if body.assigneeIds is not None:
         mids = projects_crud.member_ids(db, t.project_id)
         assignee_ids = _unique_ordered(body.assigneeIds)
@@ -328,10 +324,18 @@ def patch_task(db: Db, current_user_id: str, task_id: str, body: TaskPatch) -> T
             t.assigned_to = assignee_ids[0]
     if body.customFields is not None:
         t.custom_fields_json = json.dumps(body.customFields)
-    # Rescheduling: any project member (assignee) may change the due date — not just
-    # the creator — so drag-and-drop on the calendar works for everyone on the task.
     if body.dueDate is not None:
-        t.due_date = (body.dueDate or "").strip() or t.due_date
+        t.due_date = (body.dueDate or "").strip()
+    if body.sprint is not None:
+        t.sprint = (body.sprint or "").strip()[:120]
+    if body.tags is not None:
+        cleaned = [x.strip() for x in body.tags if (x or "").strip()]
+        t.tags_json = json.dumps(cleaned[:40])
+    if body.startedAt is not None:
+        t.started_at = _date_or_none(body.startedAt)
+        t.is_started = bool(t.started_at)
+    if body.completedAt is not None:
+        t.completed_at = _date_or_none(body.completedAt)
     if body.userStoryId is not None:
         usid = (body.userStoryId or "").strip() or None
         if usid:
@@ -457,10 +461,10 @@ def delete_task(db: Db, current_user_id: str, task_id: str) -> None:
     if not t:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Task not found")
     project_logic.ensure_project_member(db, t.project_id, current_user_id)
-    if t.created_by != current_user_id:
+    if not _can_delete_task(db, t, current_user_id):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
-            "Only the user who created this task can delete it",
+            "Only the creator or a superadmin can delete this task",
         )
     tasks_crud.delete_task(db, task_id)
 

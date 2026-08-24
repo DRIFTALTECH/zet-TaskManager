@@ -187,7 +187,7 @@ def _map_priority(raw: str) -> str:
 def _map_status(raw: str) -> str:
     s = (raw or "").strip().lower()
     if s in ("completed", "complete", "done", "closed", "finished"):
-        return "completed"
+        return "done"
     if s in ("in progress", "in_progress", "development", "dev", "doing", "active"):
         return "in_progress"
     if s in ("in review", "in_review", "review", "qa"):
@@ -391,12 +391,19 @@ def import_delivery_csv(db: Db, actor_id: str, filename: str | None, content: by
         status_val = _map_status(row.get("Status") or "")
         priority = _map_priority(row.get("Priority") or "")
         time_tracked = _hours_to_seconds(row.get("in Hours") or "")
-        due = completed_iso or start_iso or added_iso or date.today().isoformat()
-        is_started = bool(start_iso) or status_val in ("in_progress", "in_review", "completed")
+        # Delivery sheets have no due-date column — leave empty (column is NOT NULL).
+        due = ""
+        sprint = ""
+        for key in ("Sprint", "Delivery Week", "Week"):
+            v = (row.get(key) or "").strip()
+            if v:
+                sprint = v[:120]
+                break
+        is_started = bool(start_iso) or status_val in ("in_progress", "in_review", "done")
         started_at = start_iso
-        completed_at = completed_iso if status_val == "completed" else None
-        if status_val == "completed" and not completed_at:
-            completed_at = due
+        completed_at = completed_iso if status_val == "done" else None
+        if status_val == "done" and not completed_at:
+            completed_at = start_iso or added_iso or date.today().isoformat()
 
         prepared.append({
             "line": line,
@@ -410,6 +417,7 @@ def import_delivery_csv(db: Db, actor_id: str, filename: str | None, content: by
             "priority": priority,
             "time_tracked": time_tracked,
             "due": due,
+            "sprint": sprint,
             "is_started": is_started,
             "started_at": started_at,
             "completed_at": completed_at,
@@ -450,12 +458,13 @@ def import_delivery_csv(db: Db, actor_id: str, filename: str | None, content: by
                 assigned_by=actor_id,
                 created_by=actor_id,
                 due_date=item["due"],
+                sprint=item["sprint"],
                 priority=item["priority"],
                 status=item["status_val"],
                 is_started=item["is_started"],
                 started_at=item["started_at"],
                 completed_at=item["completed_at"],
-                approved_by_manager=item["status_val"] == "completed",
+                approved_by_manager=item["status_val"] == "done",
                 time_tracked=item["time_tracked"],
                 tags=_build_tags(item["row"]),
                 created_at=created_at,
