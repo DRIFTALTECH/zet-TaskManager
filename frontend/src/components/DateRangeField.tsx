@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { DateRange } from 'react-day-picker';
-import { CalendarDays, X } from 'lucide-react';
+import { ChevronDown, X } from 'lucide-react';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -62,14 +62,12 @@ export default function DateRangeField({
         <button
           type="button"
           className={cn(
-            'flex items-center gap-2 rounded-xl border border-border/80 bg-muted/40 px-3 py-2 text-sm font-medium transition-colors hover:border-ring/40 focus:outline-none focus:ring-2 focus:ring-primary/40',
-            !hasValue && 'text-muted-foreground',
+            'flex h-9 min-w-[15rem] shrink-0 items-center justify-between gap-2 rounded-xl border border-border/70 bg-card/70 px-3 text-left text-sm font-medium shadow-none focus:outline-none focus:ring-2 focus:ring-ring/40 focus:ring-offset-0',
             className,
           )}
         >
-          <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="truncate">{label}</span>
-          {hasValue && (
+          {hasValue ? (
             <span
               role="button"
               tabIndex={0}
@@ -82,15 +80,20 @@ export default function DateRangeField({
                   onChange('', '');
                 }
               }}
-              className="ml-auto rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+              className="rounded-md p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               <X className="h-3.5 w-3.5" />
             </span>
+          ) : (
+            <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
           )}
         </button>
       </PopoverTrigger>
 
-      <PopoverContent className="w-auto p-0" align="start">
+      <PopoverContent
+        align="end"
+        className="w-auto overflow-hidden rounded-xl border-border/70 p-0 shadow-lg"
+      >
         <Calendar
           mode="range"
           selected={selected}
@@ -98,34 +101,40 @@ export default function DateRangeField({
           disabled={disableFuture ? { after: new Date() } : undefined}
           onSelect={r => {
             onChange(r?.from ? toIso(r.from) : '', r?.to ? toIso(r.to) : '');
-            // Close once a complete range is chosen; stay open after the first click.
             if (r?.from && r?.to) setOpen(false);
           }}
           numberOfMonths={isMobile ? 1 : 2}
-          className="p-3"
+          className="p-4"
+          classNames={{
+            months: 'flex flex-col sm:flex-row gap-6 sm:gap-8 space-y-0 sm:space-x-0',
+            month: 'space-y-3',
+            caption: 'flex justify-center items-center relative h-8',
+            caption_label: 'text-sm font-semibold',
+            nav_button: 'h-7 w-7 rounded-lg border-0 bg-transparent p-0 opacity-50 hover:opacity-100 hover:bg-accent',
+            table: 'w-full border-collapse',
+            head_cell: 'w-9 font-medium text-[0.75rem] text-muted-foreground',
+            cell: 'h-9 w-9 p-0 text-center text-sm relative first:[&:has([aria-selected])]:rounded-l-lg last:[&:has([aria-selected])]:rounded-r-lg [&:has([aria-selected])]:bg-accent/60 [&:has([aria-selected].day-range-start)]:rounded-l-lg [&:has([aria-selected].day-range-end)]:rounded-r-lg [&:has([aria-selected].day-outside)]:bg-accent/30',
+            day: 'h-9 w-9 rounded-lg p-0 font-normal hover:bg-accent aria-selected:opacity-100',
+            day_selected:
+              'bg-foreground text-background hover:bg-foreground hover:text-background focus:bg-foreground focus:text-background',
+            day_today: 'bg-transparent font-semibold text-foreground',
+            day_outside: 'text-muted-foreground/40 opacity-100 aria-selected:bg-transparent aria-selected:text-background/70',
+            day_range_middle: 'aria-selected:bg-transparent aria-selected:text-foreground',
+            day_range_start: 'day-range-start',
+            day_range_end: 'day-range-end',
+          }}
         />
-        <div className="flex items-center justify-between gap-4 border-t border-border/40 px-3 py-2.5 text-xs">
-          <div className="flex items-center gap-4">
-            <div>
-              <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70">From</p>
-              <p className="font-semibold tabular-nums">{from ? fmt(from) : '—'}</p>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70">To</p>
-              <p className="font-semibold tabular-nums">
-                {to ? fmt(to) : <span className="font-normal text-muted-foreground">pick an end date</span>}
-              </p>
-            </div>
+        <div className="grid grid-cols-2 gap-4 border-t border-border/50 px-4 py-3">
+          <div>
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">From</p>
+            <p className="mt-0.5 text-sm font-semibold tabular-nums">{from ? fmt(from) : '—'}</p>
           </div>
-          {hasValue && (
-            <button
-              type="button"
-              onClick={() => { onChange('', ''); setOpen(false); }}
-              className="text-muted-foreground underline underline-offset-2 hover:text-foreground"
-            >
-              Clear
-            </button>
-          )}
+          <div>
+            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">To</p>
+            <p className="mt-0.5 text-sm font-semibold tabular-nums">
+              {to ? fmt(to) : '—'}
+            </p>
+          </div>
         </div>
       </PopoverContent>
     </Popover>

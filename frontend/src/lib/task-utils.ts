@@ -43,7 +43,16 @@ export function isTaskAssignedTo(task: Task, userId: string): boolean {
   return taskAssigneeIds(task).includes(userId);
 }
 
-/** Assignee filter: empty set = no restriction (show all). Supports UNASSIGNED_FILTER_ID. */
+export const NO_SPRINT_FILTER_ID = '__no_sprint__';
+
+/** Sprint filter: empty set = no restriction. Supports NO_SPRINT_FILTER_ID for blank sprint. */
+export function taskMatchesSprintFilter(task: Task, selected: Set<string>): boolean {
+  if (selected.size === 0) return true;
+  const sprint = (task.sprint ?? '').trim();
+  if (!sprint) return selected.has(NO_SPRINT_FILTER_ID);
+  return selected.has(sprint);
+}
+
 export function taskMatchesAssigneeFilter(task: Task, selectedUserIds: Set<string>): boolean {
   if (selectedUserIds.size === 0) return true;
   const wantUnassigned = selectedUserIds.has(UNASSIGNED_FILTER_ID);

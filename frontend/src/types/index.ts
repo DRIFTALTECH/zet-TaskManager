@@ -76,6 +76,7 @@ export interface Task {
   assignedBy: string;
   createdBy: string;
   dueDate: string;
+  sprint: string;
   priority: Priority;
   status: TaskStatus;
   isStarted: boolean;

@@ -112,7 +112,7 @@ export default function NotificationBell() {
       {/* Bell button */}
       <button
         onClick={() => setOpen(o => !o)}
-        className="relative p-2 rounded-xl border border-transparent hover:border-border/60 hover:bg-accent/60 transition-colors"
+        className="relative h-9 w-9 inline-flex items-center justify-center rounded-xl border border-border/70 bg-card/70 hover:bg-accent/60 hover:border-ring/40 transition-colors"
         title="Notifications"
       >
         <Bell className="h-4 w-4" />

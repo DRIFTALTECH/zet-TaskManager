@@ -90,6 +90,8 @@ interface AppState {
   syncProjectsAndUsers: () => Promise<void>;
   createTask: (
     task: Pick<Task, 'title' | 'description' | 'projectId' | 'sectionId' | 'dueDate' | 'priority' | 'tags'> & {
+      sprint?: string;
+      status?: string;
       assigneeIds: string[];
       assignedBy: string;
       createdBy: string;
@@ -467,7 +469,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       assignedBy: taskData.assignedBy,
       createdBy: taskData.createdBy,
       dueDate: taskData.dueDate,
+      sprint: taskData.sprint ?? '',
       priority: taskData.priority,
+      status: taskData.status,
       tags: taskData.tags,
       userStoryId: taskData.userStoryId ?? null,
     });
@@ -484,10 +488,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (updates.description !== undefined) patch.description = updates.description;
     if (updates.priority !== undefined) patch.priority = updates.priority;
     if (updates.status !== undefined) patch.status = updates.status;
+    if (updates.projectId !== undefined) patch.projectId = updates.projectId;
     if (updates.sectionId !== undefined) patch.sectionId = updates.sectionId;
     if (updates.assigneeIds !== undefined) patch.assigneeIds = updates.assigneeIds;
     if (updates.customFields !== undefined) patch.customFields = updates.customFields;
     if (updates.dueDate !== undefined) patch.dueDate = updates.dueDate;
+    if (updates.sprint !== undefined) patch.sprint = updates.sprint;
+    if (updates.tags !== undefined) patch.tags = updates.tags;
+    if (updates.startedAt !== undefined) patch.startedAt = updates.startedAt ?? null;
+    if (updates.completedAt !== undefined) patch.completedAt = updates.completedAt ?? null;
     if (updates.minLogMinutes !== undefined) patch.minLogMinutes = updates.minLogMinutes;
     if (updates.userStoryId !== undefined) patch.userStoryId = updates.userStoryId;
     const t = await api.patchTask(id, patch);

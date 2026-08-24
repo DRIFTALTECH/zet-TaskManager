@@ -344,7 +344,9 @@ export const api = {
     assignedBy: string;
     createdBy: string;
     dueDate: string;
+    sprint?: string;
     priority: string;
+    status?: string;
     tags: string[];
     userStoryId?: string | null;
     parentTaskId?: string | null;
@@ -363,10 +365,15 @@ export const api = {
       description: string;
       priority: string;
       status: string;
+      projectId: string;
       sectionId: string;
       assigneeIds: string[];
       customFields: Record<string, string>;
       dueDate: string;
+      sprint: string;
+      tags: string[];
+      startedAt: string | null;
+      completedAt: string | null;
       minLogMinutes: number;
       userStoryId: string | null;
       parentTaskId: string | null;

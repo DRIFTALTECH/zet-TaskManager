@@ -3,7 +3,7 @@ import DateRangeField from '@/components/DateRangeField';
 import { projectPickerLabel } from '@/lib/project-utils';
 import { Task, Priority, KanbanColumn } from '@/types';
 import { motion } from 'framer-motion';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   DndContext,
@@ -29,8 +29,8 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import {
   Plus, GripVertical,
-  MoreHorizontal, Pencil, Trash2, Flag, Check,
-  ListFilter, Users, BookOpen,
+  MoreHorizontal, Pencil, Trash2, Flag, Check, ChevronDown,
+  Users, BookOpen,
 } from 'lucide-react';
 import { KanbanBoardPan } from '@/components/KanbanBoardPan';
 import TaskDetailModal from '@/components/TaskDetailModal';
@@ -46,23 +46,98 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { snappy, pageEnter } from '@/lib/motion';
+import { pageEnter } from '@/lib/motion';
 import {
-  taskMatchesDashboardDueFilter,
   taskMatchesDueDateRange,
   taskMatchesPriorityFilter,
-  type DashboardDueFilter,
 } from '@/lib/due-date-utils';
-import { isTopLevelTask, storyAssigneeIds, taskMatchesAssigneeFilter, UNASSIGNED_FILTER_ID } from '@/lib/task-utils';
+import { isTopLevelTask, storyAssigneeIds, taskMatchesAssigneeFilter, taskMatchesSprintFilter, NO_SPRINT_FILTER_ID, UNASSIGNED_FILTER_ID } from '@/lib/task-utils';
 import UserAvatar from '@/components/UserAvatar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Checkbox } from '@/components/ui/checkbox';
 import AssigneeMultiSelect from '@/components/AssigneeMultiSelect';
 import { api } from '@/lib/api';
 import type { UserStory } from '@/types';
 
 const PROTECTED_IDS = new Set(['backlog', 'in_progress', 'in_review', 'done']);
 const DONE_COL_KEY = 'tm_done_col';
+
+const FILTER_TRIGGER =
+  'flex h-9 w-[min(44vw,12rem)] sm:w-44 shrink-0 items-center justify-between gap-2 rounded-xl border border-border/70 bg-card/70 px-3 text-sm font-medium shadow-none text-left focus:outline-none focus:ring-2 focus:ring-ring/40 focus:ring-offset-0';
+
+type DashFilterOption = { id: string; text: string; label?: ReactNode };
+
+function DashFilterSelect({
+  allLabel,
+  selected,
+  onToggle,
+  onClear,
+  options,
+  emptyText,
+}: {
+  allLabel: string;
+  selected: Set<string>;
+  onToggle: (id: string) => void;
+  onClear: () => void;
+  options: DashFilterOption[];
+  emptyText?: string;
+}) {
+  const triggerLabel = (() => {
+    if (selected.size === 0) return allLabel;
+    if (selected.size === 1) {
+      const id = [...selected][0];
+      return options.find(o => o.id === id)?.text ?? allLabel;
+    }
+    return `${selected.size} selected`;
+  })();
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" className={FILTER_TRIGGER}>
+          <span className="truncate">{triggerLabel}</span>
+          <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        className="w-auto min-w-[14rem] max-h-72 overflow-hidden rounded-xl border-border/70 p-1 shadow-lg"
+      >
+        <div className="max-h-72 overflow-y-auto">
+          <button
+            type="button"
+            onClick={onClear}
+            className="relative flex w-full cursor-default select-none items-center rounded-lg py-2 pl-8 pr-2 text-sm font-medium outline-none hover:bg-accent hover:text-accent-foreground"
+          >
+            {selected.size === 0 && (
+              <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+                <Check className="h-4 w-4" />
+              </span>
+            )}
+            {allLabel}
+          </button>
+          {options.map(opt => (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => onToggle(opt.id)}
+              className="relative flex w-full cursor-default select-none items-center rounded-lg py-2 pl-8 pr-2 text-sm outline-none hover:bg-accent hover:text-accent-foreground"
+            >
+              {selected.has(opt.id) && (
+                <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+                  <Check className="h-4 w-4" />
+                </span>
+              )}
+              <span className="flex min-w-0 items-center gap-2 truncate">{opt.label ?? opt.text}</span>
+            </button>
+          ))}
+          {options.length === 0 && emptyText && (
+            <p className="px-2 py-2 text-xs text-muted-foreground">{emptyText}</p>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 const priorityBadgeStyles: Record<Priority, string> = {
   Urgent: 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/20',
@@ -105,11 +180,17 @@ function KanbanColumnPanel({
           </button>
           <h3 className="text-sm font-semibold text-foreground">{column.label}</h3>
           <span className="text-[11px] text-muted-foreground bg-muted/80 px-2.5 py-0.5 rounded-full font-medium border border-border/40">{tasks.length}</span>
-          {isDoneColumn && (
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/15 text-green-600 dark:text-green-400 border border-green-500/20 font-semibold">✓ Done</span>
-          )}
         </div>
-        <DropdownMenu>
+        <div className="flex items-center gap-0.5">
+          <button
+            type="button"
+            onClick={onNewTask}
+            className="p-1 rounded-lg hover:bg-muted/60 text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+            title="Add task"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+          <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="p-1 rounded-lg hover:bg-muted/60 text-muted-foreground/50 hover:text-muted-foreground transition-colors">
               <MoreHorizontal className="h-4 w-4" />
@@ -136,6 +217,7 @@ function KanbanColumnPanel({
             )}
           </DropdownMenuContent>
         </DropdownMenu>
+        </div>
       </div>
 
       <div className="space-y-4 flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-1 pt-3 pb-3">
@@ -153,10 +235,6 @@ function KanbanColumnPanel({
             />
           ))}
         </SortableContext>
-        <motion.button onClick={onNewTask} transition={snappy} whileHover={{ scale: 1.01, y: -1 }} whileTap={{ scale: 0.99 }}
-          className="w-full flex items-center justify-center gap-1.5 text-xs text-muted-foreground py-2.5 rounded-xl border border-dashed border-border/50 hover:border-foreground/30 hover:text-foreground hover:bg-muted/50 transition-colors duration-100">
-          <Plus className="h-3.5 w-3.5" /> New Task
-        </motion.button>
       </div>
     </div>
   );
@@ -204,6 +282,7 @@ const DashboardPage = () => {
   const [activeType, setActiveType] = useState<'task' | 'column' | null>(null);
   const [overColumnId, setOverColumnId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [createStatus, setCreateStatus] = useState<string | undefined>();
   const [approvingId, setApprovingId] = useState<string | null>(null);
 
   // Done column selection (persisted)
@@ -239,20 +318,21 @@ const DashboardPage = () => {
   const isManager = currentUser?.role === 'manager' || currentUser?.role === 'superadmin';
   const isAllProjects = selectedProjectId === 'all';
   const projectSelected = isAllProjects || (!!selectedProjectId && userProjects.some(p => p.id === selectedProjectId));
-  const projectTasks = useMemo(() => {
+  const scopedTasks = useMemo(() => {
     if (!projectSelected) return [];
     const base = isAllProjects
-      ? tasks.filter(t => userProjects.some(p => p.id === t.projectId) && t.status !== 'completed')
-      : tasks.filter(t => t.projectId === selectedProjectId && t.status !== 'completed');
+      ? tasks.filter(t => userProjects.some(p => p.id === t.projectId))
+      : tasks.filter(t => t.projectId === selectedProjectId);
     // Nested story subtasks stay under their parent — never as top-level cards.
     return base.filter(isTopLevelTask);
   }, [projectSelected, isAllProjects, tasks, userProjects, selectedProjectId]);
+  const projectTasks = scopedTasks;
 
   const [dashPriorityFilter, setDashPriorityFilter] = useState<Set<Priority>>(() => new Set());
-  const [dashDueFilter, setDashDueFilter] = useState<DashboardDueFilter>('all');
   const [dashDateFrom, setDashDateFrom] = useState('');
   const [dashDateTo, setDashDateTo] = useState('');
   const [dashAssigneeFilter, setDashAssigneeFilter] = useState<Set<string>>(() => new Set());
+  const [dashSprintFilter, setDashSprintFilter] = useState<Set<string>>(() => new Set());
   const [dashStories, setDashStories] = useState<UserStory[]>([]);
   const [assignStory, setAssignStory] = useState<UserStory | null>(null);
   const [assignIds, setAssignIds] = useState<Set<string>>(new Set());
@@ -348,6 +428,26 @@ const DashboardPage = () => {
     }
   };
 
+  const toggleDashSprint = useCallback((value: string) => {
+    setDashSprintFilter(prev => {
+      const n = new Set(prev);
+      if (n.has(value)) n.delete(value);
+      else n.add(value);
+      return n;
+    });
+  }, []);
+
+  const dashSprintOptions = useMemo(() => {
+    const names = new Set<string>();
+    let hasBlank = false;
+    for (const t of scopedTasks) {
+      const s = (t.sprint ?? '').trim();
+      if (s) names.add(s);
+      else hasBlank = true;
+    }
+    return { names: [...names].sort((a, b) => a.localeCompare(b)), hasBlank };
+  }, [scopedTasks]);
+
   const toggleDashPriority = useCallback((p: Priority) => {
     setDashPriorityFilter(prev => {
       const n = new Set(prev);
@@ -386,12 +486,17 @@ const DashboardPage = () => {
       projectTasks.filter(
         t =>
           taskMatchesPriorityFilter(t, dashPriorityFilter) &&
-          taskMatchesDashboardDueFilter(t, dashDueFilter) &&
           taskMatchesDueDateRange(t, dashDateFrom, dashDateTo) &&
-          taskMatchesAssigneeFilter(t, dashAssigneeFilter),
+          taskMatchesAssigneeFilter(t, dashAssigneeFilter) &&
+          taskMatchesSprintFilter(t, dashSprintFilter),
       ),
-    [projectTasks, dashPriorityFilter, dashDueFilter, dashDateFrom, dashDateTo, dashAssigneeFilter],
+    [projectTasks, dashPriorityFilter, dashDateFrom, dashDateTo, dashAssigneeFilter, dashSprintFilter],
   );
+
+  const tasksForColumn = (colId: string) =>
+    filteredProjectTasks.filter(
+      t => t.status === colId || (colId === doneColumnId && t.status === 'completed'),
+    );
 
   const handleSetDoneColumn = (colId: string) => {
     const next = doneColumnId === colId ? 'done' : colId;
@@ -572,120 +677,63 @@ const DashboardPage = () => {
           )}
         </div>
         <div className="flex flex-wrap items-end gap-3 sm:justify-end">
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button type="button" variant="outline" size="sm" className="rounded-xl gap-2 h-9 border-border/80">
-                <Users className="h-4 w-4 shrink-0" />
-                Person
-                {dashAssigneeFilter.size > 0 && (
-                  <span className="text-[10px] font-semibold tabular-nums px-1.5 py-0.5 rounded-md bg-primary/15 text-primary">
-                    {dashAssigneeFilter.size}
-                  </span>
-                )}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-72">
-              <p className="text-xs font-semibold text-foreground mb-1">Filter by person</p>
-              <p className="text-[10px] text-muted-foreground mb-3">
-                Show tasks for selected people, or Unassigned. Leave all off to show everyone.
-              </p>
-              <div className="space-y-1 max-h-56 overflow-y-auto">
-                <label className="flex items-center gap-2.5 py-1.5 cursor-pointer rounded-lg hover:bg-muted/50 px-1 -mx-1">
-                  <Checkbox
-                    checked={dashAssigneeFilter.has(UNASSIGNED_FILTER_ID)}
-                    onCheckedChange={() => toggleDashAssignee(UNASSIGNED_FILTER_ID)}
-                  />
-                  <span className="size-6 rounded-full bg-muted/60 ring-1 ring-border/50 flex items-center justify-center shrink-0">
-                    <Users className="h-3 w-3 text-muted-foreground" />
-                  </span>
-                  <span className="text-sm text-foreground truncate">Unassigned</span>
-                </label>
-                {dashFilterableMembers.map(u => (
-                  <label key={u.id} className="flex items-center gap-2.5 py-1.5 cursor-pointer rounded-lg hover:bg-muted/50 px-1 -mx-1">
-                    <Checkbox
-                      checked={dashAssigneeFilter.has(u.id)}
-                      onCheckedChange={() => toggleDashAssignee(u.id)}
-                    />
+          <DashFilterSelect
+            allLabel="All sprints"
+            selected={dashSprintFilter}
+            onToggle={toggleDashSprint}
+            onClear={() => setDashSprintFilter(new Set())}
+            emptyText="No sprints on these tasks yet."
+            options={[
+              ...(dashSprintOptions.hasBlank
+                ? [{ id: NO_SPRINT_FILTER_ID, text: 'No sprint' }]
+                : []),
+              ...dashSprintOptions.names.map(name => ({ id: name, text: name })),
+            ]}
+          />
+          <DashFilterSelect
+            allLabel="All people"
+            selected={dashAssigneeFilter}
+            onToggle={toggleDashAssignee}
+            onClear={() => setDashAssigneeFilter(new Set())}
+            emptyText="No team members in this view."
+            options={[
+              {
+                id: UNASSIGNED_FILTER_ID,
+                text: 'Unassigned',
+                label: (
+                  <>
+                    <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted/60 ring-1 ring-border/50">
+                      <Users className="h-3 w-3 text-muted-foreground" />
+                    </span>
+                    Unassigned
+                  </>
+                ),
+              },
+              ...dashFilterableMembers.map(u => ({
+                id: u.id,
+                text: u.name,
+                label: (
+                  <>
                     <UserAvatar name={u.name} avatar={u.avatar} size="xs" />
-                    <span className="text-sm text-foreground truncate">{u.name}</span>
-                  </label>
-                ))}
-                {dashFilterableMembers.length === 0 && (
-                  <p className="text-xs text-muted-foreground py-2">No team members in this view.</p>
-                )}
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="w-full mt-3 rounded-lg text-xs"
-                onClick={() => setDashAssigneeFilter(new Set())}
-              >
-                Clear person filter
-              </Button>
-            </PopoverContent>
-          </Popover>
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button type="button" variant="outline" size="sm" className="rounded-xl gap-2 h-9 border-border/80">
-                <ListFilter className="h-4 w-4 shrink-0" />
-                Priority
-                {dashPriorityFilter.size > 0 && (
-                  <span className="text-[10px] font-semibold tabular-nums px-1.5 py-0.5 rounded-md bg-primary/15 text-primary">
-                    {dashPriorityFilter.size}
-                  </span>
-                )}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-64">
-              <p className="text-xs font-semibold text-foreground mb-1">Filter by priority</p>
-              <p className="text-[10px] text-muted-foreground mb-3">Check one or more. Leave all off to show every priority.</p>
-              <div className="space-y-1">
-                {dashPriorityOptions.map(p => (
-                  <label key={p} className="flex items-center gap-2.5 py-1 cursor-pointer rounded-lg hover:bg-muted/50 px-1 -mx-1">
-                    <Checkbox
-                      checked={dashPriorityFilter.has(p)}
-                      onCheckedChange={() => toggleDashPriority(p)}
-                    />
-                    <span className={`text-xs font-medium px-2 py-0.5 rounded-md border ${priorityBadgeStyles[p]}`}>{p}</span>
-                  </label>
-                ))}
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="w-full mt-3 rounded-lg text-xs"
-                onClick={() => setDashPriorityFilter(new Set())}
-              >
-                Clear priority filter
-              </Button>
-            </PopoverContent>
-          </Popover>
-          <div className="flex flex-col gap-1 min-w-[11rem]">
-            <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Due date</span>
-            <select
-              value={dashDueFilter}
-              onChange={e => setDashDueFilter(e.target.value as DashboardDueFilter)}
-              className="rounded-xl border border-border/80 bg-muted/40 px-3 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/40"
-            >
-              <option value="all">All due dates</option>
-              <option value="overdue">Overdue</option>
-              <option value="today">Due today</option>
-              <option value="tomorrow">Due tomorrow</option>
-              <option value="this_week">Due this week</option>
-              <option value="later">Due in 7+ days</option>
-            </select>
-          </div>
-          <div className="flex flex-col gap-1 min-w-[15rem]">
-            <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Due between</span>
-            <DateRangeField
-              from={dashDateFrom}
-              to={dashDateTo}
-              onChange={(f, t) => { setDashDateFrom(f); setDashDateTo(t); }}
-              placeholder="Any due date"
-            />
-          </div>
+                    <span className="truncate">{u.name}</span>
+                  </>
+                ),
+              })),
+            ]}
+          />
+          <DashFilterSelect
+            allLabel="All priorities"
+            selected={dashPriorityFilter}
+            onToggle={id => toggleDashPriority(id as Priority)}
+            onClear={() => setDashPriorityFilter(new Set())}
+            options={dashPriorityOptions.map(p => ({ id: p, text: p }))}
+          />
+          <DateRangeField
+            from={dashDateFrom}
+            to={dashDateTo}
+            onChange={(f, t) => { setDashDateFrom(f); setDashDateTo(t); }}
+            placeholder="Any due date"
+          />
         </div>
       </div>
 
@@ -755,9 +803,9 @@ const DashboardPage = () => {
             {boardColumns.map(col => (
               <KanbanColumnPanel
                 key={col.id} column={col}
-                tasks={filteredProjectTasks.filter(t => t.status === col.id)}
+                tasks={tasksForColumn(col.id)}
                 onTaskClick={setSelectedTask}
-                onNewTask={() => setCreateOpen(true)}
+                onNewTask={() => { setCreateStatus(col.id); setCreateOpen(true); }}
                 isDropTarget={overColumnId === col.id}
                 isManager={!!isManager}
                 approvingId={approvingId}
@@ -836,7 +884,11 @@ const DashboardPage = () => {
       </Dialog>
 
       <TaskDetailModal task={selectedTask} open={!!selectedTask} onOpenChange={o => !o && setSelectedTask(null)} />
-      <CreateTaskModal open={createOpen} onOpenChange={setCreateOpen} />
+      <CreateTaskModal
+        open={createOpen}
+        initialStatus={createStatus}
+        onOpenChange={setCreateOpen}
+      />
 
       <Dialog open={!!assignStory} onOpenChange={o => !o && setAssignStory(null)}>
         <DialogContent className="max-w-md">

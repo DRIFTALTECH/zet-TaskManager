@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAppStore } from '@/stores/appStore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
@@ -6,11 +6,11 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DateInput } from '@/components/ui/date-input';
 import { toast } from 'sonner';
 import type { Priority, UserStory } from '@/types';
-import { Users, Layers, Tag, Sparkles, BookOpen } from 'lucide-react';
+import { Users, Layers, Tag, Sparkles, BookOpen, FolderOpen, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { localTodayISO, localTomorrowISO } from '@/lib/due-date-utils';
 import { api } from '@/lib/api';
-import ProjectSectionPicker from '@/components/ProjectSectionPicker';
+import { projectPickerLabel } from '@/lib/project-utils';
 import { SubtaskDraftSection } from '@/components/SubtaskSection';
 import { collectSubtaskTitles, newSubtaskDraftRow, type SubtaskDraftRow } from '@/lib/subtask-utils';
 import type { TaskPrefill } from '@/pages/AIPage';
@@ -26,6 +26,8 @@ interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   prefill?: TaskPrefill;
+  /** Kanban column id — new task is created in this status. */
+  initialStatus?: string;
 }
 
 const priorities: Priority[] = ['Low', 'Medium', 'High', 'Urgent'];
@@ -37,14 +39,16 @@ const priorityChoice: Record<Priority, string> = {
   Low: 'border-green-500/30 bg-green-500/15 text-green-600 dark:text-green-400',
 };
 
-const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
-  const { currentUser, projects, users, createTask, addSection, selectedProjectId } = useAppStore();
+const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus }: Props) => {
+  const { currentUser, projects, users, createTask, updateTask, addSection, selectedProjectId } = useAppStore();
+  const statusRef = useRef(initialStatus || 'backlog');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [manualProjectId, setManualProjectId] = useState('');
   const [sectionId, setSectionId] = useState('');
   const [assigneeIds, setAssigneeIds] = useState<Set<string>>(new Set());
   const [dueDate, setDueDate] = useState('');
+  const [sprint, setSprint] = useState('');
   const [priority, setPriority] = useState<Priority>('Medium');
   const [tagsStr, setTagsStr] = useState('');
   const [showNewSection, setShowNewSection] = useState(false);
@@ -75,11 +79,12 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
 
   useEffect(() => {
     if (!open) return;
+    statusRef.current = initialStatus || 'backlog';
     setDueDate(localTodayISO());
     if (selectedProjectId && userProjects.some(p => p.id === selectedProjectId)) {
       setManualProjectId(prev => prev || selectedProjectId);
     }
-  }, [open]);
+  }, [open, initialStatus]);
 
   // Apply AI prefill when provided
   useEffect(() => {
@@ -151,6 +156,7 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
     setSectionId('');
     setAssigneeIds(new Set());
     setDueDate(localTodayISO());
+    setSprint('');
     setPriority('Medium');
     setTagsStr('');
     setShowNewSection(false);
@@ -186,29 +192,6 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
     setNewSectionName('');
   };
 
-  // For the cascading picker: create a section and resolve its new id.
-  const createSectionReturningId = async (projId: string, name: string): Promise<string | null> => {
-    try {
-      await addSection(projId, name);
-      const updated = useAppStore.getState().projects.find(p => p.id === projId);
-      const sec = updated?.sections.find(s => s.name.trim() === name.trim());
-      toast.success('Section created');
-      return sec?.id ?? null;
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not create section');
-      return null;
-    }
-  };
-
-  const handlePickerChange = (projId: string, secId: string) => {
-    if (projId !== manualProjectId) {
-      setManualProjectId(projId);
-      setAssigneeIds(new Set(currentUser ? [currentUser.id] : []));
-    }
-    if (secId !== sectionId) setUserStoryId('');
-    setSectionId(secId);
-  };
-
   const toggleAssignee = (userId: string) => {
     setAssigneeIds(prev => {
       const n = new Set(prev);
@@ -225,6 +208,7 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
     const ids = [...assigneeIds];
     const subtasks = collectSubtaskTitles(subtaskRows);
     if (subtasks.ok === false) return toast.error(subtasks.error);
+    const status = statusRef.current || initialStatus || 'backlog';
     try {
       const created = await createTask({
         title: title.trim(),
@@ -235,10 +219,15 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
         assignedBy: currentUser.id,
         createdBy: currentUser.id,
         dueDate: dueDate.trim() || localTodayISO(),
+        sprint: sprint.trim(),
         priority,
         tags: tagsStr.split(',').map(t => t.trim()).filter(Boolean),
         userStoryId: userStoryId || null,
+        status,
       });
+      if (status && created.status !== status) {
+        await updateTask(created.id, { status });
+      }
       try {
         for (const subtaskTitle of subtasks.titles) {
           await api.createChecklist(created.id, subtaskTitle);
@@ -314,17 +303,89 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
               />
             </div>
 
-            <div className="rounded-xl border border-border/60 p-4 space-y-3">
-              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                <Layers className="h-3.5 w-3.5" /> Project & section
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label className="flex items-center gap-1.5">
+                  <FolderOpen className="h-3.5 w-3.5" />
+                  Project <span className="text-destructive">*</span>
+                </Label>
+                <Select value={manualProjectId || undefined} onValueChange={handleManualProjectChange}>
+                  <SelectTrigger className="h-10 rounded-xl">
+                    <SelectValue placeholder="Choose project" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {userProjects.map(p => (
+                      <SelectItem key={p.id} value={p.id}>{projectPickerLabel(p)}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-              <ProjectSectionPicker
-                projects={userProjects}
-                projectId={manualProjectId}
-                sectionId={sectionId}
-                onChange={handlePickerChange}
-                onCreateSection={createSectionReturningId}
-              />
+              <div className="space-y-2">
+                <Label className="flex items-center gap-1.5">
+                  <Layers className="h-3.5 w-3.5" />
+                  Section <span className="text-destructive">*</span>
+                </Label>
+                <div className="flex items-start gap-1.5">
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <Select
+                      value={sectionId || undefined}
+                      onValueChange={id => {
+                        if (id !== sectionId) setUserStoryId('');
+                        setSectionId(id);
+                      }}
+                      disabled={!selectedProject}
+                    >
+                      <SelectTrigger className="h-10 rounded-xl">
+                        <SelectValue placeholder={selectedProject ? 'Choose section' : 'Pick a project first'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(selectedProject?.sections ?? []).map(s => (
+                          <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {showNewSection && (
+                      <input
+                        autoFocus
+                        value={newSectionName}
+                        onChange={e => setNewSectionName(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') void handleCreateSection();
+                          if (e.key === 'Escape') { setShowNewSection(false); setNewSectionName(''); }
+                        }}
+                        placeholder="Section name…"
+                        disabled={creatingSec}
+                        className={`${field} h-10 py-0`}
+                      />
+                    )}
+                  </div>
+                  {selectedProject && (
+                    <div className="flex shrink-0 flex-col gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowNewSection(v => !v);
+                          setNewSectionName('');
+                        }}
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-border/80 bg-background text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                        title="Add section"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </button>
+                      {showNewSection && (
+                        <button
+                          type="button"
+                          onClick={() => void handleCreateSection()}
+                          disabled={!newSectionName.trim() || creatingSec}
+                          className="h-10 min-w-10 px-3 rounded-xl bg-primary text-primary-foreground text-xs font-semibold disabled:opacity-40"
+                        >
+                          {creatingSec ? '…' : 'Add'}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
             {sectionId && (
@@ -425,6 +486,17 @@ const CreateTaskModal = ({ open, onOpenChange, prefill }: Props) => {
                 <p className="text-[10px] text-muted-foreground/70">
                   Quick picks above, or any date using the field or calendar.
                 </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="ct-sprint">Sprint</Label>
+                <input
+                  id="ct-sprint"
+                  value={sprint}
+                  onChange={e => setSprint(e.target.value)}
+                  placeholder="e.g. Sprint 12"
+                  maxLength={120}
+                  className={field}
+                />
               </div>
               <div className="space-y-2">
                 <Label>Priority</Label>

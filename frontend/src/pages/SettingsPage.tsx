@@ -912,14 +912,16 @@ export default function SettingsPage() {
               <div className="mt-4 rounded-xl border border-border/40 bg-muted/20 p-4">
                 <p className="text-xs font-semibold text-foreground">Expected columns</p>
                 <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-                  Header must include{' '}
+                  One header row (a title row above it is fine). Required:{' '}
                   <span className="font-medium text-foreground">Application</span>.
-                  Application maps to a project (created if missing), Feature becomes the
-                  section, Description is the task title (falls back to Feature), and{' '}
-                  <span className="font-medium text-foreground">Developer</span> is optional —
-                  blank rows are imported unassigned so you can assign later. Dates like{' '}
-                  <span className="font-medium text-foreground">10/8/2026</span> are read as
-                  day-first. Missing people are created inactive — approve them on Superadmin.
+                  Optional: Week (sprint), Priority, Capability, Feature, Description,
+                  Added On, Phase, Status, Complexity, in Hours, Developer, Start Date,
+                  Completed Date, Dependency, Comments. Application is the project,
+                  Feature is the section, Description is the task title,{' '}
+                  <span className="font-medium text-foreground">Week / Delivery Week / Sprint</span>{' '}
+                  is the sprint text. Dates like{' '}
+                  <span className="font-medium text-foreground">10-08-2026</span> are day-first.
+                  Missing people are created inactive — approve them on Superadmin.
                 </p>
 
                 <input

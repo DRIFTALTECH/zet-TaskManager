@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { taskAssigneeIds, isTaskAssignedTo, normalizePriority, childTasksOf, isTaskDone } from '@/lib/task-utils';
+import { projectPickerLabel } from '@/lib/project-utils';
 import UserAvatar from '@/components/UserAvatar';
 import { AdjustMinDurationSection } from '@/components/AdjustMinDurationSection';
 import { SubtaskManager } from '@/components/SubtaskSection';
@@ -54,6 +55,9 @@ const statusConfig: Record<TaskStatus, { style: string; label: string; bar: stri
 function fmtDate(d: string) {
   try { return new Date(d + 'T12:00:00').toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' }); }
   catch { return d; }
+}
+function dateOnly(s?: string | null) {
+  return (s ?? '').trim().slice(0, 10);
 }
 /** createdAt from API: full ISO (new tasks) or legacy YYYY-MM-DD only */
 function parseTaskCreatedAt(createdAt: string): { dateStr: string; timeStr: string | null } | null {
@@ -156,6 +160,15 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
   const [draftAssigneeIds, setDraftAssigneeIds] = useState<string[]>([]);
   const [draftCustomRows, setDraftCustomRows] = useState<CustomFieldRow[]>([]);
   const [draftUserStoryId, setDraftUserStoryId] = useState<string>('');
+  const [draftSprint, setDraftSprint] = useState('');
+  const [draftDueDate, setDraftDueDate] = useState('');
+  const [draftProjectId, setDraftProjectId] = useState('');
+  const [draftSectionId, setDraftSectionId] = useState('');
+  const [draftStatus, setDraftStatus] = useState('');
+  const [draftTags, setDraftTags] = useState<string[]>([]);
+  const [draftStartedAt, setDraftStartedAt] = useState('');
+  const [draftCompletedAt, setDraftCompletedAt] = useState('');
+  const [tagInput, setTagInput] = useState('');
   const [sectionStories, setSectionStories] = useState<UserStory[]>([]);
   const [storiesLoading, setStoriesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -217,14 +230,14 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
     currentUser && task && isCompleted &&
     (currentUser.id === task.createdBy || isTaskAssignedTo(task, currentUser.id) || isManager),
   );
-  const canEditTaskFields = Boolean(currentUser && task && !isCompleted && currentUser.id === task.createdBy);
-  // Rescheduling (due date) is allowed for the creator, any assignee, or a manager/admin.
-  const canReschedule = Boolean(
-    currentUser && task && !isCompleted &&
-    (currentUser.id === task.createdBy || isTaskAssignedTo(task, currentUser.id) || isManager),
+  const canEdit = Boolean(
+    currentUser && task &&
+    (currentUser.role === 'superadmin' || projects.some(p => p.id === task.projectId)),
   );
-  const canManageAssignees = Boolean(task && !isCompleted && projects.some(p => p.id === task?.projectId));
-  const canDeleteTask = Boolean(currentUser && task && currentUser.id === task.createdBy);
+  const canDeleteTask = Boolean(
+    currentUser && task &&
+    (currentUser.id === task.createdBy || currentUser.role === 'superadmin'),
+  );
   const assigneeKey = task ? sortedKey(taskAssigneeIds(task)) : '';
 
   const resetDraft = useCallback((t: Task) => {
@@ -234,6 +247,15 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
     setDraftAssigneeIds([...taskAssigneeIds(t)]);
     setDraftCustomRows(rowsFromTask(t.customFields));
     setDraftUserStoryId(t.userStoryId ?? '');
+    setDraftSprint(t.sprint ?? '');
+    setDraftDueDate(dateOnly(t.dueDate));
+    setDraftProjectId(t.projectId);
+    setDraftSectionId(t.sectionId);
+    setDraftStatus(t.status);
+    setDraftTags([...(t.tags ?? [])]);
+    setDraftStartedAt(dateOnly(t.startedAt));
+    setDraftCompletedAt(dateOnly(t.completedAt));
+    setTagInput('');
   }, []);
 
   const loadFeedback = useCallback(async () => {
@@ -270,7 +292,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
     setStoriesLoading(true);
     void (async () => {
       try {
-        const rows = await api.listSectionUserStories(task.sectionId);
+        const rows = await api.listSectionUserStories(draftSectionId || task.sectionId);
         if (!cancelled) setSectionStories(rows);
       } catch {
         if (!cancelled) setSectionStories([]);
@@ -279,20 +301,27 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
       }
     })();
     return () => { cancelled = true; };
-  }, [open, task?.sectionId, task?.id]);
+  }, [open, draftSectionId, task?.sectionId, task?.id]);
 
   const isDirty = useMemo(() => {
-    if (!task) return false;
-    const cfMatch = cfSig(recordFromRows(draftCustomRows)) === cfSig(task.customFields);
-    const contentDirty = canEditTaskFields && (
-      draftTitle !== task.title || draftDescription !== (task.description ?? '') ||
-      draftPriority !== task.priority || !cfMatch
+    if (!task || !canEdit) return false;
+    return (
+      draftTitle !== task.title ||
+      draftDescription !== (task.description ?? '') ||
+      draftPriority !== normalizePriority(task.priority) ||
+      cfSig(recordFromRows(draftCustomRows)) !== cfSig(task.customFields) ||
+      (draftUserStoryId || '') !== (task.userStoryId || '') ||
+      sortedKey(draftAssigneeIds) !== sortedKey(taskAssigneeIds(task)) ||
+      draftSprint.trim() !== (task.sprint ?? '').trim() ||
+      draftDueDate !== dateOnly(task.dueDate) ||
+      draftProjectId !== task.projectId ||
+      draftSectionId !== task.sectionId ||
+      draftStatus !== task.status ||
+      sortedKey(draftTags) !== sortedKey(task.tags ?? []) ||
+      draftStartedAt !== dateOnly(task.startedAt) ||
+      draftCompletedAt !== dateOnly(task.completedAt)
     );
-    const storyDirty = (canEditTaskFields || canManageAssignees) &&
-      (draftUserStoryId || '') !== (task.userStoryId || '');
-    const assigneeDirty = canManageAssignees && sortedKey(draftAssigneeIds) !== sortedKey(taskAssigneeIds(task));
-    return contentDirty || assigneeDirty || storyDirty;
-  }, [task, draftTitle, draftDescription, draftPriority, draftAssigneeIds, draftCustomRows, draftUserStoryId, canEditTaskFields, canManageAssignees]);
+  }, [task, canEdit, draftTitle, draftDescription, draftPriority, draftAssigneeIds, draftCustomRows, draftUserStoryId, draftSprint, draftDueDate, draftProjectId, draftSectionId, draftStatus, draftTags, draftStartedAt, draftCompletedAt]);
 
   const timerEpochStart = task ? (activeTimers[task.id] ?? null) : null;
   const elapsed = useElapsedTime(timerEpochStart);
@@ -311,66 +340,85 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
 
   if (!task) return null;
 
-  const project = projects.find(p => p.id === task.projectId);
-  const section = project?.sections.find(s => s.id === task.sectionId);
+  const project = projects.find(p => p.id === (draftProjectId || task.projectId));
+  const section = project?.sections.find(s => s.id === (draftSectionId || task.sectionId));
+  const editableProjects = currentUser?.role === 'superadmin'
+    ? projects
+    : projects.filter(p => currentUser?.projectIds.includes(p.id));
   const assigner = users.find(u => u.id === task.assignedBy);
   const creator = users.find(u => u.id === task.createdBy);
   const projectMembers = project
     ? users.filter(u => project.members.includes(u.id)).sort((a, b) => a.name.localeCompare(b.name))
     : [];
   const assigneeUsers = taskAssigneeIds(task).map(id => users.find(u => u.id === id)).filter(Boolean) as typeof users;
-  const isDoneDue = task.status === 'completed' || task.status === 'done';
-  const dueBucket = getDueBucket(task.dueDate);
+  const displayStatus = canEdit ? draftStatus : task.status;
+  const isDoneDue = displayStatus === 'completed' || displayStatus === 'done';
+  const dueBucket = getDueBucket(canEdit ? draftDueDate : task.dueDate);
   const isOverdue = dueBucket === 'overdue' && !isDoneDue;
   const taskRef = `TF-${task.id.replace(/\D/g, '').padStart(3, '0')}`;
-  const displayPriority = canEditTaskFields ? draftPriority : normalizePriority(task.priority);
-  const statusCfg = statusConfig[task.status] ?? statusConfig.backlog;
+  const displayPriority = canEdit ? draftPriority : normalizePriority(task.priority);
+  const statusCfg = statusConfig[displayStatus as TaskStatus] ?? statusConfig.backlog;
   // Resolve the display label from kanban columns so custom columns show their real name
-  const statusLabel = kanbanColumns.find(c => c.id === task.status)?.label ?? statusCfg.label;
+  const statusLabel = kanbanColumns.find(c => c.id === displayStatus)?.label ?? statusCfg.label;
   const priCfg = priorityConfig[displayPriority] ?? priorityConfig.Medium;
   const taskCreatedTimeline = fmtTaskCreatedTimeline(task.createdAt);
+  const statusOptions = [
+    ...kanbanColumns.map(c => ({ id: c.id, label: c.label })),
+    ...((displayStatus === 'completed' || task.status === 'completed') && !kanbanColumns.some(c => c.id === 'completed')
+      ? [{ id: 'completed', label: 'Completed' }]
+      : []),
+  ];
+  if (displayStatus && !statusOptions.some(s => s.id === displayStatus)) {
+    statusOptions.push({ id: displayStatus, label: statusCfg.label });
+  }
 
   const toggleAssignee = (uid: string) => setDraftAssigneeIds(prev =>
     prev.includes(uid) ? prev.filter(id => id !== uid) : [...prev, uid]);
 
+  const addTag = () => {
+    const next = tagInput.trim().replace(/,$/, '');
+    if (!next || draftTags.includes(next)) { setTagInput(''); return; }
+    setDraftTags(prev => [...prev, next]);
+    setTagInput('');
+  };
+
+  const handleProjectChange = (pid: string) => {
+    setDraftProjectId(pid);
+    const next = projects.find(p => p.id === pid);
+    const firstSection = next?.sections[0]?.id ?? '';
+    setDraftSectionId(firstSection);
+    setDraftUserStoryId('');
+    const memberIds = new Set(next?.members ?? []);
+    setDraftAssigneeIds(prev => prev.filter(id => memberIds.has(id)));
+  };
+
   const saveAll = async () => {
     const title = draftTitle.trim();
-    if (canEditTaskFields && !title) { toast.error('Title is required'); return; }
+    if (!title) { toast.error('Title is required'); return; }
+    if (!draftSectionId) { toast.error('Pick a section in the selected project'); return; }
     const ids = [...new Set(draftAssigneeIds)];
-    const linkedToStory = Boolean(draftUserStoryId || task.userStoryId);
-    if (canManageAssignees && ids.length === 0 && !linkedToStory) {
-      toast.error('At least one assignee is required');
-      return;
-    }
     setSaving(true);
     try {
-      const patch: Parameters<typeof updateTask>[1] = {};
-      if (canEditTaskFields) {
-        patch.title = title;
-        patch.description = draftDescription;
-        patch.priority = draftPriority;
-        patch.customFields = recordFromRows(draftCustomRows);
-      }
-      if (canEditTaskFields || canManageAssignees) {
-        patch.userStoryId = draftUserStoryId || null;
-      }
-      if (canManageAssignees) patch.assigneeIds = ids;
-      if (Object.keys(patch).length === 0) { setSaving(false); return; }
-      await updateTask(task.id, patch);
+      await updateTask(task.id, {
+        title,
+        description: draftDescription,
+        priority: draftPriority,
+        customFields: recordFromRows(draftCustomRows),
+        userStoryId: draftUserStoryId || null,
+        assigneeIds: ids,
+        sprint: draftSprint.trim(),
+        dueDate: draftDueDate,
+        projectId: draftProjectId || task.projectId,
+        sectionId: draftSectionId || task.sectionId,
+        status: draftStatus || task.status,
+        tags: draftTags,
+        startedAt: draftStartedAt || null,
+        completedAt: draftCompletedAt || null,
+      });
       toast.success('Task saved');
       onOpenChange(false);
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not save task'); }
     finally { setSaving(false); }
-  };
-
-  const changeDueDate = async (newDate: string) => {
-    if (!task || !newDate || newDate === task.dueDate?.slice(0, 10)) return;
-    try {
-      await updateTask(task.id, { dueDate: newDate });
-      toast.success('Due date updated');
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not update due date');
-    }
   };
 
   const postFeedback = async () => {
@@ -502,7 +550,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
             {/* Title + actions */}
             <div className="flex items-start gap-3 justify-between">
               <div className="flex-1 min-w-0 pr-2">
-                {canEditTaskFields ? (
+                {canEdit ? (
                   <textarea
                     value={draftTitle}
                     onChange={e => setDraftTitle(e.target.value)}
@@ -610,7 +658,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                     )}
                   </div>
                 )}
-                {canEditTaskFields ? (
+                {canEdit ? (
                   <textarea
                     value={draftDescription}
                     onChange={e => setDraftDescription(e.target.value)}
@@ -628,12 +676,12 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                 )}
               </section>
 
-              {isManager && !isCompleted && (
+              {isManager && (
                 <AdjustMinDurationSection task={task} />
               )}
 
-              {/* Manage Assignees (manager only) */}
-              {canManageAssignees && (
+              {/* Manage Assignees */}
+              {canEdit && (
                 <section>
                   <SectionLabel icon={User2} label="Manage Assignees" accent="text-violet-400/70" />
                   {(draftUserStoryId || task.userStoryId) && (
@@ -663,10 +711,10 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
               )}
 
               {/* Custom Fields */}
-              {(canEditTaskFields || Object.keys(task.customFields || {}).length > 0) && (
+              {(canEdit || Object.keys(task.customFields || {}).length > 0) && (
                 <section>
                   <SectionLabel icon={Plus} label="Custom Fields" accent="text-amber-400/70" />
-                  {canEditTaskFields ? (
+                  {canEdit ? (
                     <div className="space-y-2.5">
                       {draftCustomRows.map(row => (
                         <div key={row.localId} className="flex items-center gap-2">
@@ -1096,7 +1144,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
               {/* Priority */}
               <section>
                 <SectionLabel icon={AlertTriangle} label="Priority" accent="text-orange-400/70" />
-                {canEditTaskFields ? (
+                {canEdit ? (
                   <div className="space-y-1.5">
                     {(['Low', 'Medium', 'High', 'Urgent'] as Priority[]).map(p => (
                       <button
@@ -1124,7 +1172,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
               {/* User story */}
               <section>
                 <SectionLabel icon={BookOpen} label="User story" accent="text-violet-400/70" />
-                {(canEditTaskFields || canManageAssignees) ? (
+                {canEdit ? (
                   <Select
                     value={draftUserStoryId || '__none__'}
                     onValueChange={v => setDraftUserStoryId(v === '__none__' ? '' : v)}
@@ -1148,23 +1196,100 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                 )}
               </section>
 
+              {/* Status */}
+              <section>
+                <SectionLabel icon={CircleDot} label="Status" accent="text-slate-400/70" />
+                {canEdit ? (
+                  <Select value={draftStatus || task.status} onValueChange={setDraftStatus}>
+                    <SelectTrigger className="w-full text-xs h-9">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {statusOptions.map(s => (
+                        <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <span className={`inline-flex items-center text-xs px-3 py-1.5 rounded-xl font-semibold border ${statusCfg.style}`}>
+                    {statusLabel}
+                  </span>
+                )}
+              </section>
+
+              {/* Project */}
+              <section>
+                <SectionLabel icon={FolderOpen} label="Project" accent="text-sky-400/70" />
+                {canEdit ? (
+                  <Select value={draftProjectId || task.projectId} onValueChange={handleProjectChange}>
+                    <SelectTrigger className="w-full text-xs h-9">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {editableProjects.map(p => (
+                        <SelectItem key={p.id} value={p.id}>{projectPickerLabel(p)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <p className="text-sm font-semibold text-foreground">{project?.name ?? '—'}</p>
+                )}
+              </section>
+
+              {/* Section */}
+              <section>
+                <SectionLabel icon={Layers} label="Section" accent="text-teal-400/70" />
+                {canEdit && project ? (
+                  <Select value={draftSectionId || task.sectionId} onValueChange={setDraftSectionId}>
+                    <SelectTrigger className="w-full text-xs h-9">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {project.sections.map(s => (
+                        <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <p className="text-xs text-foreground">{section?.name ?? '—'}</p>
+                )}
+              </section>
+
+              {/* Sprint */}
+              <section>
+                <SectionLabel icon={Layers} label="Sprint" accent="text-violet-400/70" />
+                {canEdit ? (
+                  <input
+                    value={draftSprint}
+                    onChange={e => setDraftSprint(e.target.value)}
+                    placeholder="e.g. Sprint 12"
+                    maxLength={120}
+                    className="w-full text-sm font-semibold bg-muted/40 border border-border/50 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 transition-all"
+                  />
+                ) : (
+                  <div className="text-sm text-foreground">{task.sprint?.trim() || 'No sprint'}</div>
+                )}
+              </section>
+
               {/* Due Date */}
               <section>
                 <SectionLabel icon={Calendar} label="Due Date" accent="text-cyan-400/70" />
-                {canReschedule ? (
+                {canEdit ? (
                   <input
                     type="date"
-                    value={task.dueDate?.slice(0, 10) || ''}
-                    onChange={e => void changeDueDate(e.target.value)}
-                    className="text-sm font-semibold bg-muted/40 border border-border/50 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 transition-all [color-scheme:dark]"
+                    value={draftDueDate}
+                    onChange={e => setDraftDueDate(e.target.value)}
+                    className="w-full text-sm font-semibold bg-muted/40 border border-border/50 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 transition-all [color-scheme:dark]"
                   />
-                ) : (
+                ) : draftDueDate || task.dueDate?.trim() ? (
                   <>
                     <div className={`text-sm font-bold ${dueBucketDateTextClass(dueBucket, isDoneDue)}`}>
-                      {fmtDate(task.dueDate)}
+                      {fmtDate(draftDueDate || task.dueDate)}
                     </div>
-                    <div className="text-[11px] text-muted-foreground font-mono mt-0.5">{task.dueDate}</div>
+                    <div className="text-[11px] text-muted-foreground font-mono mt-0.5">{draftDueDate || task.dueDate}</div>
                   </>
+                ) : (
+                  <div className="text-sm text-muted-foreground">No due date</div>
                 )}
                 {!isDoneDue && dueBucket === 'today' && (
                   <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-red-600 dark:text-red-300 bg-red-500/10 px-2 py-0.5 rounded-md border border-red-500/25">
@@ -1189,7 +1314,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
               </section>
 
               {/* Assignees (read-only) */}
-              {!canManageAssignees && (
+              {!canEdit && (
                 <section>
                   <SectionLabel icon={User2} label="Assignees" accent="text-violet-400/70" />
                   {assigneeUsers.length === 0 ? (
@@ -1211,14 +1336,41 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
               )}
 
               {/* Tags */}
-              {task.tags.length > 0 && (
+              {(canEdit || draftTags.length > 0) && (
                 <section>
                   <SectionLabel icon={Tag} label="Tags" accent="text-pink-400/70" />
                   <div className="flex flex-wrap gap-1.5">
-                    {task.tags.map(tag => (
-                      <span key={tag} className="text-[11px] px-2.5 py-1 rounded-full border border-border/40 bg-muted/30 text-muted-foreground hover:bg-muted/60 hover:text-foreground hover:border-border/70 transition-colors cursor-default">{tag}</span>
+                    {draftTags.map(tag => (
+                      <span key={tag} className="inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full border border-border/40 bg-muted/30 text-muted-foreground">
+                        {tag}
+                        {canEdit && (
+                          <button
+                            type="button"
+                            onClick={() => setDraftTags(prev => prev.filter(t => t !== tag))}
+                            className="hover:text-foreground"
+                            aria-label={`Remove ${tag}`}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
+                      </span>
                     ))}
                   </div>
+                  {canEdit && (
+                    <input
+                      value={tagInput}
+                      onChange={e => setTagInput(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' || e.key === ',') {
+                          e.preventDefault();
+                          addTag();
+                        }
+                      }}
+                      onBlur={addTag}
+                      placeholder="Add tag"
+                      className="mt-2 w-full text-sm bg-muted/40 border border-border/50 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 transition-all"
+                    />
+                  )}
                 </section>
               )}
 
@@ -1269,25 +1421,43 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                     <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-semibold mb-0.5">Created</div>
                     <div className="text-[11px] text-foreground/60 tabular-nums">{taskCreatedTimeline}</div>
                   </div>
-                  {task.startedAt && (
-                    <div>
-                      <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-semibold mb-0.5">Started</div>
-                      <div className="text-[11px] font-mono text-blue-400/70">{formatLocalDateTime(task.startedAt)}</div>
-                    </div>
-                  )}
-                  {task.completedAt && (
-                    <div>
-                      <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-semibold mb-0.5">Completed</div>
-                      <div className="text-[11px] font-mono text-emerald-400/70">{formatLocalDateTime(task.completedAt)}</div>
-                    </div>
-                  )}
+                  <div>
+                    <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-semibold mb-0.5">Started</div>
+                    {canEdit ? (
+                      <input
+                        type="date"
+                        value={draftStartedAt}
+                        onChange={e => setDraftStartedAt(e.target.value)}
+                        className="w-full text-[11px] font-mono bg-muted/40 border border-border/50 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/40 [color-scheme:dark]"
+                      />
+                    ) : draftStartedAt || task.startedAt ? (
+                      <div className="text-[11px] font-mono text-blue-400/70">{formatLocalDateTime(draftStartedAt || task.startedAt || '')}</div>
+                    ) : (
+                      <div className="text-[11px] text-muted-foreground">—</div>
+                    )}
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-semibold mb-0.5">Completed</div>
+                    {canEdit ? (
+                      <input
+                        type="date"
+                        value={draftCompletedAt}
+                        onChange={e => setDraftCompletedAt(e.target.value)}
+                        className="w-full text-[11px] font-mono bg-muted/40 border border-border/50 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/40 [color-scheme:dark]"
+                      />
+                    ) : draftCompletedAt || task.completedAt ? (
+                      <div className="text-[11px] font-mono text-emerald-400/70">{formatLocalDateTime(draftCompletedAt || task.completedAt || '')}</div>
+                    ) : (
+                      <div className="text-[11px] text-muted-foreground">—</div>
+                    )}
+                  </div>
                 </div>
               </section>
             </div>
           </div>
 
           {/* ── Footer ──────────────────────────────────────────── */}
-          {(canEditTaskFields || canManageAssignees) && (
+          {canEdit && (
             <div className="shrink-0 border-t border-border/25 px-7 py-4 flex items-center gap-3 bg-gradient-to-t from-muted/20 to-transparent">
               <div className="flex items-center gap-2.5 ml-auto">
                 {isDirty && (

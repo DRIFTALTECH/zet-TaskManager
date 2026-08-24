@@ -269,7 +269,7 @@ export function TaskCard({
         )}
         <div className="flex-1 min-h-0 min-w-0" aria-hidden />
         <div className="pt-2 mt-auto space-y-2 shrink-0">
-          {((showProjectPill && taskProject) || taskSection || showTimer) && (
+          {((showProjectPill && taskProject) || taskSection || showTimer || task.sprint?.trim()) && (
             <div className="flex items-center justify-between gap-2 min-h-10">
               <div className="flex items-center gap-1.5 flex-wrap min-w-0 pr-2 flex-1">
                 {showProjectPill && taskProject && taskSection ? (
@@ -289,6 +289,11 @@ export function TaskCard({
                       </span>
                     )}
                   </>
+                )}
+                {task.sprint?.trim() && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full border border-violet-500/25 bg-violet-500/10 text-violet-700 dark:text-violet-300 font-semibold truncate max-w-[120px]">
+                    {task.sprint.trim()}
+                  </span>
                 )}
               </div>
               <div className="flex items-center justify-end shrink-0">
@@ -339,9 +344,11 @@ export function TaskCard({
                     : `${assigneeList.length} people`}
               </span>
             </div>
-            <span className={`text-sm font-mono shrink-0 ${dueBucketDateTextClass(dueBucket, isDoneLane)}`}>
-              {formatDate(task.dueDate)}
-            </span>
+            {task.dueDate?.trim() ? (
+              <span className={`text-sm font-mono shrink-0 ${dueBucketDateTextClass(dueBucket, isDoneLane)}`}>
+                {formatDate(task.dueDate)}
+              </span>
+            ) : null}
           </div>
         </div>
         {showApprove && (

@@ -7,6 +7,13 @@ import { AnimatePresence, motion } from 'framer-motion';
 import GlobalSearchModal from '@/components/GlobalSearchModal';
 import NotificationBell from '@/components/NotificationBell';
 import MobileNav from '@/components/MobileNav';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 const pageTitles: Record<string, string> = {
   '/': 'Dashboard',
@@ -38,7 +45,7 @@ const AppNavbar = () => {
     <>
       <GlobalSearchModal open={searchOpen} onOpenChange={setSearchOpen} />
 
-      <header className="h-16 border-b border-border/60 glass flex items-center px-2 sm:px-5 gap-1.5 sm:gap-4 sticky top-0 z-40">
+      <header className="h-16 border-b border-border/60 glass flex items-center px-2 sm:px-5 gap-2 sticky top-0 z-40">
         <MobileNav />
 
         {/* Page title — mobile only (desktop shows it in the sidebar) */}
@@ -46,55 +53,55 @@ const AppNavbar = () => {
           <span className="md:hidden text-sm font-semibold text-foreground truncate min-w-0">{pageTitle}</span>
         )}
 
-        <div className="hidden sm:flex items-center gap-3 min-w-0">
-          <span className="inline-flex items-center rounded-full border border-border/60 bg-muted/40 px-2.5 py-0.5 font-mono text-[10px] text-muted-foreground tracking-wide">
-            {today}
-          </span>
-        </div>
+        <span className="hidden sm:inline-flex h-9 items-center rounded-xl border border-border/70 bg-card/70 px-3 text-sm font-medium tabular-nums text-muted-foreground shrink-0">
+          {today}
+        </span>
 
         {!hideProjectPicker && (
-          <select
-            value={selectedProjectId || ''}
-            onChange={e => selectProject(e.target.value)}
-            className="shrink-0 rounded-xl border border-border/70 bg-card/70 px-2 sm:px-3 py-1.5 text-sm font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-ring/50 min-w-0 w-[34vw] sm:w-auto sm:min-w-[140px] sm:max-w-[44vw] hover:border-ring/40 transition-colors"
+          <Select
+            value={userProjects.length === 0 ? 'none' : (selectedProjectId || 'all')}
+            onValueChange={v => { if (v !== 'none') selectProject(v); }}
+            disabled={userProjects.length === 0}
           >
-            {userProjects.length === 0 ? (
-              <option value="">No projects</option>
-            ) : (
-              <>
-                <option value="all">All projects</option>
-                {userProjects.map(p => (
-                  <option key={p.id} value={p.id}>
-                    {projectPickerLabel(p)}
-                  </option>
-                ))}
-              </>
-            )}
-          </select>
+            <SelectTrigger className="h-9 w-[min(44vw,16rem)] sm:w-56 shrink-0 rounded-xl border-border/70 bg-card/70 px-3 text-sm font-medium shadow-none focus:ring-2 focus:ring-ring/40 focus:ring-offset-0">
+              <SelectValue placeholder={userProjects.length === 0 ? 'No projects' : 'Project'} />
+            </SelectTrigger>
+            <SelectContent className="rounded-xl border-border/70 shadow-lg p-1 min-w-[14rem] max-h-72">
+              {userProjects.length === 0 ? (
+                <SelectItem value="none" className="rounded-lg py-2">No projects</SelectItem>
+              ) : (
+                <>
+                  <SelectItem value="all" className="rounded-lg py-2 font-medium">All projects</SelectItem>
+                  {userProjects.map(p => (
+                    <SelectItem key={p.id} value={p.id} className="rounded-lg py-2">
+                      {projectPickerLabel(p)}
+                    </SelectItem>
+                  ))}
+                </>
+              )}
+            </SelectContent>
+          </Select>
         )}
 
         <div className="flex-1" />
 
-        {/* Global search trigger */}
         <button
           onClick={() => setSearchOpen(true)}
-          className="shrink-0 flex items-center gap-1.5 sm:gap-2.5 px-2 sm:px-3 py-1.5 rounded-xl border border-border/50 bg-card/60 hover:bg-accent/60 hover:border-ring/40 transition-all text-muted-foreground hover:text-accent-foreground group"
+          className="h-9 shrink-0 flex items-center gap-2 px-3 rounded-xl border border-border/70 bg-card/70 hover:bg-accent/60 hover:border-ring/40 transition-colors text-muted-foreground hover:text-accent-foreground group w-[min(42vw,11rem)] sm:w-64"
           title="Search (⌘K)"
         >
-          <Search className="h-3.5 w-3.5 group-hover:text-primary transition-colors" />
-          <span className="hidden sm:inline text-xs text-muted-foreground/70">Search…</span>
-          <kbd className="hidden md:inline-flex h-4 items-center rounded border border-border/40 bg-muted/60 px-1 text-[9px] text-muted-foreground/60 font-mono">
+          <Search className="h-4 w-4 shrink-0 group-hover:text-primary transition-colors" />
+          <span className="hidden sm:inline text-sm text-muted-foreground/70 flex-1 text-left">Search…</span>
+          <kbd className="hidden md:inline-flex h-5 items-center rounded-md border border-border/50 bg-muted/60 px-1.5 text-[10px] text-muted-foreground/70 font-mono">
             ⌘K
           </kbd>
         </button>
 
-        {/* Notifications */}
         <NotificationBell />
 
-        {/* Theme toggle */}
         <button
           onClick={toggleTheme}
-          className="shrink-0 relative p-2 rounded-xl border border-transparent hover:border-border/60 hover:bg-accent/60 transition-colors overflow-hidden"
+          className="h-9 w-9 shrink-0 inline-flex items-center justify-center rounded-xl border border-border/70 bg-card/70 hover:bg-accent/60 hover:border-ring/40 transition-colors overflow-hidden"
           title="Toggle theme"
         >
           <AnimatePresence mode="wait" initial={false}>
@@ -111,8 +118,9 @@ const AppNavbar = () => {
           </AnimatePresence>
         </button>
 
-        {/* User name */}
-        <span className="hidden sm:inline text-sm font-semibold text-foreground">{currentUser?.name}</span>
+        <span className="hidden sm:inline-flex h-9 items-center text-sm font-semibold text-foreground shrink-0">
+          {currentUser?.name}
+        </span>
       </header>
     </>
   );
