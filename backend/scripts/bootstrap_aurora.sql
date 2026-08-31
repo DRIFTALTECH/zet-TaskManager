@@ -304,3 +304,24 @@ CREATE TABLE IF NOT EXISTS forecast_visibility (
     restored_at VARCHAR
 );
 CREATE INDEX IF NOT EXISTS ix_forecast_visibility_user_entity ON forecast_visibility (user_id, entity_type, entity_id);
+
+CREATE TABLE IF NOT EXISTS temp_tasks (
+    id VARCHAR PRIMARY KEY,
+    import_id VARCHAR NOT NULL,
+    user_id VARCHAR NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    kind VARCHAR NOT NULL,
+    parent_id VARCHAR,
+    title VARCHAR NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    acceptance_criteria TEXT NOT NULL DEFAULT '',
+    project_id VARCHAR,
+    section_id VARCHAR,
+    priority VARCHAR NOT NULL DEFAULT 'Medium',
+    position INTEGER NOT NULL DEFAULT 0,
+    source_text TEXT NOT NULL DEFAULT '',
+    created_at VARCHAR NOT NULL,
+    updated_at VARCHAR NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_temp_tasks_user_id ON temp_tasks (user_id);
+CREATE INDEX IF NOT EXISTS ix_temp_tasks_import_id ON temp_tasks (import_id);
+CREATE INDEX IF NOT EXISTS ix_temp_tasks_parent_id ON temp_tasks (parent_id);

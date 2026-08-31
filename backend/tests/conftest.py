@@ -19,7 +19,7 @@ if _TEST_DB.exists():
 os.environ["ZET_TEST_SQLITE"] = "1"
 os.environ["ZET_SQLITE_PATH"] = str(_TEST_DB)
 os.environ["APP_ENV"] = "development"
-os.environ.setdefault("AI_OLLAMA_FALLBACK", "0")
+os.environ.setdefault("DEEPSEEK_API_KEY", "")
 # Keep Teams/Graph integration tests hermetic — never use dev .env creds in pytest.
 os.environ["MICROSOFT_CLIENT_ID"] = ""
 os.environ["MICROSOFT_CLIENT_SECRET"] = ""
@@ -144,7 +144,11 @@ _CLEAR_TABLES = (
     "task_time_logs",
     "task_timer_runs",
     "task_assignees",
+    "temp_tasks",
     "tasks",
+    "user_story_attachments",
+    "user_story_assignees",
+    "user_stories",
     "sections",
     "project_members",
     "projects",

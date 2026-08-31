@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 import ratelimit
 
 from ai import chains, service
-from logic import daily_summary_logic, task_extraction_logic
+from logic import daily_summary_logic, prd_extract_logic, task_extraction_logic
 from ai.schemas import (
     ChatRequest,
     ChatResponse,
@@ -42,20 +42,20 @@ _AI_UNAVAILABLE = "AI is temporarily unavailable. Please try again later."
 @router.get("/health")
 def ai_health():
     """Check AI module config — does NOT make a live API call."""
-    key_set = bool(os.getenv("GROQ_API_KEY"))
-    fallback = service.fallback_available()
-    enabled = key_set or fallback
+    key_set = bool((os.getenv("DEEPSEEK_API_KEY") or "").strip())
+    enabled = key_set
     return {
         "status": "ok" if enabled else "degraded",
-        "provider": "groq",
+        "provider": "deepseek",
         "model": service._DEFAULT_MODEL,
         "api_key_configured": key_set,
-        "fallback": {"provider": "ollama", "model": service.OLLAMA_MODEL, "available": fallback},
+        "fallback": {"provider": None, "model": None, "available": False},
         "features": {
             "chat": enabled,
             "generate_description": enabled,
             "summarize_task": enabled,
             "parse_task": enabled,
+            "extract_prd": enabled,
             "meeting_ingestion": False,
         },
     }
@@ -189,6 +189,34 @@ async def extract_tasks(
         log.exception("AI request failed")
         raise HTTPException(status_code=500, detail=f"AI error: {e}")
     return {"sourceText": source, "tasks": [t.model_dump() for t in result.tasks]}
+
+
+@router.post("/extract-prd")
+async def extract_prd(
+    text: str | None = Form(None),
+    file: UploadFile | None = File(None),
+    user_id: str = Depends(get_current_user_id),
+    db: Db = Depends(get_db),
+):
+    """PRD / pasted spec → user stories + tasks. Preview only; no assignees."""
+    _ai_quota(user_id)
+    file_bytes = await file.read() if file is not None else None
+    filename = file.filename if file is not None else None
+    try:
+        source, result = prd_extract_logic.extract_prd(
+            db, user_id, text=text, file_bytes=file_bytes, filename=filename
+        )
+    except HTTPException:
+        raise
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e) or _AI_UNAVAILABLE)
+    except Exception as e:
+        log.exception("AI request failed")
+        raise HTTPException(status_code=500, detail=f"AI error: {e}")
+    return {
+        "sourceText": source,
+        "stories": [s.model_dump() for s in result.stories],
+    }
 
 
 # ── Resolve a document / audio to text for review (before extraction) ──────────

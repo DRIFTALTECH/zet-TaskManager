@@ -805,6 +805,57 @@ export const api = {
     return request('/ai/extract-tasks', { method: 'POST', body: form });
   },
 
+  async aiExtractPrd(
+    form: FormData,
+  ): Promise<{ sourceText: string; stories: import('@/types').ExtractedStoryPreview[] }> {
+    return request('/ai/extract-prd', { method: 'POST', body: form });
+  },
+
+  async getPrdDraft(): Promise<import('@/types').PrdDraft> {
+    return request('/prd-imports/draft');
+  },
+
+  async analyzePrd(form: FormData): Promise<import('@/types').PrdDraft> {
+    return request('/prd-imports/analyze', { method: 'POST', body: form });
+  },
+
+  async patchPrdItem(
+    id: string,
+    body: {
+      title?: string;
+      description?: string;
+      acceptanceCriteria?: string;
+      projectId?: string | null;
+      sectionId?: string | null;
+      priority?: string;
+    },
+  ): Promise<import('@/types').PrdDraft> {
+    return request(`/prd-imports/items/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+  },
+
+  async addPrdStory(title?: string): Promise<import('@/types').PrdDraft> {
+    return request('/prd-imports/stories', { method: 'POST', body: JSON.stringify({ title: title || 'Untitled story' }) });
+  },
+
+  async addPrdTask(parentId: string, title?: string): Promise<import('@/types').PrdDraft> {
+    return request('/prd-imports/tasks', {
+      method: 'POST',
+      body: JSON.stringify({ parentId, title: title || 'Untitled task' }),
+    });
+  },
+
+  async deletePrdItem(id: string): Promise<import('@/types').PrdDraft> {
+    return request(`/prd-imports/items/${id}`, { method: 'DELETE' });
+  },
+
+  async discardPrdDraft(): Promise<import('@/types').PrdDraft> {
+    return request('/prd-imports/draft', { method: 'DELETE' });
+  },
+
+  async commitPrdDraft(): Promise<{ storiesCreated: number; tasksCreated: number }> {
+    return request('/prd-imports/commit', { method: 'POST' });
+  },
+
   async aiParseSource(form: FormData): Promise<{ sourceText: string }> {
     // Resolve a document/audio to text (for review before extraction).
     return request('/ai/parse-source', { method: 'POST', body: form });

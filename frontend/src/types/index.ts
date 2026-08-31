@@ -149,8 +149,37 @@ export interface ExtractedStoryPreview {
   acceptanceCriteria?: string;
   priority?: string;
   assigneeIds?: string[];
-  /** Nested work items from document split (created on bulk confirm). */
   tasks?: GeneratedTaskPreview[];
+  projectId?: string | null;
+  sectionId?: string | null;
+  projectName?: string | null;
+  sectionName?: string | null;
+}
+
+export interface PrdDraftTask {
+  id: string;
+  title: string;
+  description?: string;
+  priority?: string;
+  position?: number;
+}
+
+export interface PrdDraftStory {
+  id: string;
+  title: string;
+  description?: string;
+  acceptanceCriteria?: string;
+  priority?: string;
+  projectId?: string | null;
+  sectionId?: string | null;
+  position?: number;
+  tasks: PrdDraftTask[];
+}
+
+export interface PrdDraft {
+  importId: string | null;
+  sourceText: string;
+  stories: PrdDraftStory[];
 }
 
 export interface TaskFeedback {

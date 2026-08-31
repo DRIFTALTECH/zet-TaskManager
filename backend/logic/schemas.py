@@ -406,6 +406,11 @@ class ExtractedStoryPreview(BaseModel):
     assigneeIds: list[str] = Field(default_factory=list)
     # Nested work items from document split (created on bulk confirm).
     tasks: list[GeneratedTaskPreview] = Field(default_factory=list)
+    # Filled by the PRD chain when the model matches an existing project/section.
+    projectId: str | None = None
+    sectionId: str | None = None
+    projectName: str | None = None
+    sectionName: str | None = None
 
 
 class ExtractStoriesPreviewOut(BaseModel):
@@ -416,6 +421,52 @@ class BulkCreateStoriesBody(BaseModel):
     projectId: str
     sectionId: str
     stories: list[ExtractedStoryPreview] = Field(default_factory=list)
+
+
+class TempTaskPatch(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    acceptanceCriteria: str | None = None
+    projectId: str | None = None
+    sectionId: str | None = None
+    priority: str | None = None
+
+
+class TempTaskCreateBody(BaseModel):
+    parentId: str | None = None
+    title: str = "Untitled"
+    description: str = ""
+
+
+class PrdDraftTaskOut(BaseModel):
+    id: str
+    title: str
+    description: str = ""
+    priority: str = "Medium"
+    position: int = 0
+
+
+class PrdDraftStoryOut(BaseModel):
+    id: str
+    title: str
+    description: str = ""
+    acceptanceCriteria: str = ""
+    priority: str = "Medium"
+    projectId: str | None = None
+    sectionId: str | None = None
+    position: int = 0
+    tasks: list[PrdDraftTaskOut] = Field(default_factory=list)
+
+
+class PrdDraftOut(BaseModel):
+    importId: str | None = None
+    sourceText: str = ""
+    stories: list[PrdDraftStoryOut] = Field(default_factory=list)
+
+
+class PrdCommitOut(BaseModel):
+    storiesCreated: int
+    tasksCreated: int
 
 
 class TaskMoveBody(BaseModel):

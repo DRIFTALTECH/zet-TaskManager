@@ -172,6 +172,29 @@ class Task(Base):
     assignees = relationship("TaskAssignee", back_populates="task", cascade="all, delete-orphan")
 
 
+class TempTask(Base):
+    """Staging row for the PRD import chain. kind=user_story | task.
+    Tasks point at a story via parent_id. Cleared after commit into real tables."""
+
+    __tablename__ = "temp_tasks"
+
+    id = Column(String, primary_key=True)
+    import_id = Column(String, nullable=False, index=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    kind = Column(String, nullable=False)  # user_story | task
+    parent_id = Column(String, nullable=True, index=True)
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=False, default="")
+    acceptance_criteria = Column(Text, nullable=False, default="")
+    project_id = Column(String, nullable=True)
+    section_id = Column(String, nullable=True)
+    priority = Column(String, nullable=False, default="Medium")
+    position = Column(Integer, nullable=False, default=0)
+    source_text = Column(Text, nullable=False, default="")
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+
+
 class TaskAssignee(Base):
     __tablename__ = "task_assignees"
 

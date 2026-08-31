@@ -27,6 +27,7 @@ const ManageProjectsOverview = lazy(() => import("./pages/ManageProjectsOverview
 const ProjectDetailPage = lazy(() => import("./pages/ProjectDetailPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const AIPage = lazy(() => import("./pages/AIPage"));
+const PrdImportPage = lazy(() => import("./pages/PrdImportPage"));
 const MeetingNotesPage = lazy(() => import("./pages/MeetingNotesPage"));
 const SuperAdminPage = lazy(() => import("./pages/SuperAdminPage"));
 const OverviewPage = lazy(() => import("./pages/OverviewPage"));
@@ -237,6 +238,7 @@ const App = () => (
           <Route path="/delivery" element={<Navigate to="/manage/status" replace />} />
           <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
           <Route path="/ai" element={<ProtectedRoute><AIPage /></ProtectedRoute>} />
+          <Route path="/prd" element={<ProtectedRoute managerOnly><PrdImportPage /></ProtectedRoute>} />
           <Route path="/overview" element={<ProtectedRoute managerOnly><DashboardPanArea><OverviewPage /></DashboardPanArea></ProtectedRoute>} />
           <Route path="/superadmin" element={<ProtectedRoute><SuperAdminPage /></ProtectedRoute>} />
           <Route path="/admin" element={<Navigate to="/superadmin" replace />} />

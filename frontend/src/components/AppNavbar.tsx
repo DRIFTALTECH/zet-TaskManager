@@ -27,9 +27,10 @@ const pageTitles: Record<string, string> = {
   '/audit': 'Audit',
   '/overview': 'Overview',
   '/ai': 'Zani',
+  '/prd': 'PRD import',
 };
 
-const HIDE_PROJECT_PICKER_PATHS = new Set(['/tasks', '/overview', '/timesheet', '/calendar']);
+const HIDE_PROJECT_PICKER_PATHS = new Set(['/tasks', '/overview', '/timesheet', '/calendar', '/prd']);
 
 const AppNavbar = () => {
   const { theme, toggleTheme, currentUser, projects, selectedProjectId, selectProject } = useAppStore();

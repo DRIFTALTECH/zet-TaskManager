@@ -1,1 +1,1 @@
-# AI module — LangChain + Groq
+# AI module — LangChain + DeepSeek V4 Flash

@@ -24,6 +24,7 @@ from ai.schemas import (
     MeetingIngestResponse,
     MomParseResult,
     ParseTaskResponse,
+    PrdExtractResponse,
     StrictMomParseResult,
     StrictTimesheetParseResponse,
     SummarizeTaskResponse,
@@ -119,6 +120,19 @@ def parse_task(text: str, users=None, projects=None) -> ParseTaskResponse:
     return result
 
 
+def extract_prd(text: str, projects=None) -> PrdExtractResponse:
+    """PRD / spec → user stories with tasks. No people assignment."""
+    result = service.complete_structured(
+        prompts.EXTRACT_PRD_PROMPT,
+        {
+            "text": text,
+            "projects": _projects_str(projects or []),
+        },
+        PrdExtractResponse,
+    )
+    return result
+
+
 def chat(req: ChatRequest, db: Db, current_user: User) -> ChatResponse:
     """
     Agentic chat via manual LCEL tool-calling loop.
@@ -130,7 +144,7 @@ def chat(req: ChatRequest, db: Db, current_user: User) -> ChatResponse:
 
     tools = build_tools(db, current_user)
     tools_by_name = {t.name: t for t in tools}
-    llm = service.bind_agent(tools)  # Groq primary + Ollama fallback
+    llm = service.bind_agent(tools)  # DeepSeek V4 Flash
 
     # Build system message with injected context
     system_content = prompts.AGENT_SYSTEM.format(

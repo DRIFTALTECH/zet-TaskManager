@@ -138,6 +138,32 @@ class ParseTaskResponse(BaseModel):
     tasks: list[ExtractedTask]
 
 
+# ── PRD extract: user stories + tasks, no assignees ───────────────────────────
+
+class PrdExtractedTask(BaseModel):
+    """One task under a user story. Never includes an assignee."""
+    title: str = Field(..., description="Short, actionable task title")
+    description: str | None = Field(None, description="What to build / accept for this task")
+    priority: str | None = Field(None, description="One of: Urgent, High, Medium, Low")
+
+
+class PrdExtractedStory(BaseModel):
+    """One user story extracted from a PRD. Tasks belong to this story."""
+    title: str = Field(..., description="Short story label, 3–8 words")
+    description: str | None = Field(None, description="Story description")
+    acceptance_criteria: str | None = Field(None, description="Acceptance criteria, or null")
+    priority: str | None = Field(None, description="One of: Urgent, High, Medium, Low")
+    project_id: str | None = Field(None, description="Matched project ID from the provided list, or null")
+    project_name: str | None = Field(None, description="Matched project name for display, or null")
+    section_id: str | None = Field(None, description="Matched section ID within that project, or null")
+    section_name: str | None = Field(None, description="Matched section name for display, or null")
+    tasks: list[PrdExtractedTask] = Field(default_factory=list)
+
+
+class PrdExtractResponse(BaseModel):
+    stories: list[PrdExtractedStory] = Field(default_factory=list)
+
+
 class AgentAction(BaseModel):
     """A tool call the agent made during this turn."""
     tool: str = Field(..., description="Tool name, e.g. 'create_task'")

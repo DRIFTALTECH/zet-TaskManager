@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, ListTodo, Clock, BarChart3, Users, FolderKanban, Sparkles, CalendarDays, CalendarRange, LayoutGrid, TrendingUp, ShieldCheck } from 'lucide-react';
+import { LayoutDashboard, ListTodo, Clock, BarChart3, Users, FolderKanban, Sparkles, CalendarDays, CalendarRange, LayoutGrid, TrendingUp, ShieldCheck, FileText } from 'lucide-react';
 
 export interface NavItem {
   path: string;
@@ -22,6 +22,7 @@ export const navItems: NavItem[] = [
   { path: '/users', label: 'Users', icon: Users, managerOnly: true },
   { path: '/users/forecast', label: 'What Will Happen Next?', icon: TrendingUp, managerOnly: true },
   { path: '/manage', label: 'Manage projects', icon: FolderKanban, managerOnly: true },
+  { path: '/prd', label: 'PRD import', icon: FileText, managerOnly: true },
   {
     path: '/ai',
     label: 'Zani',

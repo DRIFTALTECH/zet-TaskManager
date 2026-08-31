@@ -181,6 +181,38 @@ PARSE_TASK_PROMPT = ChatPromptTemplate.from_messages([
     ("human", "Input to turn into an assigned task plan:\n\n{text}"),
 ])
 
+# ── PRD → user stories + tasks (no people assignment) ─────────────────────────
+
+EXTRACT_PRD_SYSTEM = (
+    "You split a product requirements document (or pasted spec) into user stories, "
+    "each with concrete engineering tasks. Nothing is assigned to a person.\n\n"
+
+    "Available projects and their sections:\n{projects}\n\n"
+
+    "── HOW TO WORK ───────────────────────────────────────────────────────────\n"
+    "1. Read the ENTIRE input. Group related requirements into independently "
+    "deliverable user stories. Prefer 2–12 stories.\n"
+    "2. TITLE RULES: story title is a short label of 3–8 words (max ~60 characters). "
+    "Prefer the document's own heading when present. Never paste paragraphs into "
+    "the title — put detail in description / acceptance_criteria.\n"
+    "3. For EVERY story write 2–8 actionable tasks. Each task needs a short title "
+    "and a description of what to build. Nested/child work goes in the task "
+    "description, not as a separate story.\n"
+    "4. NEVER set an assignee. Do not invent owners, names, or people.\n"
+    "5. project_id / project_name: match a project from the list (case-insensitive / "
+    "partial). If the doc names a product/area that maps to a project, use that. "
+    "If only one project exists, use it. Otherwise null when unclear.\n"
+    "6. section_id / section_name: the most relevant section inside that project, "
+    "or the only section if there is one, or null if none fits.\n"
+    "7. priority must be exactly one of: Urgent, High, Medium, Low.\n"
+    "8. Fill acceptance_criteria when the document implies them.\n"
+)
+
+EXTRACT_PRD_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", EXTRACT_PRD_SYSTEM),
+    ("human", "Requirements document:\n\n{text}"),
+])
+
 # ── Conversational AI chat ─────────────────────────────────────────────────────
 
 CHAT_SYSTEM = (

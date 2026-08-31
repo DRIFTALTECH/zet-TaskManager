@@ -3,7 +3,7 @@ from fastapi import APIRouter
 from routes import audit, auth, kanban, notifications, projects, tasks, timesheet, users, clients, skills
 from routes import checklists, attachments, sync, meeting_notes, tokens, oauth_consent, oauth_well_known, health
 from routes import integrations_teams, superadmin
-from routes import analytics, insights, user_stories
+from routes import analytics, insights, user_stories, prd_imports
 from ai.router import router as ai_router
 
 
@@ -21,6 +21,7 @@ def register_routes() -> APIRouter:
     root.include_router(projects.router, prefix="/projects", tags=["projects"])
     root.include_router(tasks.router, prefix="/tasks", tags=["tasks"])
     root.include_router(user_stories.router, tags=["user-stories"])
+    root.include_router(prd_imports.router, tags=["prd-imports"])
     root.include_router(kanban.router, prefix="/kanban", tags=["kanban"])
     root.include_router(timesheet.router, prefix="/timesheet", tags=["timesheet"])
     root.include_router(audit.router, prefix="/audit", tags=["audit"])

@@ -1,23 +1,23 @@
 """
-AI service layer — LangChain, Groq primary + Ollama fallback.
+AI service layer — LangChain + DeepSeek V4 Flash (OpenAI-compatible API).
 
 Public helpers:
   complete()              → plain text response
   complete_structured()   → Pydantic model via with_structured_output()
-  complete_structured_strict() → constrained decoding (Groq json_schema)
+  complete_structured_strict() → structured output (same path; DeepSeek has no Groq json_schema)
   bind_agent(tools)       → tool-bound chat runnable for the Zani agent
   parse_message_content() → strip reasoning from any LLM message/result
-  transcribe()            → speech-to-text via Groq Whisper (stubbed)
+  transcribe()            → speech-to-text via Groq Whisper (unchanged)
 
-Every call uses Groq first and automatically falls back to a local Ollama model
-if Groq fails (deprecated model, quota, bad key, outage). Fallback activates only
-when Ollama is reachable and `langchain-ollama` is installed.
+Chat, agent, and structured-output calls use DeepSeek only. Override via:
+  DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL / DEEPSEEK_MODEL
+  DEEPSEEK_AGENT_MODEL / DEEPSEEK_STRICT_MODEL
 """
 
 import os
 from typing import TypeVar, Type
 
-from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 from pydantic import BaseModel
@@ -25,48 +25,14 @@ from pydantic import BaseModel
 from ai.response_parser import extract_final_answer, message_to_text, sanitize_model_strings
 
 # ── Models ────────────────────────────────────────────────────────────────────
-# Groq retires models on a schedule (the Llama-4 line was decommissioned in 2026 in
-# favour of openai/gpt-oss). Defaults are current as of 2026 and overridable via env.
-#   GROQ_MODEL / GROQ_AGENT_MODEL / GROQ_STRICT_MODEL  — Groq model ids
-#   OLLAMA_MODEL / OLLAMA_BASE_URL                     — local fallback
-#   AI_OLLAMA_FALLBACK=0                               — disable fallback
-_DEFAULT_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
-_AGENT_MODEL = os.getenv("GROQ_AGENT_MODEL", "llama-3.3-70b-versatile")
-_STRICT_MODEL = os.getenv("GROQ_STRICT_MODEL", "llama-3.3-70b-versatile")
-
-# Ollama fallback — local (http://localhost:11434) OR Ollama Cloud (https://ollama.com
-# with an API key). When OLLAMA_API_KEY is set we default to the cloud endpoint + a
-# cloud-hosted model and send the Bearer header on every request.
-OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "").strip()
-OLLAMA_BASE_URL = os.getenv(
-    "OLLAMA_BASE_URL", "https://ollama.com" if OLLAMA_API_KEY else "http://localhost:11434"
-)
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gpt-oss:120b" if OLLAMA_API_KEY else "llama3.3:70b")
-
-
-def _supports_strict_json_schema(model: str) -> bool:
-    """Only some Groq models support constrained decoding (method='json_schema').
-    Llama-3.3 does not — for those we use ordinary structured output instead."""
-    m = (model or "").lower()
-    return "gpt-oss" in m or "llama-4" in m or "kimi" in m
-
-
-def _is_reasoning_model(model: str) -> bool:
-    m = (model or "").lower()
-    return any(token in m for token in ("gpt-oss", "qwen", "kimi", "compound"))
-
-
-def _groq_reasoning_kwargs(model: str) -> dict:
-    """Disable or hide provider reasoning when the model supports it."""
-    if not _is_reasoning_model(model):
-        return {}
-    kwargs: dict = {"reasoning_format": "hidden"}
-    if "qwen" in (model or "").lower():
-        kwargs["reasoning_effort"] = "none"
-    return kwargs
-
-
-_FALLBACK_ENABLED = os.getenv("AI_OLLAMA_FALLBACK", "1").lower() not in ("0", "false", "no", "")
+# Official API id: deepseek-v4-flash (serves the latest V4 Flash snapshot).
+_FLASH = "deepseek-v4-flash"
+_DEFAULT_MODEL = os.getenv("DEEPSEEK_MODEL", _FLASH)
+_AGENT_MODEL = os.getenv("DEEPSEEK_AGENT_MODEL", _DEFAULT_MODEL)
+_STRICT_MODEL = os.getenv("DEEPSEEK_STRICT_MODEL", _DEFAULT_MODEL)
+_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
+# Flash spends tokens on hidden reasoning first; keep a floor so the visible answer is not empty.
+_MAX_TOKENS = int(os.getenv("DEEPSEEK_MAX_TOKENS", "8192"))
 
 # Don't let a hung provider wedge a request thread.
 _LLM_TIMEOUT = float(os.getenv("AI_REQUEST_TIMEOUT", "45"))
@@ -75,61 +41,42 @@ _LLM_MAX_RETRIES = int(os.getenv("AI_MAX_RETRIES", "2"))
 T = TypeVar("T", bound=BaseModel)
 
 
-# ── Providers ──────────────────────────────────────────────────────────────────
+def _api_key() -> str:
+    return (os.getenv("DEEPSEEK_API_KEY") or "").strip()
 
-def _groq(model: str, temperature: float):
-    """Groq chat model, or None if no API key is configured."""
-    api_key = os.getenv("GROQ_API_KEY")
-    if not api_key:
+
+def _deepseek(model: str, temperature: float) -> ChatOpenAI | None:
+    """DeepSeek chat model, or None if no API key is configured."""
+    key = _api_key()
+    if not key:
         return None
-    return ChatGroq(
+    return ChatOpenAI(
         model=model,
         temperature=temperature,
-        api_key=api_key,
+        api_key=key,
+        base_url=_BASE_URL,
         timeout=_LLM_TIMEOUT,
         max_retries=_LLM_MAX_RETRIES,
-        **_groq_reasoning_kwargs(model),
+        max_tokens=_MAX_TOKENS,
     )
 
 
-def _ollama(temperature: float):
-    """Ollama chat model fallback (local or Ollama Cloud), or None if disabled/unavailable."""
-    if not _FALLBACK_ENABLED:
-        return None
-    try:
-        from langchain_ollama import ChatOllama
-    except Exception:
-        return None
-    kwargs: dict = {
-        "model": OLLAMA_MODEL,
-        "base_url": OLLAMA_BASE_URL,
-        "temperature": temperature,
-        "timeout": _LLM_TIMEOUT,
-        "reasoning": False,
-    }
-    if OLLAMA_API_KEY:
-        # Ollama Cloud auth — Bearer header on the underlying client.
-        kwargs["client_kwargs"] = {"headers": {"Authorization": f"Bearer {OLLAMA_API_KEY}"}}
-    return ChatOllama(**kwargs)
-
-
 def fallback_available() -> bool:
-    return _ollama(0) is not None
+    """No secondary LLM. Kept so /ai/health stays stable."""
+    return False
 
 
 def _no_provider() -> RuntimeError:
     return RuntimeError(
-        "No AI provider available. Set GROQ_API_KEY, or run Ollama "
-        f"(model '{OLLAMA_MODEL}' at {OLLAMA_BASE_URL})."
+        "No AI provider available. Set DEEPSEEK_API_KEY in backend/.env "
+        f"(model '{_DEFAULT_MODEL}' at {_BASE_URL})."
     )
 
 
-def _with_fallback(primary: Runnable | None, fallbacks: list[Runnable]) -> Runnable:
-    """Chain a primary runnable with one or more fallbacks (Groq → Ollama)."""
-    chain = [r for r in [primary, *fallbacks] if r is not None]
-    if not chain:
+def _require(llm: ChatOpenAI | None) -> ChatOpenAI:
+    if llm is None:
         raise _no_provider()
-    return chain[0] if len(chain) == 1 else chain[0].with_fallbacks(chain[1:])
+    return llm
 
 
 def parse_message_content(result) -> str:
@@ -140,33 +87,20 @@ def parse_message_content(result) -> str:
 # ── Client (agent) ──────────────────────────────────────────────────────────────
 
 def bind_agent(tools: list) -> Runnable:
-    """Tool-bound chat runnable for the Zani agent: Groq primary, Ollama fallback."""
-    g = _groq(_AGENT_MODEL, 0)
-    o = _ollama(0)
-    primary = g.bind_tools(tools) if g is not None else None
-    fb = [o.bind_tools(tools)] if o is not None else []
-    return _with_fallback(primary, fb)
+    """Tool-bound chat runnable for the Zani agent (DeepSeek V4 Flash)."""
+    return _require(_deepseek(_AGENT_MODEL, 0)).bind_tools(tools)
 
 
-# Back-compat: a plain Groq agent LLM (no fallback). Prefer bind_agent().
-def get_llm_for_agent() -> ChatGroq:
-    g = _groq(_AGENT_MODEL, 0)
-    if g is None:
-        raise RuntimeError("GROQ_API_KEY is not set. Add it to backend/.env")
-    return g
+def get_llm_for_agent() -> ChatOpenAI:
+    return _require(_deepseek(_AGENT_MODEL, 0))
 
 
 # ── Public helpers ────────────────────────────────────────────────────────────
 
 def complete(prompt: ChatPromptTemplate, variables: dict) -> str:
     """Invoke a prompt template and return plain text (description, summarization)."""
-    g = _groq(_DEFAULT_MODEL, 0.4)
-    o = _ollama(0.4)
-    runnable = _with_fallback(
-        (prompt | g) if g is not None else None,
-        [prompt | o] if o is not None else [],
-    )
-    return parse_message_content(runnable.invoke(variables))
+    llm = _require(_deepseek(_DEFAULT_MODEL, 0.4))
+    return parse_message_content((prompt | llm).invoke(variables))
 
 
 def complete_structured(
@@ -175,12 +109,8 @@ def complete_structured(
     schema: Type[T],
 ) -> T:
     """Invoke a prompt template and return a validated Pydantic model (tool-calling)."""
-    g = _groq(_DEFAULT_MODEL, 0.1)
-    o = _ollama(0.1)
-    runnable = _with_fallback(
-        (prompt | g.with_structured_output(schema)) if g is not None else None,
-        [prompt | o.with_structured_output(schema)] if o is not None else [],
-    )
+    llm = _require(_deepseek(_DEFAULT_MODEL, 0.1))
+    runnable = prompt | llm.with_structured_output(schema)
     return sanitize_model_strings(runnable.invoke(variables))
 
 
@@ -193,24 +123,11 @@ def complete_structured_strict(
     temperature: float = 0,
 ) -> T:
     """
-    Groq constrained decoding (method="json_schema", strict=True) with an Ollama
-    fallback that uses ordinary structured output (the strict kwarg is Groq-specific).
-    The schema must be "strict-clean": every field required, no bounds, extra="forbid".
+    Structured output via DeepSeek tool-calling.
+    The schema should be "strict-clean": every field required, extra="forbid".
     """
-    chosen = model or _STRICT_MODEL
-    g = _groq(chosen, temperature)
-    o = _ollama(temperature)
-    if g is not None and _supports_strict_json_schema(chosen):
-        primary = prompt | g.with_structured_output(schema, method="json_schema", strict=True)
-    elif g is not None:
-        # Llama (and others) don't support json_schema strict → ordinary structured output.
-        primary = prompt | g.with_structured_output(schema)
-    else:
-        primary = None
-    runnable = _with_fallback(
-        primary,
-        [prompt | o.with_structured_output(schema)] if o is not None else [],
-    )
+    llm = _require(_deepseek(model or _STRICT_MODEL, temperature))
+    runnable = prompt | llm.with_structured_output(schema)
     return sanitize_model_strings(runnable.invoke(variables))
 
 

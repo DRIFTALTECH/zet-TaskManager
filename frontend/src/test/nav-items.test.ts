@@ -34,6 +34,7 @@ describe('visibleNavItems', () => {
     const paths = visibleNavItems('employee').map(i => i.path);
     expect(paths).not.toContain('/users');
     expect(paths).not.toContain('/manage');
+    expect(paths).not.toContain('/prd');
     expect(paths).not.toContain('/superadmin');
     expect(paths).toContain('/timesheet');
   });
@@ -41,6 +42,7 @@ describe('visibleNavItems', () => {
   it('gives a manager the manager items but not the superadmin page', () => {
     const paths = visibleNavItems('manager').map(i => i.path);
     expect(paths).toContain('/manage');
+    expect(paths).toContain('/prd');
     expect(paths).not.toContain('/superadmin');
   });
 
