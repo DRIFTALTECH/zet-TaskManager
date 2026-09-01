@@ -89,9 +89,13 @@ def analyze(
     text: str | None = None,
     file_bytes: bytes | None = None,
     filename: str | None = None,
+    project_id: str | None = None,
 ) -> PrdDraftOut:
     """Run the PRD chain and replace this user's staging rows in temp_tasks."""
     _gate(db, user_id)
+    lock_pid = (project_id or "").strip() or None
+    if lock_pid:
+        project_logic.ensure_project_member(db, lock_pid, user_id)
     source, preview = extract_prd(
         db, user_id, text=text, file_bytes=file_bytes, filename=filename
     )
@@ -104,6 +108,7 @@ def analyze(
     now = _now()
     for si, story in enumerate(preview.stories):
         sid = new_id("ts")
+        pid = lock_pid or story.projectId
         temp_crud.create(
             db,
             row_id=sid,
@@ -114,8 +119,8 @@ def analyze(
             title=story.title,
             description=story.description or "",
             acceptance_criteria=story.acceptanceCriteria or "",
-            project_id=story.projectId,
-            section_id=story.sectionId,
+            project_id=pid,
+            section_id=None,
             priority=story.priority or "Medium",
             position=si,
             source_text=source,
@@ -133,8 +138,8 @@ def analyze(
                 title=task.title,
                 description=task.description or "",
                 acceptance_criteria="",
-                project_id=story.projectId,
-                section_id=story.sectionId,
+                project_id=pid,
+                section_id=None,
                 priority=task.priority or "Medium",
                 position=ti,
                 source_text=source,
@@ -278,10 +283,10 @@ def commit(db: Db, user_id: str) -> PrdCommitOut:
         title = (story.title or "").strip()
         if not title:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Every user story needs a title")
-        if not story.projectId or not story.sectionId:
+        if not story.projectId:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,
-                f'Choose a project and section for "{title}"',
+                f'Choose a project for "{title}"',
             )
         tasks = [t for t in story.tasks if (t.title or "").strip()]
         if not tasks:
@@ -294,7 +299,6 @@ def commit(db: Db, user_id: str) -> PrdCommitOut:
             user_id,
             UserStoryCreate(
                 projectId=story.projectId,
-                sectionId=story.sectionId,
                 title=title,
                 description=story.description or "",
                 acceptanceCriteria=story.acceptanceCriteria or "",

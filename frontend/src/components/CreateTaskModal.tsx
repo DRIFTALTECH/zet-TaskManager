@@ -28,6 +28,8 @@ interface Props {
   prefill?: TaskPrefill;
   /** Kanban column id — new task is created in this status. */
   initialStatus?: string;
+  /** When set, the task is created under this story (project locked; section still chosen per task). */
+  lockStory?: UserStory | null;
 }
 
 const priorities: Priority[] = ['Low', 'Medium', 'High', 'Urgent'];
@@ -39,7 +41,7 @@ const priorityChoice: Record<Priority, string> = {
   Low: 'border-green-500/30 bg-green-500/15 text-green-600 dark:text-green-400',
 };
 
-const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus }: Props) => {
+const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus, lockStory }: Props) => {
   const { currentUser, projects, users, createTask, updateTask, addSection, selectedProjectId } = useAppStore();
   const statusRef = useRef(initialStatus || 'backlog');
   const [title, setTitle] = useState('');
@@ -81,10 +83,17 @@ const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus }: Props) 
     if (!open) return;
     statusRef.current = initialStatus || 'backlog';
     setDueDate(localTodayISO());
+    if (lockStory) {
+      setManualProjectId(lockStory.projectId);
+      const secs = projects.find(p => p.id === lockStory.projectId)?.sections ?? [];
+      setSectionId(secs[0]?.id ?? '');
+      setUserStoryId(lockStory.id);
+      return;
+    }
     if (selectedProjectId && userProjects.some(p => p.id === selectedProjectId)) {
       setManualProjectId(prev => prev || selectedProjectId);
     }
-  }, [open, initialStatus]);
+  }, [open, initialStatus, lockStory]);
 
   // Apply AI prefill when provided
   useEffect(() => {
@@ -100,7 +109,8 @@ const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus }: Props) 
   }, [prefill, open]);
 
   useEffect(() => {
-    if (!open || !sectionId) {
+    if (lockStory) return;
+    if (!open || !effectiveProjectId) {
       setSectionStories([]);
       setUserStoryId('');
       return;
@@ -109,7 +119,7 @@ const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus }: Props) 
     setStoriesLoading(true);
     void (async () => {
       try {
-        const rows = await api.listSectionUserStories(sectionId);
+        const rows = await api.listProjectUserStories(effectiveProjectId);
         if (!cancelled) {
           setSectionStories(rows);
           setUserStoryId(prev => (prev && rows.some(s => s.id === prev) ? prev : ''));
@@ -126,7 +136,7 @@ const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus }: Props) 
     return () => {
       cancelled = true;
     };
-  }, [open, sectionId]);
+  }, [open, effectiveProjectId, lockStory]);
 
   const handleGenerateDescription = async () => {
     if (!title.trim()) return toast.error('Enter a title first');
@@ -205,6 +215,10 @@ const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus }: Props) 
     if (!title.trim() || !effectiveProjectId || !sectionId) {
       return toast.error('Please fill in title, project, and section');
     }
+    const storyId = lockStory?.id || userStoryId;
+    if (!storyId) {
+      return toast.error('Pick a user story');
+    }
     const ids = [...assigneeIds];
     const subtasks = collectSubtaskTitles(subtaskRows);
     if (subtasks.ok === false) return toast.error(subtasks.error);
@@ -222,7 +236,7 @@ const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus }: Props) 
         sprint: sprint.trim(),
         priority,
         tags: tagsStr.split(',').map(t => t.trim()).filter(Boolean),
-        userStoryId: userStoryId || null,
+        userStoryId: storyId,
         status,
       });
       if (status && created.status !== status) {
@@ -303,36 +317,43 @@ const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus }: Props) 
               />
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label className="flex items-center gap-1.5">
-                  <FolderOpen className="h-3.5 w-3.5" />
-                  Project <span className="text-destructive">*</span>
-                </Label>
-                <Select value={manualProjectId || undefined} onValueChange={handleManualProjectChange}>
-                  <SelectTrigger className="h-10 rounded-xl">
-                    <SelectValue placeholder="Choose project" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {userProjects.map(p => (
-                      <SelectItem key={p.id} value={p.id}>{projectPickerLabel(p)}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            {lockStory ? (
+              <div className="rounded-xl border border-violet-500/25 bg-violet-500/10 px-4 py-3 flex items-center gap-2">
+                <BookOpen className="h-4 w-4 text-violet-600 dark:text-violet-400 shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-violet-600 dark:text-violet-400">User story</p>
+                  <p className="text-sm font-medium truncate">{lockStory.title}</p>
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label className="flex items-center gap-1.5">
-                  <Layers className="h-3.5 w-3.5" />
-                  Section <span className="text-destructive">*</span>
-                </Label>
+            ) : (
+            <div className="space-y-2">
+              <Label className="flex items-center gap-1.5">
+                <FolderOpen className="h-3.5 w-3.5" />
+                Project <span className="text-destructive">*</span>
+              </Label>
+              <Select value={manualProjectId || undefined} onValueChange={handleManualProjectChange}>
+                <SelectTrigger className="h-10 rounded-xl">
+                  <SelectValue placeholder="Choose project" />
+                </SelectTrigger>
+                <SelectContent>
+                  {userProjects.map(p => (
+                    <SelectItem key={p.id} value={p.id}>{projectPickerLabel(p)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            )}
+
+            <div className="space-y-2">
+              <Label className="flex items-center gap-1.5">
+                <Layers className="h-3.5 w-3.5" />
+                Section <span className="text-destructive">*</span>
+              </Label>
                 <div className="flex items-start gap-1.5">
                   <div className="min-w-0 flex-1 space-y-1.5">
                     <Select
                       value={sectionId || undefined}
-                      onValueChange={id => {
-                        if (id !== sectionId) setUserStoryId('');
-                        setSectionId(id);
-                      }}
+                      onValueChange={setSectionId}
                       disabled={!selectedProject}
                     >
                       <SelectTrigger className="h-10 rounded-xl">
@@ -385,27 +406,22 @@ const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus }: Props) 
                     </div>
                   )}
                 </div>
-              </div>
             </div>
 
-            {sectionId && (
+            {!lockStory && effectiveProjectId && (
               <div className="rounded-xl border border-border/60 p-4 space-y-3">
                 <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  <BookOpen className="h-3.5 w-3.5" /> User story
+                  <BookOpen className="h-3.5 w-3.5" /> User story <span className="text-destructive">*</span>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Optionally link this task to a user story in the selected section.
-                </p>
                 <Select
-                  value={userStoryId || '__none__'}
-                  onValueChange={v => setUserStoryId(v === '__none__' ? '' : v)}
+                  value={userStoryId || undefined}
+                  onValueChange={setUserStoryId}
                   disabled={storiesLoading}
                 >
                   <SelectTrigger className="w-full">
-                    <SelectValue placeholder={storiesLoading ? 'Loading stories…' : 'No user story'} />
+                    <SelectValue placeholder={storiesLoading ? 'Loading stories…' : 'Choose user story'} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none__">No user story</SelectItem>
                     {sectionStories.map(s => (
                       <SelectItem key={s.id} value={s.id}>
                         {s.title}
@@ -415,7 +431,7 @@ const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus }: Props) 
                 </Select>
                 {!storiesLoading && sectionStories.length === 0 && (
                   <p className="text-[11px] text-muted-foreground/60">
-                    No stories in this section yet — create them from Manage Projects.
+                    No stories in this project yet — create one first.
                   </p>
                 )}
               </div>

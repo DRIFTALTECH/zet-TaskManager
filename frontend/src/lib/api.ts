@@ -348,7 +348,7 @@ export const api = {
     priority: string;
     status?: string;
     tags: string[];
-    userStoryId?: string | null;
+    userStoryId: string;
     parentTaskId?: string | null;
   }): Promise<Task> {
     return request('/tasks', { method: 'POST', body: JSON.stringify(body) });
@@ -393,7 +393,7 @@ export const api = {
 
   async createUserStory(body: {
     projectId: string;
-    sectionId: string;
+    sectionId?: string | null;
     title: string;
     description?: string;
     acceptanceCriteria?: string;
@@ -466,11 +466,10 @@ export const api = {
 
   async extractUserStories(
     projectId: string,
-    sectionId: string,
     opts: { text?: string; file?: File },
   ): Promise<{ stories: import('@/types').ExtractedStoryPreview[] }> {
     const form = new FormData();
-    form.append('section_id', sectionId);
+    form.append('project_id', projectId);
     if (opts.text) form.append('text', opts.text);
     if (opts.file) form.append('file', opts.file);
     return request(`/projects/${projectId}/user-stories/extract`, { method: 'POST', body: form });
@@ -478,7 +477,7 @@ export const api = {
 
   async bulkCreateUserStories(body: {
     projectId: string;
-    sectionId: string;
+    sectionId?: string | null;
     stories: import('@/types').ExtractedStoryPreview[];
   }): Promise<import('@/types').UserStory[]> {
     return request('/user-stories/bulk', { method: 'POST', body: JSON.stringify(body) });

@@ -53,7 +53,7 @@ def create_user_story(
 )
 async def extract_user_stories(
     project_id: str,
-    section_id: str = Form(...),
+    section_id: str | None = Form(None),
     text: str | None = Form(None),
     file: UploadFile | None = File(None),
     user_id: str = Depends(get_current_user_id),

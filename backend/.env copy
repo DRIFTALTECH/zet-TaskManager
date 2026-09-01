@@ -1,0 +1,54 @@
+# Same Application (client) ID as Azure app registration (frontend uses VITE_MICROSOFT_CLIENT_ID).
+MICROSOFT_CLIENT_ID=eb4d79fc-169b-4d89-b381-e239ec7dfe5e
+# Directory (tenant) ID — same as VITE_MICROSOFT_TENANT_ID; used for JWKS URL when validating ID tokens.
+MICROSOFT_TENANT_ID=567ad03c-3f9a-42e7-bc13-9f75f6bc87b6
+
+GROQ_API_KEY=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
+
+
+# ── AI models (Groq primary + Ollama fallback) ──────────────────────────────
+# Groq free-tier model used for chat, parsing and descriptions.
+GROQ_MODEL=llama-3.3-70b-versatile
+GROQ_AGENT_MODEL=llama-3.3-70b-versatile
+GROQ_STRICT_MODEL=llama-3.3-70b-versatile
+# Local fallback (used automatically if Groq fails). Needs Ollama running + model pulled.
+OLLAMA_BASE_URL=https://ollama.com
+OLLAMA_MODEL=gpt-oss:120b
+AI_OLLAMA_FALLBACK=1
+# Ollama Cloud API key (hosted models at https://ollama.com)
+OLLAMA_API_KEY=3bd654f93d8e498785deed1323d92d4a.isKCY0q-owG-ONUqMATOt0FS
+
+# ── Teams → MOM (Microsoft Graph app-only) ──────────────────────────────────
+# Client secret of the SAME Entra app (Certificates & secrets → New client secret).
+# Leave empty/commented until set — when empty, the Teams import shows "not configured"
+# instead of failing. Requires Graph app permission OnlineMeetingTranscript.Read.All
+# (admin-consented) + a Teams application-access-policy for the organizer.
+# MICROSOFT_CLIENT_SECRET=
+
+# ── Speech-to-text (Groq Whisper) ───────────────────────────────────────────
+# Model used to transcribe recorded/uploaded scrum audio. Default below.
+# GROQ_WHISPER_MODEL=whisper-large-v3-turbo
+
+# ── Auth / admin (dev defaults apply; MUST be set for APP_ENV=production) ─────
+# APP_ENV=development                 # set to "production" to enforce the checks below
+# TASKMANAGER_JWT_SECRET=             # >=32 chars in prod; dev uses a built-in default
+# ADMIN_USERNAME=admin
+# ADMIN_PASSWORD=                     # >=8 chars in prod; dev default is Default@123
+# CORS_ORIGINS=https://app.example.com,https://admin.example.com   # required in prod
+
+# ── Public URL (OAuth/MCP discovery metadata) ───────────────────────────────
+# ZET_PUBLIC_URL=http://localhost:8000        # set to the real https origin in prod
+
+# ── Database (defaults to local SQLite; set for Postgres) ────────────────────
+# DATABASE_URL=postgresql+psycopg://user:pass@host:5432/zet
+# TASKMANAGER_SQLITE_PATH=./data/taskmanager.db
+
+# ── AI tuning (optional) ────────────────────────────────────────────────────
+# AI_REQUEST_TIMEOUT=45
+# AI_MAX_RETRIES=2
+
+# ── Ops: logging / errors / multi-worker realtime (all optional) ─────────────
+# LOG_LEVEL=INFO
+# SENTRY_DSN=                         # enables error monitoring when set
+# SENTRY_TRACES_RATE=0.1
+# REDIS_URL=redis://localhost:6379/0  # enables cross-worker realtime fan-out when set

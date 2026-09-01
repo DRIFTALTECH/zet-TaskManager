@@ -98,7 +98,7 @@ export interface Task {
 export interface UserStory {
   id: string;
   projectId: string;
-  sectionId: string;
+  sectionId?: string | null;
   title: string;
   description: string;
   acceptanceCriteria: string;

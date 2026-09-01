@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS sections (
 CREATE TABLE IF NOT EXISTS user_stories (
     id VARCHAR PRIMARY KEY,
     project_id VARCHAR NOT NULL REFERENCES projects (id),
-    section_id VARCHAR NOT NULL REFERENCES sections (id),
+    section_id VARCHAR REFERENCES sections (id),
     title VARCHAR NOT NULL,
     description TEXT NOT NULL DEFAULT '',
     acceptance_criteria TEXT NOT NULL DEFAULT '',

@@ -26,6 +26,7 @@ def get_draft(user_id: str = Depends(get_current_user_id), db: Db = Depends(get_
 async def analyze(
     text: str | None = Form(None),
     file: UploadFile | None = File(None),
+    project_id: str | None = Form(None),
     user_id: str = Depends(get_current_user_id),
     db: Db = Depends(get_db),
 ):
@@ -34,7 +35,7 @@ async def analyze(
     filename = file.filename if file is not None else None
     try:
         return prd_import_logic.analyze(
-            db, user_id, text=text, file_bytes=file_bytes, filename=filename
+            db, user_id, text=text, file_bytes=file_bytes, filename=filename, project_id=project_id
         )
     except HTTPException:
         raise

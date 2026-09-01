@@ -36,6 +36,7 @@ from logic import (
     timesheet_logic,
     token_logic,
     user_logic,
+    user_story_logic,
 )
 from logic.schemas import (
     ScrumCreate,
@@ -218,6 +219,20 @@ def _resolve_section(db, uid: str, project, name: str, create: bool = False):
             if s.name.lower() == name.strip().lower():
                 return s
     return None
+
+
+def _find_user_story(db, uid: str, project, name_or_id: str):
+    stories = user_story_logic.list_for_project(db, uid, project.id)
+    for s in stories:
+        if s.id == name_or_id:
+            return s
+    q = name_or_id.lower()
+    matches = [s for s in stories if q in s.title.lower()]
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        raise ValueError(f"No user story matches '{name_or_id}' in this project.")
+    raise ValueError(f"'{name_or_id}' is ambiguous — matches: {[s.title for s in matches]}.")
 
 
 def _find_task(db, uid: str, name_or_id: str):
@@ -472,6 +487,7 @@ def list_project_tasks(project: str) -> list[dict]:
 def create_task(
     project: str,
     section: str,
+    user_story: str,
     title: str,
     description: str = "",
     assignees: list[str] | None = None,
@@ -479,8 +495,8 @@ def create_task(
     sprint: str = "",
     priority: str = "Medium",
 ) -> dict:
-    """Create a task in a project section. assignees = names/ids (defaults to you).
-    priority: Urgent | High | Medium | Low. sprint is free text."""
+    """Create a task under a user story. user_story = story title or id.
+    assignees = names/ids (defaults to you). priority: Urgent | High | Medium | Low."""
     db = SessionLocal()
     try:
         uid = _uid()
@@ -488,11 +504,12 @@ def create_task(
         sec = _resolve_section(db, uid, p, section, create=True)
         if not sec:
             raise ValueError("A valid section is required.")
+        story = _find_user_story(db, uid, p, user_story)
         ids = [_find_user(db, a).id for a in (assignees or [])] or [uid]
         body = TaskCreate(
             title=title, description=description, projectId=p.id, sectionId=sec.id,
             assigneeIds=ids, assignedBy=uid, createdBy=uid, dueDate=due_date,
-            sprint=sprint, priority=priority, tags=[],
+            sprint=sprint, priority=priority, tags=[], userStoryId=story.id,
         )
         return task_logic.create_task_action(db, uid, body).model_dump()
     finally:

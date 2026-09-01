@@ -694,14 +694,21 @@ const ProjectDetailPage = () => {
               <ChartEmpty msg="No time logged yet" />
             ) : (
               <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={timeBySection} margin={{ top: 4, right: 12, bottom: 4, left: -18 }} barCategoryGap="24%">
+                <BarChart
+                  data={timeBySection}
+                  margin={{ top: 4, right: 12, bottom: 0, left: -18 }}
+                  barCategoryGap="24%"
+                  className="cursor-pointer"
+                  onClick={state => {
+                    const d = state?.activePayload?.[0]?.payload as { id?: string; name?: string } | undefined;
+                    if (d?.id) setSectionDetail({ id: d.id, name: d.name || 'Section' });
+                  }}
+                >
                   <CartesianGrid vertical={false} stroke="hsl(var(--border))" strokeOpacity={0.25} />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={axisTick} interval={0}
-                    tickFormatter={(v: string) => (v.length > 10 ? v.slice(0, 9) + '…' : v)} />
+                  <XAxis dataKey="name" hide />
                   <YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={axisTick} tickFormatter={v => `${v}h`} />
                   <RTooltip content={<ChartTooltip unit="h" />} cursor={{ fill: 'hsl(var(--muted))', opacity: 0.2 }} />
-                  <Bar dataKey="hours" radius={[6, 6, 0, 0]} barSize={40} cursor="pointer"
-                    onClick={(d: { id?: string; name?: string }) => d?.id && setSectionDetail({ id: d.id, name: d.name || 'Section' })}>
+                  <Bar dataKey="hours" radius={[6, 6, 0, 0]} barSize={40}>
                     {timeBySection.map((_, i) => <Cell key={i} fill={STATUS_PALETTE[i % STATUS_PALETTE.length]} />)}
                   </Bar>
                 </BarChart>
@@ -867,10 +874,15 @@ const ProjectDetailPage = () => {
         {/* ── Split requirements → stories + tasks ─────────────────────── */}
         <SplitRequirementsPanel
           projectId={project.id}
-          sections={project.sections}
-          members={users.filter(u => project.members.includes(u.id))}
           accentClass={accent.text}
         />
+
+        <section className="rounded-2xl border border-border/35 bg-card/40 p-6">
+          <UserStoriesPanel
+            projectId={project.id}
+            members={users.filter(u => project.members.includes(u.id))}
+          />
+        </section>
 
         {/* ── Sections ──────────────────────────────────────────────────── */}
         <section className="rounded-2xl border border-border/35 bg-card/40 p-6">
@@ -891,9 +903,9 @@ const ProjectDetailPage = () => {
             <div className="space-y-3">
               <div className="flex flex-wrap gap-2">
                 <AnimatePresence>
-                  {project.sections.map(s => {
-                    const secTasks = projectTasks.filter(t => t.sectionId === s.id).length;
-                    return (
+              {project.sections.map(s => {
+                const secTasks = projectTasks.filter(t => t.sectionId === s.id).length;
+                return (
                       <motion.span key={s.id} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }}
                         className="inline-flex items-center gap-2 text-xs px-3.5 py-2 rounded-xl border border-border/40 bg-muted/30 font-medium group hover:border-border/60 transition-all">
                         <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${accent.bg}`} />
@@ -904,24 +916,10 @@ const ProjectDetailPage = () => {
                           <Trash2 className="h-3 w-3" />
                         </button>
                       </motion.span>
-                    );
-                  })}
-                </AnimatePresence>
-              </div>
-              {project.sections.map(s => {
-                const sectionMembers = users.filter(u => project.members.includes(u.id));
-                return (
-                  <div key={`stories-${s.id}`} className="rounded-xl border border-border/30 p-3">
-                    <p className="text-xs font-semibold text-foreground mb-1">{s.name}</p>
-                    <UserStoriesPanel
-                      projectId={project.id}
-                      sectionId={s.id}
-                      sectionName={s.name}
-                      members={sectionMembers}
-                    />
-                  </div>
                 );
               })}
+            </AnimatePresence>
+              </div>
             </div>
           )}
         </section>

@@ -51,7 +51,7 @@ def test_preview_never_assigns_people():
     assert preview is not None
     assert preview.assigneeIds == []
     assert preview.projectId == "p1"
-    assert preview.sectionId == "s1"
+    assert preview.sectionId is None
     assert all(t.assign is False for t in preview.tasks)
     assert [t.title for t in preview.tasks] == ["API for forecast", "UI board"]
 
@@ -94,7 +94,7 @@ def test_extract_prd_preview_endpoint(client, manager, monkeypatch):
     assert story["title"] == "Login"
     assert story["assigneeIds"] == []
     assert story["projectId"] == proj["id"]
-    assert story["sectionId"] == section["id"]
+    assert not story.get("sectionId")
     assert story["tasks"][0]["assign"] is False
     assert story["tasks"][0]["title"] == "Auth API"
 

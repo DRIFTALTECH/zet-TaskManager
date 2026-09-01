@@ -2,7 +2,7 @@
 
 from datetime import date, timedelta
 
-from conftest import make_project
+from conftest import make_project, make_user_story
 
 
 def test_forecast_excludes_other_managers_tasks(client, manager, register):
@@ -13,6 +13,8 @@ def test_forecast_excludes_other_managers_tasks(client, manager, register):
     theirs = make_project(client, oh, name="Theirs", client_name="TheirCo")["id"]
     my_sid = client.post(f"/projects/{mine}/sections", json={"name": "S"}, headers=mh).json()["sections"][0]["id"]
     their_sid = client.post(f"/projects/{theirs}/sections", json={"name": "S"}, headers=oh).json()["sections"][0]["id"]
+    my_us = make_user_story(client, mh, mine, my_sid)["id"]
+    their_us = make_user_story(client, oh, theirs, their_sid)["id"]
 
     past_due = (date.today() - timedelta(days=3)).isoformat()
     client.post(
@@ -27,6 +29,7 @@ def test_forecast_excludes_other_managers_tasks(client, manager, register):
             "dueDate": past_due,
             "priority": "High",
             "tags": [],
+            "userStoryId": my_us,
         },
         headers=mh,
     )
@@ -42,6 +45,7 @@ def test_forecast_excludes_other_managers_tasks(client, manager, register):
             "dueDate": past_due,
             "priority": "High",
             "tags": [],
+            "userStoryId": their_us,
         },
         headers=oh,
     )
@@ -74,6 +78,7 @@ def test_forecast_excludes_done_and_dedupes_multi_assignee(client, manager, regi
     pid = project["id"]
     client.post(f"/projects/{pid}/members", headers=mh, json={"user_id": emp["id"]})
     sid = client.post(f"/projects/{pid}/sections", json={"name": "Sprint A"}, headers=mh).json()["sections"][0]["id"]
+    usid = make_user_story(client, mh, pid, sid)["id"]
     due = (date.today() + timedelta(days=4)).isoformat()
 
     shared = client.post(
@@ -88,6 +93,7 @@ def test_forecast_excludes_done_and_dedupes_multi_assignee(client, manager, regi
             "dueDate": due,
             "priority": "Medium",
             "tags": [],
+            "userStoryId": usid,
         },
         headers=mh,
     ).json()
@@ -104,6 +110,7 @@ def test_forecast_excludes_done_and_dedupes_multi_assignee(client, manager, regi
             "dueDate": due,
             "priority": "High",
             "tags": [],
+            "userStoryId": usid,
         },
         headers=mh,
     ).json()

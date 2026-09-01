@@ -8,6 +8,16 @@ import { requireApiUrl } from "./env.defaults";
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, path.resolve(__dirname), "");
   const backendUrl = requireApiUrl(env.VITE_API_URL);
+  // Prod CORS allowlist is the deployed SPA, not localhost. Rewrite Origin so
+  // the proxied request is accepted when `npm run dev` targets zetapi.
+  let proxyOrigin: string | undefined;
+  try {
+    if (new URL(backendUrl).host === "zetapi.driftal.tech") {
+      proxyOrigin = "https://zet.driftal.tech";
+    }
+  } catch {
+    /* keep Origin as-is for local backends */
+  }
   return {
   server: {
     host: "::",
@@ -19,7 +29,9 @@ export default defineConfig(({ mode }) => {
       "/api": {
         target: backendUrl,
         changeOrigin: true,
+        ws: true,
         rewrite: (path) => path.replace(/^\/api/, ""),
+        ...(proxyOrigin ? { headers: { Origin: proxyOrigin, Referer: `${proxyOrigin}/` } } : {}),
       },
     },
   },

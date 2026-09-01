@@ -101,7 +101,7 @@ function ProposalCard({
   onEditTask: (p: TaskPrefill) => void;
   onExecuted: () => void;
 }) {
-  const { createClient, createProject, addSection, createTask, addMemberToProject, currentUser } = useAppStore();
+  const { createClient, createProject, addSection, addMemberToProject, currentUser } = useAppStore();
   const [accepted, setAccepted] = useState(false);
   const [accepting, setAccepting] = useState(false);
 
@@ -125,19 +125,18 @@ function ProposalCard({
           await addSection(p.project_id!, p.section_name!);
           break;
         case 'create_task':
-          await createTask({
-            title: p.title!,
-            description: p.description ?? '',
-            projectId: p.project_id!,
-            sectionId: p.section_id!,
-            dueDate: p.due_date ?? '',
-            priority: (p.priority as Priority) ?? 'Medium',
-            tags: p.tags ?? [],
-            assigneeIds: [p.assignee_id!],
-            assignedBy: currentUser!.id,
-            createdBy: currentUser!.id,
+          onEditTask({
+            title: p.title ?? undefined,
+            description: p.description ?? undefined,
+            priority: (p.priority as Priority) ?? undefined,
+            dueDate: p.due_date ?? undefined,
+            assigneeId: p.assignee_id ?? undefined,
+            projectId: p.project_id ?? undefined,
+            sectionId: p.section_id ?? undefined,
+            tags: p.tags,
           });
-          break;
+          toast.info('Pick a user story to create the task');
+          return;
         case 'add_member':
           await addMemberToProject(p.project_id!, p.user_id!);
           break;
@@ -385,9 +384,7 @@ function successMsg(p: AIProposal) {
 // ── Extracted task card (non-agentic suggestions) ─────────────────────────────
 
 function ExtractedTaskCard({ task, onEdit }: { task: AIExtractedTask; onEdit: (p: TaskPrefill) => void }) {
-  const { users, projects, currentUser, createTask } = useAppStore();
-  const [accepted, setAccepted] = useState(false);
-  const [accepting, setAccepting] = useState(false);
+  const { users, projects, currentUser } = useAppStore();
 
   const assignee = task.assignee_id ? users.find(u => u.id === task.assignee_id) : null;
   const project  = task.project_id  ? projects.find(p => p.id === task.project_id) : null;
@@ -404,44 +401,11 @@ function ExtractedTaskCard({ task, onEdit }: { task: AIExtractedTask; onEdit: (p
     tags: task.tags,
   };
 
-  const canAccept = !!task.title && !!task.project_id && !!task.section_id && !!task.assignee_id;
-
-  const handleAccept = async () => {
+  const handleAccept = () => {
     if (!currentUser) return;
-    if (!canAccept) { toast.info('Some fields are missing — use Edit.'); onEdit(prefill); return; }
-    setAccepting(true);
-    try {
-      await createTask({
-        title: task.title,
-        description: task.description ?? '',
-        projectId: task.project_id!,
-        sectionId: task.section_id!,
-        dueDate: task.due_date ?? '',
-        priority: (task.priority as Priority) ?? 'Medium',
-        tags: task.tags ?? [],
-        assigneeIds: [task.assignee_id!],
-        assignedBy: currentUser.id,
-        createdBy: currentUser.id,
-      });
-      setAccepted(true);
-      // Tasker mascot animates the "task created" confirmation.
-    } catch (err) {
-      toast.error('Could not create the task. Please try again.');
-    } finally {
-      setAccepting(false);
-    }
+    toast.info('Pick a user story');
+    onEdit(prefill);
   };
-
-  if (accepted) {
-    return (
-      <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} transition={snappy}
-        className="rounded-xl border border-green-500/20 bg-green-500/5 px-4 py-3 flex items-center gap-3">
-        <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400 shrink-0" />
-        <span className="text-sm font-semibold text-green-600 dark:text-green-400">Created</span>
-        <span className="text-sm text-muted-foreground truncate">{task.title}</span>
-      </motion.div>
-    );
-  }
 
   return (
     <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={snappy}
@@ -471,12 +435,12 @@ function ExtractedTaskCard({ task, onEdit }: { task: AIExtractedTask; onEdit: (p
         </p>
       )}
       <div className="flex items-center gap-2 pt-1 border-t border-violet-500/10">
-        <button onClick={handleAccept} disabled={accepting}
+        <button onClick={handleAccept}
           className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-semibold hover:bg-violet-500 transition-colors disabled:opacity-50">
           <Check className="h-3.5 w-3.5" />
-          {accepting ? 'Creating…' : 'Accept'}
+          Accept
         </button>
-        <button onClick={() => onEdit(prefill)} disabled={accepting}
+        <button onClick={() => onEdit(prefill)}
           className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-border/60 bg-muted/30 text-xs font-medium hover:bg-muted/60 transition-colors disabled:opacity-50">
           <Pencil className="h-3 w-3" />
           Edit

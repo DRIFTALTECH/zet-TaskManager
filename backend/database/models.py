@@ -103,7 +103,7 @@ class UserStory(Base):
 
     id = Column(String, primary_key=True)
     project_id = Column(String, ForeignKey("projects.id"), nullable=False, index=True)
-    section_id = Column(String, ForeignKey("sections.id"), nullable=False, index=True)
+    section_id = Column(String, ForeignKey("sections.id"), nullable=True, index=True)
     title = Column(String, nullable=False)
     description = Column(Text, nullable=False, default="")
     acceptance_criteria = Column(Text, nullable=False, default="")

@@ -31,7 +31,7 @@ def test_user_story_crud_and_progress(client, register):
             sid = s["id"]
             break
 
-    # Legacy task without story still works
+    # Task without story is rejected
     r = client.post(
         "/tasks",
         headers=token,
@@ -48,10 +48,7 @@ def test_user_story_crud_and_progress(client, register):
             "tags": [],
         },
     )
-    assert r.status_code == 200, r.text
-    legacy = r.json()
-    assert legacy.get("userStoryId") in (None, "")
-    assert legacy.get("parentTaskId") in (None, "")
+    assert r.status_code == 400, r.text
 
     # Create user story
     r = client.post(
@@ -153,7 +150,6 @@ def test_user_story_crud_and_progress(client, register):
     r = client.get("/tasks", headers=token)
     assert r.status_code == 200
     ids = {t["id"] for t in r.json()}
-    assert legacy["id"] in ids
     assert parent["id"] in ids
 
     # Confirm-generate creates only selected preview items (no AI call)

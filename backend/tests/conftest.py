@@ -127,6 +127,23 @@ def make_project(api_client, headers, name: str = "Proj", description: str = "",
     return r.json()
 
 
+def make_user_story(api_client, headers, project_id: str, section_id: str, title: str = "Story"):
+    r = api_client.post(
+        "/user-stories",
+        json={
+            "projectId": project_id,
+            "sectionId": section_id,
+            "title": title,
+            "description": "",
+            "acceptanceCriteria": "",
+            "priority": "Medium",
+        },
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
 # Tables cleared before each test (kanban_columns seed is kept).
 _CLEAR_TABLES = (
     "teams_transcript_imports",

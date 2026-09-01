@@ -106,7 +106,7 @@ export default function GlobalSearchModal({ open, onOpenChange }: Props) {
 
   function goTask(taskId: string) {
     close();
-    navigate('/tasks');
+    navigate('/');
     // Brief delay so the page mounts before we try to open the modal
     setTimeout(() => {
       window.dispatchEvent(new CustomEvent('zet:open-task', { detail: { taskId } }));

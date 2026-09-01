@@ -25,7 +25,7 @@ describe('isNavItemActive', () => {
   });
 
   it('does not mark Dashboard active on other routes', () => {
-    expect(isNavItemActive(item('/'), '/tasks')).toBe(false);
+    expect(isNavItemActive(item('/'), '/timesheet')).toBe(false);
   });
 });
 

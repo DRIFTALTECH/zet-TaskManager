@@ -267,7 +267,6 @@ class TaskOut(BaseModel):
     createdAt: str
     timeLog: dict[str, int] = Field(default_factory=dict)
     customFields: dict[str, str] | None = None
-    # Additive hierarchy (optional — NULL/omitted for legacy tasks)
     userStoryId: str | None = None
     parentTaskId: str | None = None
 
@@ -313,7 +312,7 @@ class TaskPatch(BaseModel):
 class UserStoryOut(BaseModel):
     id: str
     projectId: str
-    sectionId: str
+    sectionId: str | None = None
     title: str
     description: str
     acceptanceCriteria: str
@@ -337,7 +336,7 @@ class UserStoryOut(BaseModel):
 
 class UserStoryCreate(BaseModel):
     projectId: str
-    sectionId: str
+    sectionId: str | None = None
     title: str
     description: str = ""
     acceptanceCriteria: str = ""
@@ -419,7 +418,7 @@ class ExtractStoriesPreviewOut(BaseModel):
 
 class BulkCreateStoriesBody(BaseModel):
     projectId: str
-    sectionId: str
+    sectionId: str | None = None
     stories: list[ExtractedStoryPreview] = Field(default_factory=list)
 
 

@@ -220,6 +220,50 @@ def _ensure_fk(db, table: str, constraint: str, ddl: str) -> None:
         pass  # constraint may already exist under another name
 
 
+def _migrate_user_story_section_optional() -> None:
+    """Stories are project-scoped; section_id is leftover and optional."""
+    db = get_database()
+    if use_sqlite():
+        info = db.read("PRAGMA table_info(user_stories)")
+        col = next((r for r in info if (r.get("name") or "") == "section_id"), None)
+        if not col or not col.get("notnull"):
+            return
+        db.write("PRAGMA foreign_keys = OFF")
+        db.write(
+            """
+            CREATE TABLE user_stories__new (
+                id VARCHAR PRIMARY KEY,
+                project_id VARCHAR NOT NULL REFERENCES projects (id),
+                section_id VARCHAR REFERENCES sections (id),
+                title VARCHAR NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                acceptance_criteria TEXT NOT NULL DEFAULT '',
+                priority VARCHAR NOT NULL DEFAULT 'Medium',
+                status VARCHAR NOT NULL DEFAULT 'backlog',
+                assignee_id VARCHAR REFERENCES users (id),
+                reporter_id VARCHAR NOT NULL REFERENCES users (id),
+                estimated_hours VARCHAR,
+                story_points VARCHAR,
+                start_date VARCHAR,
+                due_date VARCHAR,
+                created_at VARCHAR NOT NULL,
+                updated_at VARCHAR NOT NULL
+            )
+            """
+        )
+        db.write("INSERT INTO user_stories__new SELECT * FROM user_stories")
+        db.write("DROP TABLE user_stories")
+        db.write("ALTER TABLE user_stories__new RENAME TO user_stories")
+        db.write("CREATE INDEX IF NOT EXISTS ix_user_stories_project_id ON user_stories (project_id)")
+        db.write("CREATE INDEX IF NOT EXISTS ix_user_stories_section_id ON user_stories (section_id)")
+        db.write("PRAGMA foreign_keys = ON")
+        return
+    try:
+        db.write("ALTER TABLE user_stories ALTER COLUMN section_id DROP NOT NULL")
+    except Exception:
+        pass
+
+
 def _migrate_user_stories() -> None:
     """Additive upgrade for existing Aurora/SQLite DBs (idempotent, non-destructive).
 
@@ -235,7 +279,7 @@ def _migrate_user_stories() -> None:
         CREATE TABLE IF NOT EXISTS user_stories (
             id VARCHAR PRIMARY KEY,
             project_id VARCHAR NOT NULL REFERENCES projects (id),
-            section_id VARCHAR NOT NULL REFERENCES sections (id),
+            section_id VARCHAR REFERENCES sections (id),
             title VARCHAR NOT NULL,
             description TEXT NOT NULL DEFAULT '',
             acceptance_criteria TEXT NOT NULL DEFAULT '',
@@ -388,6 +432,7 @@ def init_db() -> None:
     _migrate_clients()
     _migrate_skills()
     _migrate_user_stories()
+    _migrate_user_story_section_optional()
     _migrate_forecast_visibility()
     _migrate_pat_expiry()
     _seed_kanban()

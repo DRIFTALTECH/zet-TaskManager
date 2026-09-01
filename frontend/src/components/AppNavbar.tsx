@@ -17,7 +17,6 @@ import {
 
 const pageTitles: Record<string, string> = {
   '/': 'Dashboard',
-  '/tasks': 'My Tasks',
   '/timesheet': 'Timesheet',
   '/calendar': 'Calendar',
   '/reports': 'Time report',
@@ -30,7 +29,7 @@ const pageTitles: Record<string, string> = {
   '/prd': 'PRD import',
 };
 
-const HIDE_PROJECT_PICKER_PATHS = new Set(['/tasks', '/overview', '/timesheet', '/calendar', '/prd']);
+const HIDE_PROJECT_PICKER_PATHS = new Set(['/overview', '/timesheet', '/calendar', '/prd']);
 
 const AppNavbar = () => {
   const { theme, toggleTheme, currentUser, projects, selectedProjectId, selectProject } = useAppStore();

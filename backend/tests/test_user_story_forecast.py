@@ -2,7 +2,7 @@
 
 from datetime import date, timedelta
 
-from conftest import make_project
+from conftest import make_project, make_user_story
 
 
 def test_user_story_forecast_excludes_other_managers_stories(client, manager, register):
@@ -44,7 +44,8 @@ def test_user_story_forecast_excludes_other_managers_stories(client, manager, re
         headers=oh,
     )
 
-    # Task with same due date must not appear in user-story forecast
+    # Task under a different story must not appear as a story-forecast row
+    host = make_user_story(client, mh, mine, my_sid, "Task host")["id"]
     client.post(
         "/tasks",
         json={
@@ -57,6 +58,7 @@ def test_user_story_forecast_excludes_other_managers_stories(client, manager, re
             "dueDate": past_due,
             "priority": "High",
             "tags": [],
+            "userStoryId": host,
         },
         headers=mh,
     )
@@ -148,4 +150,5 @@ def test_task_and_user_story_forecasts_do_not_overlap(client, manager):
         if t["title"] == "Story only item"
     ]
     assert story_rows
-    assert story_rows[0].get("sectionName")
+    # Stories are project-scoped; section lives on tasks, not the story.
+    assert not story_rows[0].get("sectionName")

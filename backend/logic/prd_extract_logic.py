@@ -92,12 +92,12 @@ def _to_preview(
     )
     if not title:
         return None
-    project, section = match_project_section(
+    project, _section = match_project_section(
         projects,
         story.project_id,
         story.project_name,
-        story.section_id,
-        story.section_name,
+        None,
+        None,
     )
     return ExtractedStoryPreview(
         key=f"us-{uuid.uuid4().hex[:10]}",
@@ -108,9 +108,9 @@ def _to_preview(
         assigneeIds=[],
         tasks=_task_previews(story),
         projectId=project.id if project else None,
-        sectionId=section.id if section else None,
+        sectionId=None,
         projectName=project.name if project else (story.project_name or None),
-        sectionName=section.name if section else (story.section_name or None),
+        sectionName=None,
     )
 
 

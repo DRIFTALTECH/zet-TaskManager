@@ -284,7 +284,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
   }, [open, task?.id, loadFeedback, loadAttachments]);
 
   useEffect(() => {
-    if (!open || !task?.sectionId) {
+    if (!open || !task?.projectId) {
       setSectionStories([]);
       return;
     }
@@ -292,7 +292,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
     setStoriesLoading(true);
     void (async () => {
       try {
-        const rows = await api.listSectionUserStories(draftSectionId || task.sectionId);
+        const rows = await api.listProjectUserStories(draftProjectId || task.projectId);
         if (!cancelled) setSectionStories(rows);
       } catch {
         if (!cancelled) setSectionStories([]);
@@ -301,7 +301,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
       }
     })();
     return () => { cancelled = true; };
-  }, [open, draftSectionId, task?.sectionId, task?.id]);
+  }, [open, draftProjectId, task?.projectId, task?.id]);
 
   const isDirty = useMemo(() => {
     if (!task || !canEdit) return false;
@@ -396,6 +396,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
     const title = draftTitle.trim();
     if (!title) { toast.error('Title is required'); return; }
     if (!draftSectionId) { toast.error('Pick a section in the selected project'); return; }
+    if (!draftUserStoryId) { toast.error('Pick a user story'); return; }
     const ids = [...new Set(draftAssigneeIds)];
     setSaving(true);
     try {
@@ -404,7 +405,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
         description: draftDescription,
         priority: draftPriority,
         customFields: recordFromRows(draftCustomRows),
-        userStoryId: draftUserStoryId || null,
+        userStoryId: draftUserStoryId,
         assigneeIds: ids,
         sprint: draftSprint.trim(),
         dueDate: draftDueDate,
@@ -1174,15 +1175,14 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                 <SectionLabel icon={BookOpen} label="User story" accent="text-violet-400/70" />
                 {canEdit ? (
                   <Select
-                    value={draftUserStoryId || '__none__'}
-                    onValueChange={v => setDraftUserStoryId(v === '__none__' ? '' : v)}
+                    value={draftUserStoryId || undefined}
+                    onValueChange={setDraftUserStoryId}
                     disabled={storiesLoading}
                   >
                     <SelectTrigger className="w-full text-xs h-9">
-                      <SelectValue placeholder={storiesLoading ? 'Loading…' : 'No user story'} />
+                      <SelectValue placeholder={storiesLoading ? 'Loading…' : 'Choose user story'} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="__none__">No user story</SelectItem>
                       {sectionStories.map(s => (
                         <SelectItem key={s.id} value={s.id}>{s.title}</SelectItem>
                       ))}
@@ -1191,7 +1191,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                 ) : (
                   <p className="text-xs text-muted-foreground">
                     {sectionStories.find(s => s.id === (task.userStoryId || ''))?.title
-                      || (task.userStoryId ? 'Linked story' : 'None')}
+                      || (task.userStoryId ? 'Linked story' : 'No user story')}
                   </p>
                 )}
               </section>
@@ -1240,7 +1240,10 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
               <section>
                 <SectionLabel icon={Layers} label="Section" accent="text-teal-400/70" />
                 {canEdit && project ? (
-                  <Select value={draftSectionId || task.sectionId} onValueChange={setDraftSectionId}>
+                  <Select
+                    value={draftSectionId || task.sectionId}
+                    onValueChange={setDraftSectionId}
+                  >
                     <SelectTrigger className="w-full text-xs h-9">
                       <SelectValue />
                     </SelectTrigger>

@@ -11,7 +11,7 @@ import type { ReactNode } from 'react';
 import { toast } from 'sonner';
 import { pageEnter } from '@/lib/motion';
 import { api } from '@/lib/api';
-import { getApiUrl } from '@/lib/env';
+import { getConfiguredApiUrl } from '@/lib/env';
 import type { PersonalAccessToken, AuditLog } from '@/types';
 import UserAvatar from '@/components/UserAvatar';
 import AgentAvatar from '@/components/agents/AgentAvatar';
@@ -53,9 +53,9 @@ function timeAgo(iso: string) {
 const inputCls = 'w-full rounded-xl border border-border/50 bg-muted/40 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 transition-all placeholder:text-muted-foreground/40';
 
 /** The MCP endpoint is embedded in the backend at /mcp; it always tracks the
- *  backend the app is actually talking to (getApiUrl). Override with VITE_MCP_URL. */
+ *  configured API origin (not the Vite `/api` rewrite). Override with VITE_MCP_URL. */
 const MCP_BASE = (import.meta.env.VITE_MCP_URL as string | undefined)
-  || `${getApiUrl()}/mcp/`;
+  || `${getConfiguredApiUrl()}/mcp/`;
 
 function fmtDate(iso: string): string {
   if (!iso) return '';

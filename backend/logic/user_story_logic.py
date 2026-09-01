@@ -108,6 +108,13 @@ def _progress_for_story(db: Db, story_id: str) -> tuple[float, int, int, int, in
     return pct, tc, tdone, sc, sdone
 
 
+def _first_section_id(db: Db, project_id: str) -> str:
+    secs = sections_crud.list_for_project(db, project_id)
+    if not secs:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Add a section to this project first")
+    return secs[0].id
+
+
 def _to_out(db: Db, s: UserStory) -> UserStoryOut:
     pct, tc, tdone, sc, sdone = _progress_for_story(db, s.id)
     aids = story_assignees_crud.list_user_ids_ordered(db, s.id)
@@ -116,7 +123,7 @@ def _to_out(db: Db, s: UserStory) -> UserStoryOut:
     return UserStoryOut(
         id=s.id,
         projectId=s.project_id,
-        sectionId=s.section_id,
+        sectionId=getattr(s, "section_id", None) or None,
         title=s.title,
         description=s.description or "",
         acceptanceCriteria=s.acceptance_criteria or "",
@@ -162,9 +169,6 @@ def get_story(db: Db, user_id: str, story_id: str) -> UserStoryOut:
 
 def create_story(db: Db, user_id: str, body: UserStoryCreate) -> UserStoryOut:
     project_logic.ensure_project_member(db, body.projectId, user_id)
-    sec = sections_crud.get_by_id(db, body.sectionId)
-    if not sec or sec.project_id != body.projectId:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid section for project")
     aids = _resolve_assignee_ids(
         db, body.projectId, assignee_ids=body.assigneeIds, assignee_id=body.assigneeId
     )
@@ -174,7 +178,7 @@ def create_story(db: Db, user_id: str, body: UserStoryCreate) -> UserStoryOut:
         db,
         story_id=sid,
         project_id=body.projectId,
-        section_id=body.sectionId,
+        section_id=None,
         title=body.title.strip(),
         description=body.description or "",
         acceptance_criteria=body.acceptanceCriteria or "",
@@ -201,11 +205,6 @@ def patch_story(db: Db, user_id: str, story_id: str, body: UserStoryPatch) -> Us
     if not s:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User story not found")
     project_logic.ensure_project_member(db, s.project_id, user_id)
-    if body.sectionId is not None:
-        sec = sections_crud.get_by_id(db, body.sectionId)
-        if not sec or sec.project_id != s.project_id:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid section")
-        s.section_id = body.sectionId
     if body.title is not None:
         s.title = body.title.strip()
     if body.description is not None:
@@ -437,13 +436,14 @@ def confirm_generate_tasks(
         # assigned_to is NOT NULL — placeholder only; empty assigneeIds = unassigned in API.
         primary = task_assignees[0] if task_assignees else user_id
         tid = new_id("t")
+        task_section = getattr(s, "section_id", None) or _first_section_id(db, s.project_id)
         t = tasks_crud.create_task(
             db,
             task_id=tid,
             title=title,
             description=(gt.description or "").strip(),
             project_id=s.project_id,
-            section_id=s.section_id,
+            section_id=task_section,
             assigned_to=primary,
             assigned_by=user_id,
             created_by=user_id,
@@ -483,7 +483,7 @@ def confirm_generate_tasks(
                 title=stitle,
                 description=sdesc,
                 project_id=s.project_id,
-                section_id=s.section_id,
+                section_id=task_section,
                 assigned_to=primary,
                 assigned_by=user_id,
                 created_by=user_id,
@@ -605,13 +605,10 @@ def _preview_tasks_from_gen(tasks: list[_GenTask] | None) -> list[GeneratedTaskP
 
 
 def extract_stories_preview(
-    db: Db, user_id: str, project_id: str, section_id: str, source_text: str
+    db: Db, user_id: str, project_id: str, section_id: str | None, source_text: str
 ) -> ExtractStoriesPreviewOut:
     """AI extracts multiple user stories (with tasks/subtasks) from a requirements document — no persist."""
     project_logic.ensure_project_member(db, project_id, user_id)
-    sec = sections_crud.get_by_id(db, section_id)
-    if not sec or sec.project_id != project_id:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid section for project")
     text = (source_text or "").strip()
     if not text:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No requirement text to analyze")
@@ -683,9 +680,6 @@ def bulk_create_stories(
 ) -> list[UserStoryOut]:
     """Create reviewed stories from an extract preview, including nested tasks/subtasks."""
     project_logic.ensure_project_member(db, body.projectId, user_id)
-    sec = sections_crud.get_by_id(db, body.sectionId)
-    if not sec or sec.project_id != body.projectId:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid section for project")
     created: list[UserStoryOut] = []
     for es in body.stories or []:
         title, description = _normalize_story_title(
@@ -698,7 +692,6 @@ def bulk_create_stories(
             user_id,
             UserStoryCreate(
                 projectId=body.projectId,
-                sectionId=body.sectionId,
                 title=title,
                 description=description,
                 acceptanceCriteria=es.acceptanceCriteria or "",

@@ -358,7 +358,7 @@ export default function Companion() {
   // ── Quick actions used by the drop menu ───────────────────────────────────────
   const openTaskInList = (taskId: string) => {
     setMenuOpen(false); setOverdueExpanded(false);
-    navigate('/tasks');
+    navigate('/');
     setTimeout(() => window.dispatchEvent(new CustomEvent('zet:open-task', { detail: { taskId } })), 100);
   };
   const runDropAction = async (kind: 'start' | 'done', task: Task) => {

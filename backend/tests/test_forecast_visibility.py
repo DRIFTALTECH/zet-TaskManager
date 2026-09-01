@@ -1,11 +1,12 @@
 from datetime import date, timedelta
-from conftest import make_project
+from conftest import make_project, make_user_story
 
 
 def test_forecast_visibility_toggle(client, manager):
     mgr, mh = manager
     mine = make_project(client, mh, name="VisibilityProj", client_name="VizCo")["id"]
     sid = client.post(f"/projects/{mine}/sections", json={"name": "S1"}, headers=mh).json()["sections"][0]["id"]
+    usid = make_user_story(client, mh, mine, sid)["id"]
     past_due = (date.today() - timedelta(days=3)).isoformat()
 
     task_res = client.post(
@@ -20,6 +21,7 @@ def test_forecast_visibility_toggle(client, manager):
             "dueDate": past_due,
             "priority": "High",
             "tags": [],
+            "userStoryId": usid,
         },
         headers=mh,
     ).json()

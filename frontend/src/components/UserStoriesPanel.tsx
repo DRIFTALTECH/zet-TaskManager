@@ -1,7 +1,6 @@
 /**
- * Additive User Stories UI for a project section.
- * Reuses AssigneeMultiSelect, attachment upload APIs, and AI preview→confirm flow.
- * Nested work items are real Tasks with parentTaskId (checklist SubtaskSection unchanged).
+ * Project-level User Stories UI. A story is not owned by a section;
+ * its tasks may live in any of the project's sections.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -62,13 +61,9 @@ function assigneeAvatars(story: UserStory, members: User[]) {
 
 export default function UserStoriesPanel({
   projectId,
-  sectionId,
-  sectionName,
   members,
 }: {
   projectId: string;
-  sectionId: string;
-  sectionName: string;
   members: User[];
 }) {
   const currentUser = useAppStore(s => s.currentUser);
@@ -91,17 +86,20 @@ export default function UserStoriesPanel({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const rows = await api.listSectionUserStories(sectionId);
+      const rows = await api.listProjectUserStories(projectId);
       setStories(rows);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to load user stories');
     } finally {
       setLoading(false);
     }
-  }, [sectionId]);
+  }, [projectId]);
 
   useEffect(() => {
     void load();
+    const onStories = () => { void load(); };
+    window.addEventListener('zet:stories-changed', onStories);
+    return () => window.removeEventListener('zet:stories-changed', onStories);
   }, [load]);
 
   const loadTasks = async (storyId: string) => {
@@ -219,7 +217,7 @@ export default function UserStoriesPanel({
         </div>
       ) : stories.length === 0 ? (
         <p className="text-[11px] text-muted-foreground/50 italic py-2">
-          No user stories in {sectionName} yet. Existing tasks without a story still work as before.
+          No user stories yet. Existing tasks without a story still work as before.
         </p>
       ) : (
         <div className="space-y-1.5">
@@ -433,7 +431,6 @@ export default function UserStoriesPanel({
         open={createOpen}
         onOpenChange={setCreateOpen}
         projectId={projectId}
-        sectionId={sectionId}
         members={members}
         currentUserId={currentUser?.id || ''}
         onCreated={story => {
@@ -446,7 +443,6 @@ export default function UserStoriesPanel({
         open={extractOpen}
         onOpenChange={setExtractOpen}
         projectId={projectId}
-        sectionId={sectionId}
         members={members}
         onCreated={created => {
           setStories(prev => [...created, ...prev]);
@@ -786,7 +782,6 @@ function CreateUserStoryDialog({
   open,
   onOpenChange,
   projectId,
-  sectionId,
   members,
   currentUserId,
   onCreated,
@@ -794,7 +789,6 @@ function CreateUserStoryDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
   projectId: string;
-  sectionId: string;
   members: User[];
   currentUserId: string;
   onCreated: (s: UserStory) => void;
@@ -830,7 +824,6 @@ function CreateUserStoryDialog({
     try {
       const story = await api.createUserStory({
         projectId,
-        sectionId,
         title: title.trim(),
         description,
         acceptanceCriteria: acceptance,
@@ -978,14 +971,12 @@ function ExtractStoriesDialog({
   open,
   onOpenChange,
   projectId,
-  sectionId,
   members,
   onCreated,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   projectId: string;
-  sectionId: string;
   members: User[];
   onCreated: (stories: UserStory[]) => void;
 }) {
@@ -1015,7 +1006,7 @@ function ExtractStoriesDialog({
     }
     setLoading(true);
     try {
-      const res = await api.extractUserStories(projectId, sectionId, {
+      const res = await api.extractUserStories(projectId, {
         text: text.trim() || undefined,
         file: file || undefined,
       });
@@ -1056,7 +1047,6 @@ function ExtractStoriesDialog({
     try {
       const created = await api.bulkCreateUserStories({
         projectId,
-        sectionId,
         stories: storiesPayload,
       });
       toast.success(`Created ${created.length} user stor${created.length === 1 ? 'y' : 'ies'}`);

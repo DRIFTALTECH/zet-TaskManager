@@ -29,8 +29,8 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import {
   Plus, GripVertical,
-  MoreHorizontal, Pencil, Trash2, Flag, Check, ChevronDown,
-  Users, BookOpen,
+  MoreHorizontal, Pencil, Trash2, Flag, Check, ChevronDown, ChevronRight,
+  Users, BookOpen, List, Columns, FolderOpen,
 } from 'lucide-react';
 import { KanbanBoardPan } from '@/components/KanbanBoardPan';
 import TaskDetailModal from '@/components/TaskDetailModal';
@@ -51,7 +51,7 @@ import {
   taskMatchesDueDateRange,
   taskMatchesPriorityFilter,
 } from '@/lib/due-date-utils';
-import { isTopLevelTask, storyAssigneeIds, taskMatchesAssigneeFilter, taskMatchesSprintFilter, NO_SPRINT_FILTER_ID, UNASSIGNED_FILTER_ID } from '@/lib/task-utils';
+import { isTopLevelTask, storyAssigneeIds, taskMatchesAssigneeFilter, taskMatchesSprintFilter, NO_SPRINT_FILTER_ID, UNASSIGNED_FILTER_ID, childTasksOf, taskAssigneeIds, normalizePriority } from '@/lib/task-utils';
 import UserAvatar from '@/components/UserAvatar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import AssigneeMultiSelect from '@/components/AssigneeMultiSelect';
@@ -60,9 +60,11 @@ import type { UserStory } from '@/types';
 
 const PROTECTED_IDS = new Set(['backlog', 'in_progress', 'in_review', 'done']);
 const DONE_COL_KEY = 'tm_done_col';
+const VIEW_KEY = 'tm_dash_view';
+type DashView = 'list' | 'board';
 
 const FILTER_TRIGGER =
-  'flex h-9 w-[min(44vw,12rem)] sm:w-44 shrink-0 items-center justify-between gap-2 rounded-xl border border-border/70 bg-card/70 px-3 text-sm font-medium shadow-none text-left focus:outline-none focus:ring-2 focus:ring-ring/40 focus:ring-offset-0';
+  'flex h-8 w-[min(40vw,9.5rem)] sm:w-36 shrink-0 items-center justify-between gap-1.5 rounded-lg border border-border/70 bg-card/70 px-2.5 text-xs font-medium shadow-none text-left focus:outline-none focus:ring-2 focus:ring-ring/40 focus:ring-offset-0';
 
 type DashFilterOption = { id: string; text: string; label?: ReactNode };
 
@@ -73,6 +75,8 @@ function DashFilterSelect({
   onClear,
   options,
   emptyText,
+  open,
+  onOpenChange,
 }: {
   allLabel: string;
   selected: Set<string>;
@@ -80,6 +84,8 @@ function DashFilterSelect({
   onClear: () => void;
   options: DashFilterOption[];
   emptyText?: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const triggerLabel = (() => {
     if (selected.size === 0) return allLabel;
@@ -91,7 +97,7 @@ function DashFilterSelect({
   })();
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={onOpenChange} modal>
       <PopoverTrigger asChild>
         <button type="button" className={FILTER_TRIGGER}>
           <span className="truncate">{triggerLabel}</span>
@@ -140,10 +146,10 @@ function DashFilterSelect({
 }
 
 const priorityBadgeStyles: Record<Priority, string> = {
-  Urgent: 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/20',
-  High: 'bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/20',
-  Medium: 'bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border-yellow-500/20',
-  Low: 'bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/20',
+  Urgent: 'text-red-600 dark:text-red-400',
+  High: 'text-orange-600 dark:text-orange-400',
+  Medium: 'text-yellow-600 dark:text-yellow-400',
+  Low: 'text-green-600 dark:text-green-400',
 };
 
 function KanbanColumnPanel({
@@ -257,6 +263,99 @@ function MascotDropZone() {
   );
 }
 
+function listDate(iso: string) {
+  if (!iso?.trim()) return '—';
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function DashStatusChip({ status, columns, doneColumnId }: { status: string; columns: KanbanColumn[]; doneColumnId: string }) {
+  const id = status === 'completed' ? doneColumnId : status;
+  const col = columns.find(c => c.id === id);
+  const label = (col?.label ?? status.replace(/_/g, ' ')).toUpperCase();
+  const tone =
+    id === 'in_progress' ? 'text-violet-700 dark:text-violet-300' :
+    id === 'in_review' ? 'text-sky-700 dark:text-sky-300' :
+    id === 'done' || status === 'completed' ? 'text-emerald-700 dark:text-emerald-300' :
+    id === 'testing' ? 'text-amber-800 dark:text-amber-300' :
+    'text-muted-foreground';
+  return <span className={`text-[10px] font-semibold tracking-wide whitespace-nowrap ${tone}`}>{label}</span>;
+}
+
+const LIST_COLS = 'grid grid-cols-[minmax(0,1fr)_5.5rem_7.5rem_5rem_5.5rem] gap-2 items-center';
+
+function DashListTaskRow({
+  task, indent, columns, doneColumnId, allTasks, users, onClick, expandedId, onToggleExpand,
+}: {
+  task: Task;
+  indent: number;
+  columns: KanbanColumn[];
+  doneColumnId: string;
+  allTasks: Task[];
+  users: { id: string; name: string; avatar: string }[];
+  onClick: (t: Task) => void;
+  expandedId: string | null;
+  onToggleExpand: (id: string) => void;
+}) {
+  const open = expandedId === task.id;
+  const kids = childTasksOf(allTasks, task.id);
+  const aids = taskAssigneeIds(task);
+  const assignees = aids.map(id => users.find(u => u.id === id)).filter(Boolean) as typeof users;
+  const priority = normalizePriority(task.priority);
+  return (
+    <>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => onClick(task)}
+        onKeyDown={e => { if (e.key === 'Enter') onClick(task); }}
+        className={`${LIST_COLS} min-h-9 mt-1 px-2 py-1 text-sm hover:bg-muted/40 cursor-pointer border-t border-dashed border-border/50`}
+        style={{ paddingLeft: 8 + indent * 16 }}
+      >
+        <div className="flex items-center gap-1.5 min-w-0">
+          {kids.length > 0 ? (
+            <button
+              type="button"
+              className="shrink-0 p-0.5 text-muted-foreground hover:text-foreground"
+              onClick={e => { e.stopPropagation(); onToggleExpand(task.id); }}
+            >
+              <ChevronRight className={`h-3.5 w-3.5 transition-transform ${open ? 'rotate-90' : ''}`} />
+            </button>
+          ) : (
+            <span className="w-4 shrink-0" />
+          )}
+          <span className="truncate font-medium">{task.title}</span>
+          {kids.length > 0 && (
+            <span className="text-[10px] text-muted-foreground shrink-0">{kids.length}</span>
+          )}
+        </div>
+        <div className="flex items-center gap-1 min-w-0">
+          {assignees.slice(0, 2).map(u => (
+            <UserAvatar key={u.id} name={u.name} avatar={u.avatar} size="xs" />
+          ))}
+          {assignees.length === 0 && <span className="text-[11px] text-muted-foreground">—</span>}
+        </div>
+        <div className="justify-self-start"><DashStatusChip status={task.status} columns={columns} doneColumnId={doneColumnId} /></div>
+        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full justify-self-start ${priorityBadgeStyles[priority]}`}>{priority}</span>
+        <span className="text-[11px] font-mono text-muted-foreground tabular-nums">{listDate(task.dueDate)}</span>
+      </div>
+      {open && kids.map(st => (
+        <DashListTaskRow
+          key={st.id}
+          task={st}
+          indent={indent + 1}
+          columns={columns}
+          doneColumnId={doneColumnId}
+          allTasks={allTasks}
+          users={users}
+          onClick={onClick}
+          expandedId={expandedId}
+          onToggleExpand={onToggleExpand}
+        />
+      ))}
+    </>
+  );
+}
+
 const DashboardPage = () => {
   const currentUser = useAppStore(s => s.currentUser);
   const projects = useAppStore(s => s.projects);
@@ -278,6 +377,17 @@ const DashboardPage = () => {
   const setMascotDropTask = useAppStore(s => s.setMascotDropTask);
 
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+
+  useEffect(() => {
+    function handle(e: Event) {
+      const taskId = (e as CustomEvent<{ taskId: string }>).detail?.taskId;
+      if (!taskId) return;
+      const found = tasks.find(t => t.id === taskId);
+      if (found) setSelectedTask(found);
+    }
+    window.addEventListener('zet:open-task', handle);
+    return () => window.removeEventListener('zet:open-task', handle);
+  }, [tasks]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeType, setActiveType] = useState<'task' | 'column' | null>(null);
   const [overColumnId, setOverColumnId] = useState<string | null>(null);
@@ -326,7 +436,6 @@ const DashboardPage = () => {
     // Nested story subtasks stay under their parent — never as top-level cards.
     return base.filter(isTopLevelTask);
   }, [projectSelected, isAllProjects, tasks, userProjects, selectedProjectId]);
-  const projectTasks = scopedTasks;
 
   const [dashPriorityFilter, setDashPriorityFilter] = useState<Set<Priority>>(() => new Set());
   const [dashDateFrom, setDashDateFrom] = useState('');
@@ -334,12 +443,19 @@ const DashboardPage = () => {
   const [dashAssigneeFilter, setDashAssigneeFilter] = useState<Set<string>>(() => new Set());
   const [dashSprintFilter, setDashSprintFilter] = useState<Set<string>>(() => new Set());
   const [dashStories, setDashStories] = useState<UserStory[]>([]);
+  const [dashView, setDashView] = useState<DashView>(() => {
+    const saved = typeof window !== 'undefined' ? localStorage.getItem(VIEW_KEY) : null;
+    return saved === 'board' || saved === 'list' ? saved : 'list';
+  });
+  const [expandedStoryId, setExpandedStoryId] = useState<string | null>(null);
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [openFilter, setOpenFilter] = useState<string | null>(null);
+  const [lockCreateStory, setLockCreateStory] = useState<UserStory | null>(null);
   const [assignStory, setAssignStory] = useState<UserStory | null>(null);
   const [assignIds, setAssignIds] = useState<Set<string>>(new Set());
   const [assignSaving, setAssignSaving] = useState(false);
   const [createStoryOpen, setCreateStoryOpen] = useState(false);
   const [newStoryTitle, setNewStoryTitle] = useState('');
-  const [newStorySectionId, setNewStorySectionId] = useState('');
   const [creatingStory, setCreatingStory] = useState(false);
 
   const storyTitleById = useMemo(() => {
@@ -349,14 +465,19 @@ const DashboardPage = () => {
   }, [dashStories]);
 
   useEffect(() => {
-    if (!selectedProjectId || selectedProjectId === 'all') {
+    const ids = !selectedProjectId
+      ? []
+      : selectedProjectId === 'all'
+        ? userProjects.map(p => p.id)
+        : [selectedProjectId];
+    if (ids.length === 0) {
       setDashStories([]);
       return;
     }
     let cancelled = false;
     void (async () => {
       try {
-        const rows = await api.listProjectUserStories(selectedProjectId);
+        const rows = (await Promise.all(ids.map(id => api.listProjectUserStories(id)))).flat();
         if (!cancelled) setDashStories(rows);
       } catch {
         if (!cancelled) setDashStories([]);
@@ -365,19 +486,18 @@ const DashboardPage = () => {
     return () => {
       cancelled = true;
     };
-  }, [selectedProjectId]);
+  }, [selectedProjectId, userProjects]);
 
   const dashStoryMembers = useMemo(() => {
-    if (!selectedProjectId || selectedProjectId === 'all') return [];
-    const p = userProjects.find(pr => pr.id === selectedProjectId);
+    const pid = assignStory?.projectId
+      ?? (selectedProjectId && selectedProjectId !== 'all' ? selectedProjectId : null);
+    if (!pid) return [];
+    const p = userProjects.find(pr => pr.id === pid);
     if (!p) return [];
     return users.filter(u => p.members.includes(u.id)).sort((a, b) => a.name.localeCompare(b.name));
-  }, [selectedProjectId, userProjects, users]);
+  }, [assignStory, selectedProjectId, userProjects, users]);
 
-  const selectedProjectSections = useMemo(() => {
-    if (!selectedProjectId || selectedProjectId === 'all') return [];
-    return userProjects.find(p => p.id === selectedProjectId)?.sections ?? [];
-  }, [selectedProjectId, userProjects]);
+  const projectTasks = scopedTasks;
 
   const openAssignStory = (s: UserStory) => {
     setAssignStory(s);
@@ -401,21 +521,19 @@ const DashboardPage = () => {
 
   const openCreateStory = () => {
     setNewStoryTitle('');
-    setNewStorySectionId(selectedProjectSections[0]?.id ?? '');
     setCreateStoryOpen(true);
   };
 
   const saveNewStory = async () => {
     if (!selectedProjectId || selectedProjectId === 'all') return;
-    if (!newStoryTitle.trim() || !newStorySectionId) {
-      toast.error('Title and section are required');
+    if (!newStoryTitle.trim()) {
+      toast.error('Title is required');
       return;
     }
     setCreatingStory(true);
     try {
       const story = await api.createUserStory({
         projectId: selectedProjectId,
-        sectionId: newStorySectionId,
         title: newStoryTitle.trim(),
       });
       setDashStories(prev => [story, ...prev]);
@@ -492,6 +610,23 @@ const DashboardPage = () => {
       ),
     [projectTasks, dashPriorityFilter, dashDateFrom, dashDateTo, dashAssigneeFilter, dashSprintFilter],
   );
+
+  const storyIds = useMemo(() => new Set(dashStories.map(s => s.id)), [dashStories]);
+  const orphanTasks = useMemo(
+    () => filteredProjectTasks.filter(t => !t.userStoryId || !storyIds.has(t.userStoryId)),
+    [filteredProjectTasks, storyIds],
+  );
+  const listProjectBlocks = useMemo(() => {
+    const source = isAllProjects
+      ? userProjects
+      : userProjects.filter(p => p.id === selectedProjectId);
+    return source.map(p => ({
+      projectId: p.id,
+      projectName: projectPickerLabel(p),
+      stories: dashStories.filter(s => s.projectId === p.id),
+      orphans: orphanTasks.filter(t => t.projectId === p.id),
+    })).filter(b => !isAllProjects || b.stories.length > 0 || b.orphans.length > 0);
+  }, [isAllProjects, userProjects, dashStories, orphanTasks, selectedProjectId]);
 
   const tasksForColumn = (colId: string) =>
     filteredProjectTasks.filter(
@@ -666,19 +801,51 @@ const DashboardPage = () => {
       })();
 
   const dashPriorityOptions: Priority[] = ['Urgent', 'High', 'Medium', 'Low'];
+  const setView = (v: DashView) => {
+    setDashView(v);
+    localStorage.setItem(VIEW_KEY, v);
+  };
+  const toggleStoryExpanded = (id: string) => {
+    setExpandedStoryId(prev => (prev === id ? null : id));
+    setExpandedTaskId(null);
+  };
+  const toggleTaskExpanded = (id: string) => {
+    setExpandedTaskId(prev => (prev === id ? null : id));
+  };
+
+  const openCreateForStory = (story: UserStory | null, status?: string) => {
+    setLockCreateStory(story);
+    setCreateStatus(status);
+    setCreateOpen(true);
+  };
 
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={pageEnter} className="p-4 sm:p-6 h-full flex flex-col overflow-hidden">
-      <div className="mb-6 shrink-0 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-bold text-foreground">{selectedProjectName}</h1>
-          {isAllProjects && (
-            <p className="text-sm text-muted-foreground mt-1">Tasks across every project you belong to</p>
-          )}
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={pageEnter} className="p-3 sm:p-4 h-full flex flex-col overflow-hidden">
+      <div className="mb-3 shrink-0 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-center gap-3 min-w-0">
+          <h1 className="text-lg font-bold text-foreground truncate">{selectedProjectName}</h1>
+          <div className="inline-flex h-8 shrink-0 rounded-lg border border-border/70 bg-card/70 p-0.5">
+            <button
+              type="button"
+              onClick={() => setView('list')}
+              className={`inline-flex items-center gap-1.5 rounded-md px-2.5 text-xs font-medium ${dashView === 'list' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+            >
+              <List className="h-3.5 w-3.5" /> Tasks List
+            </button>
+            <button
+              type="button"
+              onClick={() => setView('board')}
+              className={`inline-flex items-center gap-1.5 rounded-md px-2.5 text-xs font-medium ${dashView === 'board' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+            >
+              <Columns className="h-3.5 w-3.5" /> Progress Board
+            </button>
+          </div>
         </div>
-        <div className="flex flex-wrap items-end gap-3 sm:justify-end">
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           <DashFilterSelect
             allLabel="All sprints"
+            open={openFilter === 'sprint'}
+            onOpenChange={o => setOpenFilter(o ? 'sprint' : null)}
             selected={dashSprintFilter}
             onToggle={toggleDashSprint}
             onClear={() => setDashSprintFilter(new Set())}
@@ -692,6 +859,8 @@ const DashboardPage = () => {
           />
           <DashFilterSelect
             allLabel="All people"
+            open={openFilter === 'people'}
+            onOpenChange={o => setOpenFilter(o ? 'people' : null)}
             selected={dashAssigneeFilter}
             onToggle={toggleDashAssignee}
             onClear={() => setDashAssigneeFilter(new Set())}
@@ -723,6 +892,8 @@ const DashboardPage = () => {
           />
           <DashFilterSelect
             allLabel="All priorities"
+            open={openFilter === 'priority'}
+            onOpenChange={o => setOpenFilter(o ? 'priority' : null)}
             selected={dashPriorityFilter}
             onToggle={id => toggleDashPriority(id as Priority)}
             onClear={() => setDashPriorityFilter(new Set())}
@@ -734,67 +905,138 @@ const DashboardPage = () => {
             onChange={(f, t) => { setDashDateFrom(f); setDashDateTo(t); }}
             placeholder="Any due date"
           />
-        </div>
-      </div>
-
-      {!isAllProjects && selectedProjectId && (
-        <div className="mb-4 shrink-0 rounded-xl border border-border/40 bg-card/40 p-3">
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-              <BookOpen className="h-3.5 w-3.5 text-primary" />
-              User Stories
-              <span className="font-normal text-muted-foreground/60">({dashStories.length})</span>
-            </div>
+          {dashView === 'list' && !isAllProjects && (
             <Button
               type="button"
               size="sm"
-              variant="outline"
-              className="h-7 text-[11px] gap-1"
+              className="h-8 gap-1 text-xs"
               onClick={openCreateStory}
-              disabled={selectedProjectSections.length === 0}
             >
-              <Plus className="h-3 w-3" /> Add story
+              <Plus className="h-3.5 w-3.5" /> Add story
             </Button>
+          )}
+        </div>
+      </div>
+
+      {dashView === 'list' ? (
+        <div className="flex-1 min-h-0 overflow-auto">
+          <div className="min-w-[40rem]">
+          <div className="grid grid-cols-[minmax(0,1fr)_5.5rem_7.5rem_5rem_5.5rem] gap-2 items-center sticky top-0 z-10 bg-background/95 backdrop-blur px-2 py-1.5 text-[11px] font-medium text-muted-foreground">
+            <span>Task</span>
+            <span>Assignee</span>
+            <span>Status</span>
+            <span>Priority</span>
+            <span>Due date</span>
           </div>
-          {dashStories.length === 0 ? (
-            <p className="text-[11px] text-muted-foreground/55">
-              No user stories yet. Add one here, or open a task card to link an existing story.
-            </p>
+          {listProjectBlocks.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center px-4">
+              <BookOpen className="h-7 w-7 text-muted-foreground/40 mb-2" />
+              <p className="text-sm text-muted-foreground">
+                No user stories yet. Create one — tasks live under a story.
+              </p>
+            </div>
           ) : (
-            <div className="flex flex-wrap gap-2">
-              {dashStories.map(s => {
-                const aids = storyAssigneeIds(s);
+            <div className="space-y-4 p-2">
+              {listProjectBlocks.map(block => {
+                const noneId = `${block.projectId}::none`;
+                const empty = block.stories.length === 0 && block.orphans.length === 0;
                 return (
-                  <div
-                    key={s.id}
-                    className="inline-flex items-center gap-2 rounded-lg border border-border/35 bg-background/60 px-2.5 py-1.5 text-xs"
-                  >
-                    <span className="font-medium max-w-[14rem] truncate">{s.title}</span>
-                    <span className="flex -space-x-1">
-                      {aids.slice(0, 3).map(id => {
-                        const u = users.find(x => x.id === id);
-                        return u ? (
-                          <UserAvatar key={id} name={u.name} avatar={u.avatar} size="xs" />
-                        ) : null;
-                      })}
-                    </span>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="h-6 text-[10px] px-2"
-                      onClick={() => openAssignStory(s)}
-                    >
-                      Assign
-                    </Button>
+            <div key={block.projectId} className="rounded-xl border border-dashed border-border p-2 space-y-2">
+              <div className="flex items-center gap-2 px-2 py-1.5">
+                <FolderOpen className="h-4 w-4 text-primary shrink-0" />
+                <span className="text-sm font-semibold truncate">{block.projectName}</span>
+              </div>
+              {empty ? (
+                <p className="px-2 pb-2 text-xs text-muted-foreground">
+                  No user stories yet. Create one — tasks live under a story.
+                </p>
+              ) : null}
+              {block.stories.map(s => {
+                const storyTasks = filteredProjectTasks.filter(t => t.userStoryId === s.id);
+                const expanded = expandedStoryId === s.id;
+                const aids = storyAssigneeIds(s);
+                const doneN = storyTasks.filter(t => t.status === 'done' || t.status === 'completed' || t.status === doneColumnId).length;
+                return (
+                  <div key={s.id} className="rounded-lg border border-dashed border-border/70 overflow-hidden">
+                    <div className={`${LIST_COLS} min-h-10 px-2 py-1`}>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <button
+                          type="button"
+                          className="shrink-0 p-0.5 text-muted-foreground hover:text-foreground"
+                          onClick={() => toggleStoryExpanded(s.id)}
+                        >
+                          <ChevronRight className={`h-4 w-4 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+                        </button>
+                        <BookOpen className="h-3.5 w-3.5 text-primary shrink-0" />
+                        <span className="truncate font-semibold text-sm">{s.title}</span>
+                        <span className="text-[10px] text-muted-foreground shrink-0">{doneN}/{storyTasks.length}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {aids.slice(0, 2).map(id => {
+                          const u = users.find(x => x.id === id);
+                          return u ? <UserAvatar key={id} name={u.name} avatar={u.avatar} size="xs" /> : null;
+                        })}
+                      </div>
+                      <span className="text-[11px] text-muted-foreground">Story</span>
+                      <span />
+                      <div className="flex items-center justify-end gap-1">
+                        <Button type="button" size="sm" variant="ghost" className="h-6 text-[10px] px-2" onClick={() => openAssignStory(s)}>Assign</Button>
+                        <Button type="button" size="sm" variant="ghost" className="h-6 text-[10px] px-1.5" onClick={() => openCreateForStory(s, 'backlog')}><Plus className="h-3 w-3" /></Button>
+                      </div>
+                    </div>
+                    {expanded && storyTasks.map(t => (
+                      <DashListTaskRow
+                        key={t.id}
+                        task={t}
+                        indent={1}
+                        columns={boardColumns}
+                        doneColumnId={doneColumnId}
+                        allTasks={tasks}
+                        users={users}
+                        onClick={setSelectedTask}
+                        expandedId={expandedTaskId}
+                        onToggleExpand={toggleTaskExpanded}
+                      />
+                    ))}
                   </div>
+                );
+              })}
+              {block.orphans.length > 0 && (
+                <div className="rounded-lg border border-dashed border-border/70 overflow-hidden">
+                  <div className={`${LIST_COLS} min-h-10 px-2 py-1`}>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <button type="button" className="shrink-0 p-0.5 text-muted-foreground" onClick={() => toggleStoryExpanded(noneId)}>
+                        <ChevronRight className={`h-4 w-4 transition-transform ${expandedStoryId === noneId ? 'rotate-90' : ''}`} />
+                      </button>
+                      <span className="truncate font-semibold text-sm text-muted-foreground">No story</span>
+                      <span className="text-[10px] text-muted-foreground">{block.orphans.length}</span>
+                    </div>
+                    <span /><span /><span /><span />
+                  </div>
+                  {expandedStoryId === noneId && block.orphans.map(t => (
+                    <DashListTaskRow
+                      key={t.id}
+                      task={t}
+                      indent={1}
+                      columns={boardColumns}
+                      doneColumnId={doneColumnId}
+                      allTasks={tasks}
+                      users={users}
+                      onClick={setSelectedTask}
+                      expandedId={expandedTaskId}
+                      onToggleExpand={toggleTaskExpanded}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
                 );
               })}
             </div>
           )}
+          </div>
         </div>
-      )}
-
+      ) : (
       <DndContext sensors={sensors} collisionDetection={collisionDetection}
         onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}>
@@ -805,7 +1047,7 @@ const DashboardPage = () => {
                 key={col.id} column={col}
                 tasks={tasksForColumn(col.id)}
                 onTaskClick={setSelectedTask}
-                onNewTask={() => { setCreateStatus(col.id); setCreateOpen(true); }}
+                onNewTask={() => openCreateForStory(null, col.id)}
                 isDropTarget={overColumnId === col.id}
                 isManager={!!isManager}
                 approvingId={approvingId}
@@ -818,10 +1060,6 @@ const DashboardPage = () => {
                 storyTitleById={storyTitleById}
               />
             ))}
-
-            {/* "Add Column" is hidden: it competed for board width with the
-                columns themselves, which now share the screen. The dialog and
-                addColumn action remain wired up if it is brought back. */}
           </KanbanBoardPan>
         </SortableContext>
 
@@ -843,6 +1081,7 @@ const DashboardPage = () => {
 
         {mascotsEnabled && <MascotDropZone />}
       </DndContext>
+      )}
 
       {/* Add Column Modal */}
       <Dialog open={addColOpen} onOpenChange={setAddColOpen}>
@@ -887,7 +1126,11 @@ const DashboardPage = () => {
       <CreateTaskModal
         open={createOpen}
         initialStatus={createStatus}
-        onOpenChange={setCreateOpen}
+        lockStory={lockCreateStory}
+        onOpenChange={o => {
+          setCreateOpen(o);
+          if (!o) setLockCreateStory(null);
+        }}
       />
 
       <Dialog open={!!assignStory} onOpenChange={o => !o && setAssignStory(null)}>
@@ -917,18 +1160,6 @@ const DashboardPage = () => {
             <DialogTitle>New user story</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Section</label>
-              <select
-                value={newStorySectionId}
-                onChange={e => setNewStorySectionId(e.target.value)}
-                className="w-full rounded-xl border bg-muted/50 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-              >
-                {selectedProjectSections.map(s => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
-            </div>
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">Title</label>
               <input

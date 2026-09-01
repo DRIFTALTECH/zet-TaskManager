@@ -99,8 +99,7 @@ export default function NotificationBell() {
     // Navigate to the task
     if (n.entityType === 'task' && n.entityId) {
       setOpen(false);
-      navigate('/tasks');
-      // Dispatch custom event so MyTasksPage can open the task modal
+      navigate('/');
       setTimeout(() => {
         window.dispatchEvent(new CustomEvent('zet:open-task', { detail: { taskId: n.entityId } }));
       }, 100);

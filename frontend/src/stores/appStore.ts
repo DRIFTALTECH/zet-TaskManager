@@ -95,7 +95,7 @@ interface AppState {
       assigneeIds: string[];
       assignedBy: string;
       createdBy: string;
-      userStoryId?: string | null;
+      userStoryId: string;
     },
   ) => Promise<Task>;
   updateTask: (id: string, updates: Partial<Task>) => Promise<void>;
@@ -473,7 +473,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       priority: taskData.priority,
       status: taskData.status,
       tags: taskData.tags,
-      userStoryId: taskData.userStoryId ?? null,
+      userStoryId: taskData.userStoryId,
     });
     set({ tasks: [...get().tasks, t] });
     get().emitAgentEvent('task_created');

@@ -7,8 +7,28 @@ function trimOrUndefined(value: string | undefined): string | undefined {
   return trimmed || undefined;
 }
 
-export function getApiUrl(): string {
+/** Absolute API origin from env — never the Vite `/api` rewrite. */
+export function getConfiguredApiUrl(): string {
   return requireApiUrl(import.meta.env.VITE_API_URL);
+}
+
+function isRemoteApi(url: string): boolean {
+  try {
+    const { hostname } = new URL(url);
+    return hostname !== 'localhost' && hostname !== '127.0.0.1';
+  } catch {
+    return false;
+  }
+}
+
+export function getApiUrl(): string {
+  const configured = getConfiguredApiUrl();
+  // Prod CORS only allows the deployed SPA. In Vite, same-origin `/api` avoids
+  // that (and the "login then instantly logged out" loop from a 401/CORS mix).
+  if (import.meta.env.DEV && isRemoteApi(configured)) {
+    return '/api';
+  }
+  return configured;
 }
 
 /** Resolve a stored media reference for use in <img>: server-relative paths get

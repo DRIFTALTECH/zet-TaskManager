@@ -1,16 +1,17 @@
 """Role + visibility rules — the gates that matter most."""
 
-from conftest import make_project
+from conftest import make_project, make_user_story
 
 
 def _make_task(client, headers, *, creator_id: str, assignee_id: str, project_id: str):
     sid = client.post(
         f"/projects/{project_id}/sections", json={"name": "S"}, headers=headers,
     ).json()["sections"][0]["id"]
+    usid = make_user_story(client, headers, project_id, sid)["id"]
     r = client.post("/tasks", json={
         "title": "T", "projectId": project_id, "sectionId": sid,
         "assigneeIds": [assignee_id], "assignedBy": creator_id, "createdBy": creator_id,
-        "dueDate": "2026-07-01", "priority": "Medium", "tags": [],
+        "dueDate": "2026-07-01", "priority": "Medium", "tags": [], "userStoryId": usid,
     }, headers=headers)
     assert r.status_code == 200, r.text
     return r.json()["id"]

@@ -206,23 +206,21 @@ def create_task(db: Db, current_user_id: str, body: TaskCreate) -> TaskOut:
     primary = assignee_ids[0] if assignee_ids else current_user_id
     user_story_id = (body.userStoryId or "").strip() or None
     parent_task_id = (body.parentTaskId or "").strip() or None
-    if user_story_id:
-        from crud import user_stories as stories_crud
-
-        story = stories_crud.get_by_id(db, user_story_id)
-        if not story or story.project_id != body.projectId:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid userStoryId for project")
-        if story.section_id != body.sectionId:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "userStoryId section must match task sectionId")
     if parent_task_id:
         parent = tasks_crud.get_by_id(db, parent_task_id)
         if not parent or parent.project_id != body.projectId:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid parentTaskId")
         if getattr(parent, "parent_task_id", None):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Subtasks cannot nest more than one level")
-        # Inherit story from parent when not explicitly set
         if not user_story_id:
             user_story_id = getattr(parent, "user_story_id", None) or None
+    if not user_story_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "userStoryId is required")
+    from crud import user_stories as stories_crud
+
+    story = stories_crud.get_by_id(db, user_story_id)
+    if not story or story.project_id != body.projectId:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid userStoryId for project")
     tid = new_id("t")
     today = date.today().isoformat()
     created_at = datetime.now(timezone.utc).isoformat()
@@ -290,12 +288,6 @@ def patch_task(db: Db, current_user_id: str, task_id: str, body: TaskPatch) -> T
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid projectId")
         project_logic.ensure_project_member(db, new_pid, current_user_id)
         t.project_id = new_pid
-        if t.user_story_id:
-            from crud import user_stories as stories_crud
-
-            story = stories_crud.get_by_id(db, t.user_story_id)
-            if not story or story.project_id != new_pid:
-                t.user_story_id = None
         if getattr(t, "parent_task_id", None):
             parent = tasks_crud.get_by_id(db, t.parent_task_id)
             if not parent or parent.project_id != new_pid:
@@ -337,14 +329,21 @@ def patch_task(db: Db, current_user_id: str, task_id: str, body: TaskPatch) -> T
     if body.completedAt is not None:
         t.completed_at = _date_or_none(body.completedAt)
     if body.userStoryId is not None:
-        usid = (body.userStoryId or "").strip() or None
-        if usid:
-            from crud import user_stories as stories_crud
+        usid = (body.userStoryId or "").strip()
+        if not usid:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "userStoryId is required")
+        from crud import user_stories as stories_crud
 
-            story = stories_crud.get_by_id(db, usid)
-            if not story or story.project_id != t.project_id:
-                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid userStoryId")
+        story = stories_crud.get_by_id(db, usid)
+        if not story or story.project_id != t.project_id:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid userStoryId")
         t.user_story_id = usid
+    if body.projectId is not None or body.sectionId is not None:
+        from crud import user_stories as stories_crud
+
+        story = stories_crud.get_by_id(db, t.user_story_id) if t.user_story_id else None
+        if not story or story.project_id != t.project_id:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "userStoryId is required and must match the project")
     if body.parentTaskId is not None:
         pid = (body.parentTaskId or "").strip() or None
         if pid:

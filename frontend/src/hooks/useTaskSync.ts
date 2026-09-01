@@ -8,9 +8,13 @@ const POLL_MS = 4000; // polling fallback cadence when WebSocket is unavailable
 type Versions = { tasks: number; projects: number; users: number };
 
 function wsUrl(): string {
-  const base = getApiUrl(); // http(s)://host:port
+  const base = getApiUrl();
   // No token in the URL: it would end up in every proxy / load-balancer access
   // log. The server expects it in the first message frame instead.
+  if (base.startsWith('/')) {
+    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${wsProto}//${window.location.host}${base}/sync/ws`;
+  }
   return `${base.replace(/^http/i, 'ws')}/sync/ws`;
 }
 

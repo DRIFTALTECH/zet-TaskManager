@@ -58,7 +58,7 @@ def create(
     *,
     story_id: str,
     project_id: str,
-    section_id: str,
+    section_id: str | None,
     title: str,
     description: str,
     acceptance_criteria: str,

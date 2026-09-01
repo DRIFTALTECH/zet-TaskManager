@@ -2,7 +2,7 @@
 
 from datetime import date, timedelta
 
-from conftest import make_project
+from conftest import make_project, make_user_story
 
 
 def _overview(client, headers):
@@ -23,6 +23,8 @@ def test_overview_counts_only_viewer_projects(client, manager, register):
 
     my_sid = client.post(f"/projects/{mine}/sections", json={"name": "S"}, headers=mh).json()["sections"][0]["id"]
     their_sid = client.post(f"/projects/{theirs}/sections", json={"name": "S"}, headers=oh).json()["sections"][0]["id"]
+    my_us = make_user_story(client, mh, mine, my_sid)["id"]
+    their_us = make_user_story(client, oh, theirs, their_sid)["id"]
 
     client.post(
         "/tasks",
@@ -36,6 +38,7 @@ def test_overview_counts_only_viewer_projects(client, manager, register):
             "dueDate": "2026-12-01",
             "priority": "Medium",
             "tags": [],
+            "userStoryId": my_us,
         },
         headers=mh,
     )
@@ -51,6 +54,7 @@ def test_overview_counts_only_viewer_projects(client, manager, register):
             "dueDate": "2026-12-01",
             "priority": "High",
             "tags": [],
+            "userStoryId": their_us,
         },
         headers=oh,
     )
@@ -66,7 +70,9 @@ def test_overview_project_filter(client, manager):
     p2 = make_project(client, mh, name="P2", client_name="C2")["id"]
     s1 = client.post(f"/projects/{p1}/sections", json={"name": "S"}, headers=mh).json()["sections"][0]["id"]
     s2 = client.post(f"/projects/{p2}/sections", json={"name": "S"}, headers=mh).json()["sections"][0]["id"]
-    for pid, sid, title in ((p1, s1, "T1"), (p2, s2, "T2")):
+    us1 = make_user_story(client, mh, p1, s1, "S1")["id"]
+    us2 = make_user_story(client, mh, p2, s2, "S2")["id"]
+    for pid, sid, usid, title in ((p1, s1, us1, "T1"), (p2, s2, us2, "T2")):
         client.post(
             "/tasks",
             json={
@@ -79,6 +85,7 @@ def test_overview_project_filter(client, manager):
                 "dueDate": "2026-12-01",
                 "priority": "Medium",
                 "tags": [],
+                "userStoryId": usid,
             },
             headers=mh,
         )

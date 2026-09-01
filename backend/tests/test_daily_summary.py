@@ -7,16 +7,17 @@ data-gathering tallies and that the route wires logic → chain correctly.
 import uuid
 from datetime import date, datetime, timezone
 
-from conftest import make_project
+from conftest import make_project, make_user_story
 
 
 def _make_task(client, user, H):
     pid = make_project(client, H, name="DS")["id"]
     sid = client.post(f"/projects/{pid}/sections", json={"name": "S"}, headers=H).json()["sections"][0]["id"]
+    usid = make_user_story(client, H, pid, sid)["id"]
     tid = client.post("/tasks", json={
         "title": "Ship the recap", "projectId": pid, "sectionId": sid,
         "assigneeIds": [user["id"]], "assignedBy": user["id"], "createdBy": user["id"],
-        "dueDate": "2026-07-01", "priority": "Medium", "tags": [],
+        "dueDate": "2026-07-01", "priority": "Medium", "tags": [], "userStoryId": usid,
     }, headers=H).json()["id"]
     return pid, sid, tid
 

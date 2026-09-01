@@ -16,7 +16,6 @@ import ErrorBoundary from "./components/ErrorBoundary";
 // Route-level code splitting: each authenticated page is its own chunk, so a
 // first visit downloads the shell plus one page instead of the whole app.
 const DashboardPage = lazy(() => import("./pages/DashboardPage"));
-const MyTasksPage = lazy(() => import("./pages/MyTasksPage"));
 const TimesheetPage = lazy(() => import("./pages/TimesheetPage"));
 const CalendarPage = lazy(() => import("./pages/CalendarPage"));
 const TimeReportPage = lazy(() => import("./pages/TimeReportPage"));
@@ -221,7 +220,7 @@ const App = () => (
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignUpPage />} />
           <Route path="/" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
-          <Route path="/tasks" element={<ProtectedRoute><MyTasksPage /></ProtectedRoute>} />
+          <Route path="/tasks" element={<Navigate to="/" replace />} />
           <Route path="/timesheet" element={<ProtectedRoute><TimesheetPage /></ProtectedRoute>} />
           <Route path="/timesheet/approvals" element={<Navigate to="/timesheet?manage=1" replace />} />
           <Route path="/calendar" element={<ProtectedRoute><CalendarPage /></ProtectedRoute>} />

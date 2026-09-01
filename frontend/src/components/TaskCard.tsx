@@ -1,6 +1,6 @@
 /**
  * Shared task card — original Dashboard kanban card design.
- * Used by Dashboard (sortable) and My Tasks (static list).
+ * Used by Dashboard (sortable) and list views.
  */
 
 import { useEffect, useState, type CSSProperties, type HTMLAttributes, type MouseEvent } from 'react';
@@ -19,10 +19,10 @@ import type { Priority, Task } from '@/types';
 import { toast } from 'sonner';
 
 const priorityBadgeStyles: Record<Priority, string> = {
-  Urgent: 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/20',
-  High: 'bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/20',
-  Medium: 'bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border-yellow-500/20',
-  Low: 'bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/20',
+  Urgent: 'text-red-600 dark:text-red-400',
+  High: 'text-orange-600 dark:text-orange-400',
+  Medium: 'text-yellow-600 dark:text-yellow-400',
+  Low: 'text-green-600 dark:text-green-400',
 };
 
 const priorityGlowColor: Record<Priority, string> = {
@@ -85,7 +85,7 @@ export type TaskCardProps = {
   showApprove?: boolean;
   onApprove?: () => void;
   approving?: boolean;
-  /** My Tasks completed-row mode (compact, not the board card). */
+  /** Completed-row mode (compact, not the board card). */
   completed?: boolean;
   showReopen?: boolean;
   onReopen?: () => void;
@@ -150,7 +150,15 @@ export function TaskCard({
 
   const isSortable = !!dragRef;
 
-  // Compact completed row (My Tasks completed section only)
+  const style: CSSProperties | undefined = isSortable
+    ? {
+        ...dragStyle,
+        opacity: isDragging ? 0 : 1,
+        ...(isDragging ? { pointerEvents: 'none' as const } : {}),
+      }
+    : undefined;
+
+  // Compact completed row
   if (completed) {
     return (
       <div
@@ -189,14 +197,6 @@ export function TaskCard({
     );
   }
 
-  const style: CSSProperties | undefined = isSortable
-    ? {
-        ...dragStyle,
-        opacity: isDragging ? 0 : 1,
-        ...(isDragging ? { pointerEvents: 'none' as const } : {}),
-      }
-    : undefined;
-
   return (
     <div
       ref={dragRef}
@@ -219,7 +219,7 @@ export function TaskCard({
           <span className="text-xs font-mono text-muted-foreground/60 tracking-wider">
             TF-{task.id.replace(/\D/g, '').padStart(3, '0')}
           </span>
-          <span className={`text-[11px] px-3 py-1 rounded-full font-semibold border ${priorityBadgeStyles[priority]}`}>
+          <span className={`text-[11px] px-3 py-1 rounded-full font-semibold ${priorityBadgeStyles[priority]}`}>
             {priority}
           </span>
         </div>
