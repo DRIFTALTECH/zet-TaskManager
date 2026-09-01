@@ -10,6 +10,7 @@ import { analyticsExtApi } from '@/lib/analyticsApi';
 import { AnalyticsKpiCard } from '@/components/analytics/analyticsUi';
 import { OverviewTaskTable } from '@/components/analytics/OverviewTaskTable';
 import { OverviewCharts } from '@/components/analytics/OverviewCharts';
+import { OverviewProjectsSection } from '@/components/analytics/OverviewProjectsSection';
 import TaskDetailModal from '@/components/TaskDetailModal';
 import type { Task } from '@/types';
 
@@ -74,7 +75,8 @@ export default function UserOverviewPanel({
             <AnalyticsKpiCard icon={Clock} label="Actual" value={`${data.summary.actualHours}h`} />
           </div>
 
-          <OverviewCharts charts={data.charts} showProjectHours />
+          <OverviewCharts charts={data.charts} showProjectHours={projectId === 'all'} />
+          {projectId === 'all' && <OverviewProjectsSection projects={data.projects ?? []} />}
           <OverviewTaskTable
             rows={data.tasks}
             showProject

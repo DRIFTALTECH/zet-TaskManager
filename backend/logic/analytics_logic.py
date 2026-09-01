@@ -1395,20 +1395,59 @@ def _task_overview_rows(
     return rows
 
 
+def _projects_breakdown(tasks: list[Task], projects: dict[str, Project]) -> list[dict]:
+    by_hours: dict[str, float] = defaultdict(float)
+    by_count: dict[str, int] = defaultdict(int)
+    for t in tasks:
+        if not t.project_id:
+            continue
+        by_hours[t.project_id] += _actual_hours(t)
+        by_count[t.project_id] += 1
+    return [
+        {
+            "projectId": p.id,
+            "projectName": p.name,
+            "taskCount": by_count.get(p.id, 0),
+            "hours": round(by_hours.get(p.id, 0.0), 2),
+        }
+        for p in sorted(projects.values(), key=lambda x: x.name.lower())
+    ]
+
+
+def _hours_by_project(tasks: list[Task], projects: dict[str, Project]) -> list[dict]:
+    by_project: dict[str, float] = defaultdict(float)
+    for t in tasks:
+        if t.project_id:
+            by_project[t.project_id] += _actual_hours(t)
+    return [
+        {
+            "projectId": pid,
+            "projectName": projects[pid].name if pid in projects else "—",
+            "hours": round(h, 2),
+        }
+        for pid, h in sorted(by_project.items(), key=lambda x: -x[1])
+    ]
+
+
 def get_task_overview(
     db: Db,
     requesting_user: User,
-    project_id: str,
+    project_id: str | None = None,
     status_filter: str | None = "all",
 ) -> dict:
-    """Project-scoped task table + charts for Overview → Task tab."""
+    """Task table + charts for Overview → Task tab (one project or all visible)."""
     visible = _visible_project_ids(db, requesting_user)
-    if project_id not in visible:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a member of this project")
+    if project_id:
+        if project_id not in visible:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a member of this project")
+        scope = [project_id]
+    else:
+        scope = list(visible)
 
-    tasks = analytics_crud.list_tasks_for_project(db, project_id)
+    tasks = analytics_crud.list_tasks_for_projects(db, scope)
     tasks = _filter_status(tasks, status_filter)
     users = _user_map(db)
+    projects = _project_map(db, list({t.project_id for t in tasks if t.project_id}))
     assignee_rows = analytics_crud.list_task_assignees_for_tasks(db, [t.id for t in tasks])
     task_assignees: dict[str, list[str]] = defaultdict(list)
     for ta in assignee_rows:
@@ -1420,13 +1459,19 @@ def get_task_overview(
     story_ids = [getattr(t, "user_story_id", None) for t in tasks if getattr(t, "user_story_id", None)]
     story_titles = analytics_crud.list_user_story_titles(db, list({s for s in story_ids if s}))
 
-    rows = _task_overview_rows(tasks, users, task_assignees, story_titles)
+    include_project = project_id is None
+    rows = _task_overview_rows(
+        tasks, users, task_assignees, story_titles, projects if include_project else None,
+    )
     charts = _build_overview_charts(tasks)
+    if include_project:
+        charts["hoursByProject"] = _hours_by_project(tasks, projects)
     done_n = sum(1 for t in tasks if _is_done_task(t))
     return {
         "projectId": project_id,
         "tasks": rows,
         "charts": charts,
+        "projects": _projects_breakdown(tasks, projects),
         "summary": {
             "total": len(tasks),
             "done": done_n,
@@ -1478,20 +1523,7 @@ def get_user_overview(
 
     rows = _task_overview_rows(tasks, users, task_assignees, story_titles, projects)
     charts = _build_overview_charts(tasks)
-
-    # Hours by project for user chart
-    by_project: dict[str, float] = defaultdict(float)
-    for t in tasks:
-        by_project[t.project_id] += _actual_hours(t)
-    hours_by_project = [
-        {
-            "projectId": pid,
-            "projectName": projects[pid].name if pid in projects else "—",
-            "hours": round(h, 2),
-        }
-        for pid, h in sorted(by_project.items(), key=lambda x: -x[1])
-    ]
-    charts["hoursByProject"] = hours_by_project
+    charts["hoursByProject"] = _hours_by_project(tasks, projects)
 
     done_n = sum(1 for t in tasks if _is_done_task(t))
     return {
@@ -1499,6 +1531,7 @@ def get_user_overview(
         "userName": target.name,
         "tasks": rows,
         "charts": charts,
+        "projects": _projects_breakdown(tasks, projects),
         "summary": {
             "total": len(tasks),
             "done": done_n,
@@ -1563,18 +1596,7 @@ def get_sprint_overview(
 
     rows = _task_overview_rows(tasks, users, task_assignees, story_titles, projects)
     charts = _build_overview_charts(tasks)
-
-    by_project: dict[str, float] = defaultdict(float)
-    for t in tasks:
-        by_project[t.project_id] += _actual_hours(t)
-    charts["hoursByProject"] = [
-        {
-            "projectId": pid,
-            "projectName": projects[pid].name if pid in projects else "—",
-            "hours": round(h, 2),
-        }
-        for pid, h in sorted(by_project.items(), key=lambda x: -x[1])
-    ]
+    charts["hoursByProject"] = _hours_by_project(tasks, projects)
 
     by_person: dict[str, float] = defaultdict(float)
     for t in tasks:
@@ -1605,15 +1627,7 @@ def get_sprint_overview(
         "tasks": rows,
         "charts": charts,
         "people": [{"userId": uid, "name": users[uid].name} for uid in people],
-        "projects": [
-            {
-                "projectId": p.id,
-                "projectName": p.name,
-                "taskCount": sum(1 for t in tasks if t.project_id == p.id),
-                "hours": round(by_project.get(p.id, 0.0), 2),
-            }
-            for p in sorted(projects.values(), key=lambda x: x.name.lower())
-        ],
+        "projects": _projects_breakdown(tasks, projects),
         "summary": {
             "total": len(tasks),
             "done": done_n,

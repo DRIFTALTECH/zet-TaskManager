@@ -296,15 +296,17 @@ _OVERVIEW_TASK_COLS = """id, title, '' AS description, project_id, section_id, u
     min_log_minutes, estimated_hours, created_at, '[]' AS tags_json, '{}' AS custom_fields_json"""
 
 
-def list_tasks_for_project(db: Db, project_id: str) -> list[Task]:
+def list_tasks_for_projects(db: Db, project_ids: list[str]) -> list[Task]:
+    if not project_ids:
+        return []
     rows = fetch_all(
         db,
         f"""SELECT {_OVERVIEW_TASK_COLS} FROM tasks
-            WHERE project_id = %s
+            WHERE project_id = ANY(%s)
             ORDER BY
               CASE WHEN LOWER(TRIM(status)) IN ('completed', 'done') THEN 1 ELSE 0 END,
               created_at DESC""",
-        (project_id,),
+        (project_ids,),
     )
     return rows_to_models(Task, rows)
 
@@ -313,21 +315,29 @@ def list_tasks_for_assignee(db: Db, user_id: str, project_ids: list[str] | None 
     """Tasks where user is primary assignee or in task_assignees, optionally scoped to projects."""
     if project_ids is not None and len(project_ids) == 0:
         return []
+    # EXISTS (not JOIN+DISTINCT) — Postgres forbids ORDER BY CASE with SELECT DISTINCT
+    # unless the CASE is also in the select list.
     cols = """t.id, t.title, '' AS description, t.project_id, t.section_id,
               t.user_story_id, t.parent_task_id, t.assigned_to, t.assigned_by, t.created_by,
               t.due_date, t.sprint, t.priority, t.status, t.is_started, t.started_at,
               t.completed_at, t.approved_by_manager, t.time_tracked, t.min_log_minutes,
               t.estimated_hours, t.created_at, '[]' AS tags_json, '{}' AS custom_fields_json"""
+    assigned = """(
+        t.assigned_to = %s
+        OR EXISTS (
+            SELECT 1 FROM task_assignees ta
+            WHERE ta.task_id = t.id AND ta.user_id = %s
+        )
+    )"""
     order = """ORDER BY
               CASE WHEN LOWER(TRIM(t.status)) IN ('completed', 'done') THEN 1 ELSE 0 END,
               t.created_at DESC"""
     if project_ids:
         rows = fetch_all(
             db,
-            f"""SELECT DISTINCT {cols}
+            f"""SELECT {cols}
                 FROM tasks t
-                LEFT JOIN task_assignees ta ON ta.task_id = t.id
-                WHERE (t.assigned_to = %s OR ta.user_id = %s)
+                WHERE {assigned}
                   AND t.project_id = ANY(%s)
                 {order}""",
             (user_id, user_id, project_ids),
@@ -335,10 +345,9 @@ def list_tasks_for_assignee(db: Db, user_id: str, project_ids: list[str] | None 
     else:
         rows = fetch_all(
             db,
-            f"""SELECT DISTINCT {cols}
+            f"""SELECT {cols}
                 FROM tasks t
-                LEFT JOIN task_assignees ta ON ta.task_id = t.id
-                WHERE t.assigned_to = %s OR ta.user_id = %s
+                WHERE {assigned}
                 {order}""",
             (user_id, user_id),
         )

@@ -296,9 +296,10 @@ export interface TaskOverviewCharts {
 }
 
 export interface TaskOverviewDashboard {
-  projectId: string;
+  projectId: string | null;
   tasks: TaskOverviewRow[];
   charts: TaskOverviewCharts;
+  projects: { projectId: string; projectName: string; taskCount: number; hours: number }[];
   summary: {
     total: number;
     done: number;
@@ -313,6 +314,7 @@ export interface UserOverviewDashboard {
   userName: string;
   tasks: TaskOverviewRow[];
   charts: TaskOverviewCharts;
+  projects: { projectId: string; projectName: string; taskCount: number; hours: number }[];
   summary: {
     total: number;
     done: number;
@@ -656,8 +658,9 @@ export const analyticsExtApi = {
     return req(`/analytics/overview?${params}`);
   },
 
-  getTaskOverview: (projectId: string, status: 'all' | 'active' | 'done' = 'all'): Promise<TaskOverviewDashboard> => {
-    const params = new URLSearchParams({ projectId, status });
+  getTaskOverview: (projectId?: string, status: 'all' | 'active' | 'done' = 'all'): Promise<TaskOverviewDashboard> => {
+    const params = new URLSearchParams({ status });
+    if (projectId) params.set('projectId', projectId);
     return req(`/analytics/task-overview?${params}`);
   },
 

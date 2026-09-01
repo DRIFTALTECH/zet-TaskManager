@@ -10,6 +10,7 @@ import { analyticsExtApi } from '@/lib/analyticsApi';
 import { AnalyticsKpiCard } from '@/components/analytics/analyticsUi';
 import { OverviewTaskTable } from '@/components/analytics/OverviewTaskTable';
 import { OverviewCharts } from '@/components/analytics/OverviewCharts';
+import { OverviewProjectsSection } from '@/components/analytics/OverviewProjectsSection';
 import TaskDetailModal from '@/components/TaskDetailModal';
 import type { Task } from '@/types';
 
@@ -19,26 +20,18 @@ export default function TaskOverviewPanel({
   projectId,
   status,
 }: {
-  projectId: string;
+  projectId: string; // 'all' or id
   status: StatusFilter;
 }) {
   const tasks = useAppStore(s => s.tasks);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const allProjects = projectId === 'all';
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['task-overview', projectId, status],
-    queryFn: () => analyticsExtApi.getTaskOverview(projectId, status),
-    enabled: !!projectId,
+    queryFn: () => analyticsExtApi.getTaskOverview(allProjects ? undefined : projectId, status),
     staleTime: 0,
   });
-
-  if (!projectId) {
-    return (
-      <p className="text-sm text-muted-foreground py-16 text-center">
-        Select a project to see task overview.
-      </p>
-    );
-  }
 
   return (
     <div className="space-y-6">
@@ -69,9 +62,11 @@ export default function TaskOverviewPanel({
             <AnalyticsKpiCard icon={Clock} label="Actual" value={`${data.summary.actualHours}h`} sub="time tracked" />
           </div>
 
-          <OverviewCharts charts={data.charts} />
+          <OverviewCharts charts={data.charts} showProjectHours={allProjects} />
+          {allProjects && <OverviewProjectsSection projects={data.projects ?? []} />}
           <OverviewTaskTable
             rows={data.tasks}
+            showProject={allProjects}
             onRowClick={taskId => {
               const t = tasks.find(x => x.id === taskId);
               if (t) setSelectedTask(t);

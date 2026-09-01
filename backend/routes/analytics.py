@@ -126,12 +126,12 @@ def get_overview(
 
 @router.get("/task-overview")
 def get_task_overview(
-    project_id: str = Query(..., alias="projectId"),
+    project_id: str | None = Query(None, alias="projectId"),
     status_filter: str = Query("all", alias="status"),
     current_user=Depends(_get_current_user),
     db: Db = Depends(get_db),
 ):
-    """Project task table + charts (manager/admin only)."""
+    """Task table + charts (manager/admin only). Omit projectId for all visible projects."""
     if current_user.role == "employee":
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Manager or admin access required")
     return analytics_logic.get_task_overview(db, current_user, project_id, status_filter)

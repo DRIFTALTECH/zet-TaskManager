@@ -54,7 +54,7 @@ export default function OverviewPage() {
 
   const [selection, setSelection] = useState<RangeSelection>({ preset: 'last30', offset: 0 });
   const [projectId, setProjectId] = useState('all');
-  const [taskProjectId, setTaskProjectId] = useState('');
+  const [taskProjectId, setTaskProjectId] = useState('all');
   const [taskStatus, setTaskStatus] = useState<'all' | 'active' | 'done'>('all');
   const [userId, setUserId] = useState('');
   const [userProjectId, setUserProjectId] = useState('all');
@@ -85,9 +85,9 @@ export default function OverviewPage() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [currentUser, users, visibleProjects]);
 
-  const effectiveTaskProjectId = visibleProjects.some(p => p.id === taskProjectId)
+  const effectiveTaskProjectId = taskProjectId === 'all' || visibleProjects.some(p => p.id === taskProjectId)
     ? taskProjectId
-    : (visibleProjects[0]?.id ?? '');
+    : 'all';
   const effectiveUserId = visibleUsers.some(u => u.id === userId)
     ? userId
     : (visibleUsers[0]?.id ?? '');
@@ -141,7 +141,7 @@ export default function OverviewPage() {
 
   const subtitle =
     activeTab === 'task'
-      ? 'Tasks, time, priority, and user stories by project'
+      ? 'Tasks, time, priority, and user stories — one project or all'
       : activeTab === 'user'
         ? 'Tasks and time for one person'
         : activeTab === 'sprint'
@@ -199,6 +199,7 @@ export default function OverviewPage() {
                     <SelectValue placeholder="Project" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="all">All projects</SelectItem>
                     {visibleProjects.map(p => (
                       <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                     ))}
