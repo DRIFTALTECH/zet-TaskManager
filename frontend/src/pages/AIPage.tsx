@@ -979,9 +979,10 @@ export function TaskCreatorModal({
       else if ((mode === 'document' || mode === 'voice') && file) fd.append('file', file, file.name);
       else if (mode === 'record' && recordedBlob) fd.append('file', recordedBlob, 'recording.webm');
       const res = await api.aiExtractTasks(fd);
-      setResults(res.tasks);
+      const tasks = Array.isArray(res.tasks) ? res.tasks : [];
+      setResults(tasks);
       setSourceText(res.sourceText || '');
-      if (res.tasks.length === 0) toast.info('No tasks found in that input.');
+      if (tasks.length === 0) toast.info('No tasks found in that input.');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not extract tasks');
     } finally {

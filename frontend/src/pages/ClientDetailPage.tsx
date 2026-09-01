@@ -2,27 +2,30 @@
  * ClientDetailPage — full view for one client at /reports/clients/:clientId.
  */
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis,
 } from 'recharts';
 import {
-  ArrowLeft, Building2, CheckCircle2, FolderKanban, Info, ListTodo, Users,
+  ArrowLeft, Building2, CheckCircle2, FolderKanban, ListTodo, Users,
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
+import { api } from '@/lib/api';
 import {
   getClientSummaryById,
   tasksForClient,
   teamMembersForClient,
 } from '@/lib/client-summary';
 import { isCompleted } from '@/lib/manage-utils';
+import { formatDurationHms } from '@/lib/timesheetSubmission';
 import { AnalyticsKpiCard } from '@/components/analytics/analyticsUi';
 import { pageEnter } from '@/lib/motion';
 import { ZET } from '@/lib/zet-charts';
 import { Progress } from '@/components/ui/progress';
 import UserAvatar from '@/components/UserAvatar';
+import type { TimesheetWorkEntry } from '@/types';
 
 const CHART_TOOLTIP = {
   background: 'hsl(var(--card))',
@@ -33,29 +36,41 @@ const CHART_TOOLTIP = {
 
 const DONUT_COLORS = [ZET.indigo, ZET.slate];
 
-function ClockifyNotice() {
-  return (
-    <div className="flex items-start gap-3 rounded-xl border border-amber-500/25 bg-amber-500/[0.06] px-4 py-3">
-      <Info className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-      <p className="text-sm text-muted-foreground leading-relaxed">
-        Clockify is not connected yet. Hours and time data will appear here after the Clockify sync is enabled.
-      </p>
-    </div>
-  );
-}
-
 export default function ClientDetailPage() {
   const { clientId } = useParams<{ clientId: string }>();
-  const { clients, projects, tasks, users, loadClients, currentUser } = useAppStore();
+  const {
+    clients, projects, tasks, users, currentUser,
+    loadClients, syncTasks, syncProjectsAndUsers,
+  } = useAppStore();
   const isManager = currentUser?.role === 'manager' || currentUser?.role === 'superadmin';
+  const [entries, setEntries] = useState<TimesheetWorkEntry[]>([]);
 
   useEffect(() => {
     void loadClients();
-  }, [loadClients]);
+    void syncTasks();
+    void syncProjectsAndUsers();
+  }, [loadClients, syncTasks, syncProjectsAndUsers]);
+
+  const clientProjectKey = useMemo(
+    () => projects.filter(p => p.clientId === clientId).map(p => p.id).sort().join(','),
+    [projects, clientId],
+  );
+
+  useEffect(() => {
+    if (!clientProjectKey) {
+      setEntries([]);
+      return;
+    }
+    const ids = clientProjectKey.split(',');
+    let cancelled = false;
+    Promise.all(ids.map(id => api.getProjectTimesheetEntries(id).catch(() => [] as TimesheetWorkEntry[])))
+      .then(lists => { if (!cancelled) setEntries(lists.flat()); });
+    return () => { cancelled = true; };
+  }, [clientProjectKey]);
 
   const summary = useMemo(
-    () => (clientId ? getClientSummaryById(clients, projects, tasks, clientId) : null),
-    [clientId, clients, projects, tasks],
+    () => (clientId ? getClientSummaryById(clients, projects, tasks, clientId, entries) : null),
+    [clientId, clients, projects, tasks, entries],
   );
 
   const clientTasks = useMemo(
@@ -64,8 +79,8 @@ export default function ClientDetailPage() {
   );
 
   const memberIds = useMemo(
-    () => (clientId ? teamMembersForClient(projects, clientId) : []),
-    [clientId, projects],
+    () => (clientId ? teamMembersForClient(projects, clientId, entries) : []),
+    [clientId, projects, entries],
   );
 
   const memberUsers = useMemo(
@@ -86,9 +101,11 @@ export default function ClientDetailPage() {
       name: p.name.length > 16 ? `${p.name.slice(0, 14)}…` : p.name,
       fullName: p.name,
       tasks: p.totalTasks,
+      hours: Math.round((p.seconds / 3600) * 10) / 10,
     })) ?? [],
     [summary],
   );
+  const barByHours = !!summary && summary.totalTasks === 0 && summary.seconds > 0;
 
   const activeTasks = clientTasks.filter(t => !isCompleted(t)).length;
 
@@ -132,12 +149,16 @@ export default function ClientDetailPage() {
           </div>
         </div>
 
-        <ClockifyNotice />
-
         {/* Summary cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <AnalyticsKpiCard icon={FolderKanban} label="Projects" value={summary.projectCount} variant="blue" />
-          <AnalyticsKpiCard icon={ListTodo} label="Total tasks" value={summary.totalTasks} variant="violet" />
+          <AnalyticsKpiCard
+            icon={ListTodo}
+            label="Total tasks"
+            value={summary.totalTasks}
+            sub={formatDurationHms(summary.seconds)}
+            variant="violet"
+          />
           <AnalyticsKpiCard icon={Users} label="Team members" value={summary.teamMemberCount} variant="emerald" />
           <AnalyticsKpiCard
             icon={CheckCircle2}
@@ -157,9 +178,9 @@ export default function ClientDetailPage() {
           <Progress value={summary.progress} className="h-2.5" />
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
           {/* Projects list */}
-          <div className="rounded-2xl border border-border/60 bg-card p-5">
+          <div className="rounded-2xl border border-border/60 bg-card p-5 h-full">
             <h2 className="text-sm font-semibold mb-4 flex items-center gap-2">
               <FolderKanban className="h-4 w-4 text-primary/70" /> Projects
             </h2>
@@ -175,23 +196,26 @@ export default function ClientDetailPage() {
                       {p.memberCount} people · {p.progress}% done
                     </p>
                   </div>
-                  <span className="text-xs font-semibold tabular-nums text-muted-foreground shrink-0">
+                  <span className="text-xs font-semibold tabular-nums text-muted-foreground shrink-0 text-right">
                     {p.totalTasks} tasks
+                    {p.seconds > 0 && (
+                      <span className="block font-medium">{formatDurationHms(p.seconds)}</span>
+                    )}
                   </span>
                 </li>
               ))}
             </ul>
           </div>
 
-          {/* Team */}
-          <div className="rounded-2xl border border-border/60 bg-card p-5">
-            <h2 className="text-sm font-semibold mb-4 flex items-center gap-2">
+          {/* Team — scroll only when the list is taller than this stretched card */}
+          <div className="rounded-2xl border border-border/60 bg-card p-5 flex flex-col min-h-0 h-full">
+            <h2 className="text-sm font-semibold mb-4 flex items-center gap-2 shrink-0">
               <Users className="h-4 w-4 text-primary/70" /> Team members
             </h2>
             {memberUsers.length === 0 ? (
               <p className="text-sm text-muted-foreground italic">No team members yet.</p>
             ) : (
-              <ul className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
+              <ul className="space-y-2 overflow-y-auto pr-1 min-h-0 flex-1">
                 {memberUsers.map(u => (
                   <li key={u.id} className="flex items-center gap-3 rounded-xl border border-border/40 bg-muted/20 px-3 py-2">
                     <UserAvatar name={u.name} avatar={u.avatar} size="sm" />
@@ -234,7 +258,7 @@ export default function ClientDetailPage() {
           </div>
 
           <div className="rounded-2xl border border-border/60 bg-card p-5">
-            <h2 className="text-sm font-semibold mb-3">Tasks per project</h2>
+            <h2 className="text-sm font-semibold mb-3">{barByHours ? 'Hours per project' : 'Tasks per project'}</h2>
             {barData.length === 0 ? (
               <p className="text-sm text-muted-foreground italic py-8 text-center">No projects yet.</p>
             ) : (
@@ -245,9 +269,9 @@ export default function ClientDetailPage() {
                   <RTooltip
                     contentStyle={CHART_TOOLTIP}
                     labelFormatter={(_, payload) => payload?.[0]?.payload?.fullName ?? ''}
-                    formatter={(v: number) => [`${v} tasks`, 'Total']}
+                    formatter={(v: number) => barByHours ? [`${v}h`, 'Hours'] : [`${v} tasks`, 'Total']}
                   />
-                  <Bar dataKey="tasks" fill={ZET.violet} radius={[4, 4, 0, 0]} maxBarSize={36} />
+                  <Bar dataKey={barByHours ? 'hours' : 'tasks'} fill={ZET.violet} radius={[4, 4, 0, 0]} maxBarSize={36} />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -278,7 +302,7 @@ export default function ClientDetailPage() {
                       <tr key={t.id} className="border-b border-border/30 last:border-0">
                         <td className="py-2.5 pr-3 font-medium max-w-[240px] truncate">{t.title}</td>
                         <td className="py-2.5 pr-3 text-muted-foreground max-w-[160px] truncate">{proj?.name ?? '—'}</td>
-                        <td className="py-2.5 pr-3 text-muted-foreground capitalize">{t.status.replace(/_/g, ' ')}</td>
+                        <td className="py-2.5 pr-3 text-muted-foreground capitalize">{(t.status || '').replace(/_/g, ' ')}</td>
                       </tr>
                     );
                   })}

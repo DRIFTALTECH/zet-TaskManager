@@ -8,6 +8,22 @@ import { Textarea } from '@/components/ui/textarea';
 
 const PRIORITIES = ['Urgent', 'High', 'Medium', 'Low'] as const;
 
+export function coercePrdDraft(d: PrdDraft | null | undefined): PrdDraft {
+  const stories = Array.isArray(d?.stories) ? d.stories : [];
+  return {
+    importId: d?.importId ?? null,
+    sourceText: d?.sourceText ?? '',
+    stories: stories.map(s => ({
+      ...s,
+      title: s.title ?? '',
+      tasks: Array.isArray(s.tasks)
+        ? s.tasks.map(t => ({ ...t, assigneeIds: t.assigneeIds ?? [] }))
+        : [],
+      assigneeIds: s.assigneeIds ?? [],
+    })),
+  };
+}
+
 type ProjectOpt = { id: string; name: string; sections?: { id: string; name: string }[] };
 
 export function PrdDraftTable({
@@ -46,7 +62,7 @@ export function PrdDraftTable({
     <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm font-semibold">
-          {draft.stories.length} user stor{draft.stories.length === 1 ? 'y' : 'ies'} staged
+          {(draft.stories ?? []).length} user stor{(draft.stories ?? []).length === 1 ? 'y' : 'ies'} staged
         </p>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" onClick={() => void api.addPrdStory().then(onChange)}>
@@ -74,7 +90,7 @@ export function PrdDraftTable({
       )}
 
       <div className="space-y-4">
-        {draft.stories.map(story => (
+        {(draft.stories ?? []).map(story => (
           <StoryEditor
             key={story.id}
             story={story}

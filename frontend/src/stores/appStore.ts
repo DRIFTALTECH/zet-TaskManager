@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { User, Project, Task, TaskStatus, KanbanColumn, Role, Client, Skill } from '@/types';
 import { api, isAuthError, isPendingApproval, TOKEN_KEY } from '@/lib/api';
 import { defaultSelectedProjectIdForUser } from '@/lib/project-utils';
+import { cacheFullTask, dropFullTask } from '@/lib/queryClient';
 
 /** Map server timer rows → { taskId: epochMs } for the running-timer UI. */
 function timersToMap(rows: { taskId: string; startedAt: string }[]): Record<string, number> {
@@ -96,6 +97,7 @@ interface AppState {
       assignedBy: string;
       createdBy: string;
       userStoryId: string;
+      estimatedHours?: number | null;
     },
   ) => Promise<Task>;
   updateTask: (id: string, updates: Partial<Task>) => Promise<void>;
@@ -474,8 +476,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       status: taskData.status,
       tags: taskData.tags,
       userStoryId: taskData.userStoryId,
+      estimatedHours: taskData.estimatedHours ?? null,
     });
     set({ tasks: [...get().tasks, t] });
+    cacheFullTask(t);
     get().emitAgentEvent('task_created');
     return t;
   },
@@ -498,9 +502,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (updates.startedAt !== undefined) patch.startedAt = updates.startedAt ?? null;
     if (updates.completedAt !== undefined) patch.completedAt = updates.completedAt ?? null;
     if (updates.minLogMinutes !== undefined) patch.minLogMinutes = updates.minLogMinutes;
+    if (updates.estimatedHours !== undefined) patch.estimatedHours = updates.estimatedHours ?? null;
     if (updates.userStoryId !== undefined) patch.userStoryId = updates.userStoryId;
     const t = await api.patchTask(id, patch);
     set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
+    cacheFullTask(t);
     // Moved to a new section → Tasker "moved" animation.
     if (updates.sectionId !== undefined && prevTask && t.sectionId !== prevTask.sectionId) {
       get().emitAgentEvent('task_moved');
@@ -513,32 +519,38 @@ export const useAppStore = create<AppState>((set, get) => ({
   startTask: async id => {
     const t = await api.startTask(id);
     set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
+    cacheFullTask(t);
   },
 
   moveTask: async (id, status) => {
     const t = await api.moveTask(id, status);
     set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
+    cacheFullTask(t);
     get().emitAgentEvent('task_moved');
   },
 
   approveTask: async id => {
     const t = await api.approveTask(id);
     set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
+    cacheFullTask(t);
     get().emitAgentEvent('task_approved');
   },
 
   reopenTaskToBacklog: async id => {
     const t = await api.reopenTaskToBacklog(id);
     set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
+    cacheFullTask(t);
   },
 
   logTime: async (id, date, seconds) => {
     const t = await api.logTime(id, date, seconds);
     set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
+    cacheFullTask(t);
   },
 
   deleteTask: async id => {
     await api.deleteTask(id);
+    dropFullTask(id);
     set({ tasks: get().tasks.filter(t => t.id !== id) });
   },
 
@@ -551,10 +563,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     const ms = Date.parse(run.startedAt);
     set({ activeTimers: { ...get().activeTimers, [taskId]: Number.isNaN(ms) ? Date.now() : ms } });
     get().emitAgentEvent('timer_started');
-    // The task is now marked started server-side — refresh it so the UI reflects that.
+    // The task is now marked started server-side — refresh that one row.
     try {
-      const tasks = await api.getTasks();
-      set({ tasks });
+      const t = await api.getTask(taskId);
+      set({ tasks: get().tasks.map(x => (x.id === taskId ? t : x)) });
+      cacheFullTask(t);
     } catch { /* non-critical */ }
   },
 
@@ -568,6 +581,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     // Server computes elapsed from the stored start time and logs it (+ timesheet row).
     const updatedTask = await api.stopTimer(taskId, new Date().getTimezoneOffset());
     set({ tasks: get().tasks.map(x => (x.id === taskId ? updatedTask : x)) });
+    cacheFullTask(updatedTask);
     get().emitAgentEvent('timer_stopped');
   },
 

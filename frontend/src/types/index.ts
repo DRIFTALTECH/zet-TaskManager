@@ -85,6 +85,8 @@ export interface Task {
   approvedByManager: boolean;
   timeTracked: number;
   minLogMinutes: number;
+  /** Optional effort estimate in hours. Null/undefined = not set. */
+  estimatedHours?: number | null;
   tags: string[];
   createdAt: string;
   timeLog: Record<string, number>; // date (YYYY-MM-DD) -> seconds logged by current user
@@ -162,6 +164,9 @@ export interface PrdDraftTask {
   description?: string;
   priority?: string;
   position?: number;
+  projectId?: string | null;
+  sectionId?: string | null;
+  assigneeIds?: string[];
 }
 
 export interface PrdDraftStory {
@@ -173,6 +178,7 @@ export interface PrdDraftStory {
   projectId?: string | null;
   sectionId?: string | null;
   position?: number;
+  assigneeIds?: string[];
   tasks: PrdDraftTask[];
 }
 
@@ -181,6 +187,20 @@ export interface PrdDraft {
   sourceText: string;
   stories: PrdDraftStory[];
 }
+
+export type PrdStreamEvent =
+  | {
+      type: 'progress';
+      percent: number;
+      stage: string;
+      label: string;
+      doneStories?: number;
+      totalStories?: number;
+    }
+  | { type: 'story'; percent: number; story: PrdDraftStory }
+  | { type: 'tasks'; percent: number; storyId: string; tasks: PrdDraftTask[] }
+  | { type: 'done'; percent: number; label?: string; draft: PrdDraft }
+  | { type: 'error'; message: string };
 
 export interface TaskFeedback {
   id: string;

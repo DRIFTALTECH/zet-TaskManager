@@ -39,7 +39,7 @@ function weekLabel(sub: TimesheetSubmission) {
 }
 
 export default function TimesheetManagePanel({ onClose }: { onClose: () => void }) {
-  const { users, currentUser } = useAppStore();
+  const { users, currentUser, invalidateTimesheets } = useAppStore();
   const isManagerial = currentUser?.role === 'manager' || currentUser?.role === 'superadmin';
   const [rows, setRows] = useState<TimesheetSubmission[]>([]);
   const [loading, setLoading] = useState(true);
@@ -146,6 +146,7 @@ export default function TimesheetManagePanel({ onClose }: { onClose: () => void 
       const updated = await api.approveTimesheetSubmission(sub.id);
       toast.success(`Approved ${sub.userName ?? 'timesheet'}`);
       applySubmissionUpdate(updated);
+      invalidateTimesheets();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not approve');
     } finally {
@@ -160,6 +161,7 @@ export default function TimesheetManagePanel({ onClose }: { onClose: () => void 
       const updated = await api.reopenTimesheetSubmission(sub.id);
       toast.success(`Marked ${sub.userName ?? 'timesheet'} as pending`);
       applySubmissionUpdate(updated);
+      invalidateTimesheets();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not mark as pending');
     } finally {
@@ -177,6 +179,7 @@ export default function TimesheetManagePanel({ onClose }: { onClose: () => void 
       setRejectTarget(null);
       setRejectComment('');
       applySubmissionUpdate(updated);
+      invalidateTimesheets();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not reject');
     } finally {

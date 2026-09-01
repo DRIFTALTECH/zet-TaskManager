@@ -13,6 +13,7 @@ from logic.schemas import (
     TimesheetSubmitBody,
 )
 from routes.deps import get_current_user_id, require_superadmin
+from offloop import offloop
 from upload_guard import read_limited
 
 router = APIRouter()
@@ -191,4 +192,6 @@ async def import_clockify_csv(
     so this writes to other people's timesheets.
     """
     content = await read_limited(file, clockify_import_logic.MAX_CSV_BYTES, label="CSV")
-    return clockify_import_logic.import_detailed_csv(db, actor_id, file.filename, content)
+    return await offloop(
+        clockify_import_logic.import_detailed_csv, db, actor_id, file.filename, content,
+    )

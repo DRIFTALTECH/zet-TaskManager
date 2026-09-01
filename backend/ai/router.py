@@ -21,6 +21,7 @@ from ai.schemas import (
 )
 from database.database import Db, get_db
 from logic import user_logic
+from offloop import offloop
 from routes.deps import get_current_user_id
 
 router = APIRouter()
@@ -178,8 +179,9 @@ async def extract_tasks(
     file_bytes = await file.read() if file is not None else None
     filename = file.filename if file is not None else None
     try:
-        source, result = task_extraction_logic.extract_tasks(
-            db, user_id, text=text, file_bytes=file_bytes, filename=filename
+        source, result = await offloop(
+            task_extraction_logic.extract_tasks,
+            db, user_id, text=text, file_bytes=file_bytes, filename=filename,
         )
     except HTTPException:
         raise
@@ -203,8 +205,9 @@ async def extract_prd(
     file_bytes = await file.read() if file is not None else None
     filename = file.filename if file is not None else None
     try:
-        source, result = prd_extract_logic.extract_prd(
-            db, user_id, text=text, file_bytes=file_bytes, filename=filename
+        source, result = await offloop(
+            prd_extract_logic.extract_prd,
+            db, user_id, text=text, file_bytes=file_bytes, filename=filename,
         )
     except HTTPException:
         raise
@@ -234,8 +237,9 @@ async def parse_source(
     file_bytes = await file.read() if file is not None else None
     filename = file.filename if file is not None else None
     try:
-        source = task_extraction_logic.resolve_source(
-            db, user_id, text=text, file_bytes=file_bytes, filename=filename
+        source = await offloop(
+            task_extraction_logic.resolve_source,
+            db, user_id, text=text, file_bytes=file_bytes, filename=filename,
         )
     except HTTPException:
         raise

@@ -268,6 +268,85 @@ export interface OverviewDashboard {
   projectProgress: ProjectProgressCard[];
 }
 
+export interface TaskOverviewRow {
+  id: string;
+  title: string;
+  status: string;
+  priority: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  isStarted: boolean;
+  expectedHours: number | null;
+  actualHours: number;
+  assigneeIds: string[];
+  assigneeNames: string[];
+  userStoryId: string | null;
+  userStoryTitle: string | null;
+  isDone: boolean;
+  projectId?: string;
+  projectName?: string;
+}
+
+export interface TaskOverviewCharts {
+  statusMix: { status: string; count: number }[];
+  priorityMix: { priority: string; count: number }[];
+  expectedVsActual: { expectedHours: number; actualHours: number };
+  completionTrend: { weekLabel: string; completedTasks: number }[];
+  hoursByProject?: { projectId: string; projectName: string; hours: number }[];
+}
+
+export interface TaskOverviewDashboard {
+  projectId: string;
+  tasks: TaskOverviewRow[];
+  charts: TaskOverviewCharts;
+  summary: {
+    total: number;
+    done: number;
+    active: number;
+    expectedHours: number;
+    actualHours: number;
+  };
+}
+
+export interface UserOverviewDashboard {
+  userId: string;
+  userName: string;
+  tasks: TaskOverviewRow[];
+  charts: TaskOverviewCharts;
+  summary: {
+    total: number;
+    done: number;
+    active: number;
+    expectedHours: number;
+    actualHours: number;
+  };
+}
+
+export interface SprintOption {
+  name: string;
+  taskCount: number;
+}
+
+export interface SprintOverviewDashboard {
+  sprint: string;
+  projectId: string | null;
+  tasks: TaskOverviewRow[];
+  charts: TaskOverviewCharts & {
+    hoursByPerson?: { userId: string; name: string; hours: number }[];
+  };
+  people: { userId: string; name: string }[];
+  projects: { projectId: string; projectName: string; taskCount: number; hours: number }[];
+  summary: {
+    total: number;
+    done: number;
+    active: number;
+    projectCount: number;
+    peopleCount: number;
+    expectedHours: number;
+    actualHours: number;
+  };
+}
+
 export interface DailyBreakdown {
   date: string;
   totalHours: number;
@@ -575,6 +654,38 @@ export const analyticsExtApi = {
     const params = new URLSearchParams({ startDate: range.startDate, endDate: range.endDate });
     if (projectId) params.set('projectId', projectId);
     return req(`/analytics/overview?${params}`);
+  },
+
+  getTaskOverview: (projectId: string, status: 'all' | 'active' | 'done' = 'all'): Promise<TaskOverviewDashboard> => {
+    const params = new URLSearchParams({ projectId, status });
+    return req(`/analytics/task-overview?${params}`);
+  },
+
+  getUserOverview: (
+    userId: string,
+    status: 'all' | 'active' | 'done' = 'all',
+    projectId?: string,
+  ): Promise<UserOverviewDashboard> => {
+    const params = new URLSearchParams({ userId, status });
+    if (projectId) params.set('projectId', projectId);
+    return req(`/analytics/user-overview?${params}`);
+  },
+
+  listSprints: (projectId?: string): Promise<{ sprints: SprintOption[] }> => {
+    const params = new URLSearchParams();
+    if (projectId) params.set('projectId', projectId);
+    const q = params.toString();
+    return req(q ? `/analytics/sprints?${q}` : '/analytics/sprints');
+  },
+
+  getSprintOverview: (
+    sprint: string,
+    status: 'all' | 'active' | 'done' = 'all',
+    projectId?: string,
+  ): Promise<SprintOverviewDashboard> => {
+    const params = new URLSearchParams({ sprint, status });
+    if (projectId) params.set('projectId', projectId);
+    return req(`/analytics/sprint-overview?${params}`);
   },
 
   getTimesheetAnalytics: (range: DateRange, userId?: string): Promise<TimesheetAnalytics> => {

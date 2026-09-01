@@ -181,13 +181,13 @@ PARSE_TASK_PROMPT = ChatPromptTemplate.from_messages([
     ("human", "Input to turn into an assigned task plan:\n\n{text}"),
 ])
 
-# ── PRD → user stories + tasks (no people assignment) ─────────────────────────
+# ── PRD → user stories + tasks (assign project members) ───────────────────────
 
 EXTRACT_PRD_SYSTEM = (
     "You split a product requirements document (or pasted spec) into user stories, "
-    "each with concrete engineering tasks. Nothing is assigned to a person.\n\n"
+    "each with concrete engineering tasks assigned to project members.\n\n"
 
-    "Available projects and their sections:\n{projects}\n\n"
+    "Available projects, sections, and Members:\n{projects}\n\n"
 
     "── HOW TO WORK ───────────────────────────────────────────────────────────\n"
     "1. Read the ENTIRE input. Group related requirements into independently "
@@ -198,19 +198,76 @@ EXTRACT_PRD_SYSTEM = (
     "3. For EVERY story write 2–8 actionable tasks. Each task needs a short title "
     "and a description of what to build. Nested/child work goes in the task "
     "description, not as a separate story.\n"
-    "4. NEVER set an assignee. Do not invent owners, names, or people.\n"
+    "4. ASSIGN every task: set assignee_id and assignee_name to a Member of that "
+    "story's project. Resolve project_id FIRST, then pick ONLY from that project's "
+    "Members list. Never invent IDs. Never assign someone who is not a member.\n"
+    "   If the PRD names an owner, use them when they are a member. Otherwise pick "
+    "   best fit by job title and experience, and spread work across members:\n"
+    "   • Junior (< 12 months) → simple, well-defined work\n"
+    "   • Mid (12–48 months) → feature work\n"
+    "   • Senior (> 48 months) → architecture / risky work\n"
+    "   Leave assignee_id null only if that project has no Members.\n"
     "5. project_id / project_name: match a project from the list (case-insensitive / "
     "partial). If the doc names a product/area that maps to a project, use that. "
     "If only one project exists, use it. Otherwise null when unclear.\n"
     "6. section_id / section_name: the most relevant section inside that project, "
     "or the only section if there is one, or null if none fits.\n"
     "7. priority must be exactly one of: Urgent, High, Medium, Low.\n"
-    "8. Fill acceptance_criteria when the document implies them.\n"
+    "8. Fill acceptance_criteria when the document implies them — one string, "
+    "not an array (join bullets with newlines).\n"
+    "9. Reply with a single JSON object only (no markdown fences, no commentary).\n"
 )
 
 EXTRACT_PRD_PROMPT = ChatPromptTemplate.from_messages([
     ("system", EXTRACT_PRD_SYSTEM),
     ("human", "Requirements document:\n\n{text}"),
+])
+
+OUTLINE_PRD_SYSTEM = (
+    "You list user stories from a PRD. Do NOT write tasks yet.\n\n"
+    "Available projects:\n{projects}\n\n"
+    "Rules:\n"
+    "- Prefer 2–10 independently deliverable stories.\n"
+    "- title: 3–8 words, never a paragraph.\n"
+    "- description: what the story delivers.\n"
+    "- acceptance_criteria: one string (newlines ok), not an array.\n"
+    "- priority: Urgent, High, Medium, or Low.\n"
+    "- project_id / project_name: match the list, or null.\n"
+    "- Never assign people.\n"
+    "- Reply with a single JSON object only.\n"
+)
+
+OUTLINE_PRD_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", OUTLINE_PRD_SYSTEM),
+    ("human", "Requirements document:\n\n{text}"),
+])
+
+EXPAND_PRD_STORY_SYSTEM = (
+    "You write engineering tasks for ONE user story and assign each task to a project member.\n\n"
+    "Story title: {title}\n"
+    "Story description: {description}\n"
+    "Acceptance criteria: {acceptance_criteria}\n\n"
+    "Available projects, sections, and Members:\n{projects}\n\n"
+    "Rules:\n"
+    "- Write 2–6 actionable tasks for this story only.\n"
+    "- Each task: short title + what to build in description.\n"
+    "- priority: Urgent, High, Medium, or Low.\n"
+    "- ASSIGN every task: set assignee_id and assignee_name to a Member of this story's project.\n"
+    "  Resolve the project first (match title/domain to the list; if only one project, use it).\n"
+    "  Then pick ONLY from THAT project's Members. Never invent user IDs.\n"
+    "  If the PRD names an owner, use them when they are a member. Otherwise best-fit by "
+    "role and experience, spreading work across members:\n"
+    "  • Junior (< 12 months) → simple, well-defined work\n"
+    "  • Mid (12–48 months) → feature work\n"
+    "  • Senior (> 48 months) → architecture / risky work\n"
+    "  Leave assignee_id null only if the project has no Members.\n"
+    "- Do not invent other stories.\n"
+    "- Reply with a single JSON object only.\n"
+)
+
+EXPAND_PRD_STORY_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", EXPAND_PRD_STORY_SYSTEM),
+    ("human", "Relevant PRD excerpt:\n\n{text}"),
 ])
 
 # ── Conversational AI chat ─────────────────────────────────────────────────────

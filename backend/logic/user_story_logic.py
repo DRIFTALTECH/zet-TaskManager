@@ -8,7 +8,9 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from ai.schemas import _coerce_text
 
 from crud import projects as projects_crud
 from crud import sections as sections_crud
@@ -279,6 +281,12 @@ class _ExtractStory(BaseModel):
     priority: str = "Medium"
     tasks: list[_GenTask] = Field(default_factory=list)
 
+    @field_validator("acceptance_criteria", "description", mode="before")
+    @classmethod
+    def _text(cls, v):
+        coerced = _coerce_text(v)
+        return coerced or ""
+
 
 class _ExtractPlan(BaseModel):
     stories: list[_ExtractStory] = Field(default_factory=list)
@@ -430,13 +438,22 @@ def confirm_generate_tasks(
         title, inline_sub = _split_inline_subtask((gt.title or "").strip())
         if not title or title.lower() in existing_titles:
             continue
-        # assign=True only applies when the story already has assignees.
-        should_assign = bool(getattr(gt, "assign", False)) and bool(assign_list)
-        task_assignees = assign_list if should_assign else []
+        # Per-task assigneeIds win; assign=True copies story assignees when none set.
+        explicit = [i for i in (getattr(gt, "assigneeIds", None) or []) if i]
+        if explicit:
+            task_assignees = [i for i in explicit if i in mids]
+        else:
+            should_assign = bool(getattr(gt, "assign", False)) and bool(assign_list)
+            task_assignees = assign_list if should_assign else []
         # assigned_to is NOT NULL — placeholder only; empty assigneeIds = unassigned in API.
         primary = task_assignees[0] if task_assignees else user_id
         tid = new_id("t")
-        task_section = getattr(s, "section_id", None) or _first_section_id(db, s.project_id)
+        wanted_section = (getattr(gt, "sectionId", None) or "").strip() or None
+        if wanted_section:
+            secs = sections_crud.list_for_project(db, s.project_id)
+            if not any(sec.id == wanted_section for sec in secs):
+                wanted_section = None
+        task_section = wanted_section or getattr(s, "section_id", None) or _first_section_id(db, s.project_id)
         t = tasks_crud.create_task(
             db,
             task_id=tid,
@@ -605,7 +622,7 @@ def _preview_tasks_from_gen(tasks: list[_GenTask] | None) -> list[GeneratedTaskP
 
 
 def extract_stories_preview(
-    db: Db, user_id: str, project_id: str, section_id: str | None, source_text: str
+    db: Db, user_id: str, project_id: str, source_text: str
 ) -> ExtractStoriesPreviewOut:
     """AI extracts multiple user stories (with tasks/subtasks) from a requirements document — no persist."""
     project_logic.ensure_project_member(db, project_id, user_id)
@@ -635,7 +652,8 @@ def extract_stories_preview(
                 "the parenthesis. Example: "
                 "'add clockify sync (sub task -> get api key)' → task "
                 "'add clockify sync' with subtask 'get api key'. "
-                "Be specific and actionable; do not invent unrelated work.",
+                "Be specific and actionable; do not invent unrelated work. "
+                "Reply with a single JSON object only (no markdown fences).",
             ),
             ("human", "Requirements document:\n\n{text}"),
         ]

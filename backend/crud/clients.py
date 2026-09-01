@@ -10,6 +10,14 @@ def get_by_id(db: Db, client_id: str) -> Client | None:
     return row_to_model(Client, fetch_one(db, "SELECT * FROM clients WHERE id = %s", (client_id,)))
 
 
+def names_by_ids(db: Db, client_ids: list[str]) -> dict[str, str]:
+    ids = [c for c in client_ids if c]
+    if not ids:
+        return {}
+    rows = fetch_all(db, "SELECT id, name FROM clients WHERE id = ANY(%s)", (ids,))
+    return {r["id"]: r["name"] for r in rows}
+
+
 def get_by_name_ci(db: Db, name: str) -> Client | None:
     trimmed = name.strip()
     if not trimmed:

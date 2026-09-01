@@ -1261,3 +1261,366 @@ def get_delivery_risk(db: Db, requesting_user: User) -> dict:
         "highPriorityPending": high_priority_pending[:15],
         "projectProgress": project_progress[:20],
     }
+
+
+# ── Task / User Overview tables ───────────────────────────────────────────────
+
+_DONE_STATUSES = frozenset({"completed", "done"})
+_CLOSED_STATUSES = frozenset({"completed", "done", "cancelled", "archived", "closed"})
+
+
+def _is_done_task(task: Task) -> bool:
+    return (task.status or "").strip().lower() in _DONE_STATUSES
+
+
+def _filter_status(tasks: list[Task], status_filter: str | None) -> list[Task]:
+    key = (status_filter or "all").strip().lower()
+    if key == "done":
+        return [t for t in tasks if _is_done_task(t)]
+    if key == "active":
+        return [t for t in tasks if (t.status or "").strip().lower() not in _CLOSED_STATUSES]
+    return tasks
+
+
+def _expected_hours(task: Task) -> float | None:
+    """Task estimate in hours. Unset / blank is not an estimate."""
+    raw = getattr(task, "estimated_hours", None)
+    if raw is None or str(raw).strip() == "":
+        return None
+    try:
+        v = float(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+    if v <= 0:
+        return None
+    return round(v, 2)
+
+
+def _actual_hours(task: Task) -> float:
+    secs = max(0, int(getattr(task, "time_tracked", 0) or 0))
+    return round(secs / 3600.0, 2)
+
+
+def _status_bucket(status: str | None) -> str:
+    s = (status or "").strip().lower()
+    if s in _DONE_STATUSES:
+        return "done"
+    if s in ("cancelled", "archived", "closed"):
+        return "closed"
+    if s in ("in_progress", "testing", "in_review"):
+        return s
+    return "backlog"
+
+
+def _build_overview_charts(tasks: list[Task]) -> dict:
+    status_counts: dict[str, int] = defaultdict(int)
+    priority_counts: dict[str, int] = defaultdict(int)
+    expected_total = 0.0
+    actual_total = 0.0
+    completed_by_week: dict[str, int] = defaultdict(int)
+
+    for t in tasks:
+        status_counts[_status_bucket(t.status)] += 1
+        pri = (t.priority or "Medium").strip() or "Medium"
+        # Normalize display casing
+        priority_counts[pri[:1].upper() + pri[1:].lower() if pri else "Medium"] += 1
+        exp = _expected_hours(t)
+        if exp is not None:
+            expected_total += exp
+        actual_total += _actual_hours(t)
+        if _is_done_task(t) and t.completed_at:
+            try:
+                d = date.fromisoformat(str(t.completed_at)[:10])
+                week_start = d - timedelta(days=d.weekday())
+                completed_by_week[week_start.isoformat()] += 1
+            except (ValueError, TypeError):
+                pass
+
+    status_mix = [
+        {"status": k, "count": v}
+        for k, v in sorted(status_counts.items(), key=lambda x: -x[1])
+    ]
+    priority_mix = [
+        {"priority": k, "count": v}
+        for k, v in sorted(priority_counts.items(), key=lambda x: -_priority_weight(x[0]))
+    ]
+    completion_trend = [
+        {"weekLabel": k, "completedTasks": completed_by_week[k]}
+        for k in sorted(completed_by_week.keys())[-8:]
+    ]
+    return {
+        "statusMix": status_mix,
+        "priorityMix": priority_mix,
+        "expectedVsActual": {
+            "expectedHours": round(expected_total, 2),
+            "actualHours": round(actual_total, 2),
+        },
+        "completionTrend": completion_trend,
+    }
+
+
+def _task_overview_rows(
+    tasks: list[Task],
+    users: dict[str, User],
+    task_assignees: dict[str, list[str]],
+    story_titles: dict[str, str],
+    projects: dict[str, Project] | None = None,
+) -> list[dict]:
+    rows = []
+    for t in tasks:
+        uids = task_assignees.get(t.id) or ([t.assigned_to] if t.assigned_to else [])
+        names = [users[uid].name for uid in uids if uid in users]
+        sid = getattr(t, "user_story_id", None) or None
+        row = {
+            "id": t.id,
+            "title": t.title,
+            "status": t.status,
+            "priority": t.priority or "Medium",
+            "startedAt": t.started_at or None,
+            "completedAt": t.completed_at or None,
+            "isStarted": bool(t.is_started),
+            "expectedHours": _expected_hours(t),
+            "actualHours": _actual_hours(t),
+            "assigneeIds": uids,
+            "assigneeNames": names,
+            "userStoryId": sid,
+            "userStoryTitle": story_titles.get(sid) if sid else None,
+            "isDone": _is_done_task(t),
+        }
+        if projects is not None:
+            p = projects.get(t.project_id)
+            row["projectId"] = t.project_id
+            row["projectName"] = p.name if p else "—"
+        rows.append(row)
+    return rows
+
+
+def get_task_overview(
+    db: Db,
+    requesting_user: User,
+    project_id: str,
+    status_filter: str | None = "all",
+) -> dict:
+    """Project-scoped task table + charts for Overview → Task tab."""
+    visible = _visible_project_ids(db, requesting_user)
+    if project_id not in visible:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a member of this project")
+
+    tasks = analytics_crud.list_tasks_for_project(db, project_id)
+    tasks = _filter_status(tasks, status_filter)
+    users = _user_map(db)
+    assignee_rows = analytics_crud.list_task_assignees_for_tasks(db, [t.id for t in tasks])
+    task_assignees: dict[str, list[str]] = defaultdict(list)
+    for ta in assignee_rows:
+        task_assignees[ta.task_id].append(ta.user_id)
+    for t in tasks:
+        if t.id not in task_assignees and t.assigned_to:
+            task_assignees[t.id] = [t.assigned_to]
+
+    story_ids = [getattr(t, "user_story_id", None) for t in tasks if getattr(t, "user_story_id", None)]
+    story_titles = analytics_crud.list_user_story_titles(db, list({s for s in story_ids if s}))
+
+    rows = _task_overview_rows(tasks, users, task_assignees, story_titles)
+    charts = _build_overview_charts(tasks)
+    done_n = sum(1 for t in tasks if _is_done_task(t))
+    return {
+        "projectId": project_id,
+        "tasks": rows,
+        "charts": charts,
+        "summary": {
+            "total": len(tasks),
+            "done": done_n,
+            "active": len(tasks) - done_n,
+            "expectedHours": charts["expectedVsActual"]["expectedHours"],
+            "actualHours": charts["expectedVsActual"]["actualHours"],
+        },
+    }
+
+
+def get_user_overview(
+    db: Db,
+    requesting_user: User,
+    user_id: str,
+    status_filter: str | None = "all",
+    project_id: str | None = None,
+) -> dict:
+    """Person-scoped task table + charts for Overview → User tab."""
+    visible_pids = _visible_project_ids(db, requesting_user)
+    visible_uids = _visible_user_ids(db, visible_pids, requesting_user)
+    if user_id not in visible_uids and requesting_user.role != "superadmin":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Cannot view this user")
+
+    target = analytics_crud.get_user(db, user_id)
+    if not target:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+
+    scope_pids = list(visible_pids)
+    if project_id:
+        if project_id not in visible_pids:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a member of this project")
+        scope_pids = [project_id]
+
+    tasks = analytics_crud.list_tasks_for_assignee(db, user_id, scope_pids)
+    tasks = _filter_status(tasks, status_filter)
+    users = _user_map(db)
+    projects = _project_map(db, list({t.project_id for t in tasks if t.project_id}))
+
+    assignee_rows = analytics_crud.list_task_assignees_for_tasks(db, [t.id for t in tasks])
+    task_assignees: dict[str, list[str]] = defaultdict(list)
+    for ta in assignee_rows:
+        task_assignees[ta.task_id].append(ta.user_id)
+    for t in tasks:
+        if t.id not in task_assignees and t.assigned_to:
+            task_assignees[t.id] = [t.assigned_to]
+
+    story_ids = [getattr(t, "user_story_id", None) for t in tasks if getattr(t, "user_story_id", None)]
+    story_titles = analytics_crud.list_user_story_titles(db, list({s for s in story_ids if s}))
+
+    rows = _task_overview_rows(tasks, users, task_assignees, story_titles, projects)
+    charts = _build_overview_charts(tasks)
+
+    # Hours by project for user chart
+    by_project: dict[str, float] = defaultdict(float)
+    for t in tasks:
+        by_project[t.project_id] += _actual_hours(t)
+    hours_by_project = [
+        {
+            "projectId": pid,
+            "projectName": projects[pid].name if pid in projects else "—",
+            "hours": round(h, 2),
+        }
+        for pid, h in sorted(by_project.items(), key=lambda x: -x[1])
+    ]
+    charts["hoursByProject"] = hours_by_project
+
+    done_n = sum(1 for t in tasks if _is_done_task(t))
+    return {
+        "userId": user_id,
+        "userName": target.name,
+        "tasks": rows,
+        "charts": charts,
+        "summary": {
+            "total": len(tasks),
+            "done": done_n,
+            "active": len(tasks) - done_n,
+            "expectedHours": charts["expectedVsActual"]["expectedHours"],
+            "actualHours": charts["expectedVsActual"]["actualHours"],
+        },
+    }
+
+
+def list_sprints(
+    db: Db,
+    requesting_user: User,
+    project_id: str | None = None,
+) -> dict:
+    """Sprint names available to the viewer (for the Sprint Overview picker)."""
+    visible = _visible_project_ids(db, requesting_user)
+    if project_id:
+        if project_id not in visible:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a member of this project")
+        scope = [project_id]
+    else:
+        scope = list(visible)
+    return {"sprints": analytics_crud.list_distinct_sprints(db, scope)}
+
+
+def get_sprint_overview(
+    db: Db,
+    requesting_user: User,
+    sprint: str,
+    project_id: str | None = None,
+    status_filter: str | None = "all",
+) -> dict:
+    """Sprint-scoped tasks + charts — projects, people, hours, status for one sprint label."""
+    name = (sprint or "").strip()
+    if not name:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "sprint is required")
+
+    visible = _visible_project_ids(db, requesting_user)
+    if project_id:
+        if project_id not in visible:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a member of this project")
+        scope = [project_id]
+    else:
+        scope = list(visible)
+
+    tasks = analytics_crud.list_tasks_for_sprint(db, name, scope)
+    tasks = _filter_status(tasks, status_filter)
+    users = _user_map(db)
+    projects = _project_map(db, list({t.project_id for t in tasks if t.project_id}))
+
+    assignee_rows = analytics_crud.list_task_assignees_for_tasks(db, [t.id for t in tasks])
+    task_assignees: dict[str, list[str]] = defaultdict(list)
+    for ta in assignee_rows:
+        task_assignees[ta.task_id].append(ta.user_id)
+    for t in tasks:
+        if t.id not in task_assignees and t.assigned_to:
+            task_assignees[t.id] = [t.assigned_to]
+
+    story_ids = [getattr(t, "user_story_id", None) for t in tasks if getattr(t, "user_story_id", None)]
+    story_titles = analytics_crud.list_user_story_titles(db, list({s for s in story_ids if s}))
+
+    rows = _task_overview_rows(tasks, users, task_assignees, story_titles, projects)
+    charts = _build_overview_charts(tasks)
+
+    by_project: dict[str, float] = defaultdict(float)
+    for t in tasks:
+        by_project[t.project_id] += _actual_hours(t)
+    charts["hoursByProject"] = [
+        {
+            "projectId": pid,
+            "projectName": projects[pid].name if pid in projects else "—",
+            "hours": round(h, 2),
+        }
+        for pid, h in sorted(by_project.items(), key=lambda x: -x[1])
+    ]
+
+    by_person: dict[str, float] = defaultdict(float)
+    for t in tasks:
+        uids = task_assignees.get(t.id) or ([t.assigned_to] if t.assigned_to else [])
+        if not uids:
+            continue
+        share = _actual_hours(t) / len(uids)
+        for uid in uids:
+            by_person[uid] += share
+    charts["hoursByPerson"] = [
+        {
+            "userId": uid,
+            "name": users[uid].name if uid in users else "—",
+            "hours": round(h, 2),
+        }
+        for uid, h in sorted(by_person.items(), key=lambda x: -x[1])
+        if h > 0
+    ]
+
+    people = sorted(
+        {uid for uids in task_assignees.values() for uid in uids if uid in users},
+        key=lambda uid: users[uid].name.lower(),
+    )
+    done_n = sum(1 for t in tasks if _is_done_task(t))
+    return {
+        "sprint": name,
+        "projectId": project_id,
+        "tasks": rows,
+        "charts": charts,
+        "people": [{"userId": uid, "name": users[uid].name} for uid in people],
+        "projects": [
+            {
+                "projectId": p.id,
+                "projectName": p.name,
+                "taskCount": sum(1 for t in tasks if t.project_id == p.id),
+                "hours": round(by_project.get(p.id, 0.0), 2),
+            }
+            for p in sorted(projects.values(), key=lambda x: x.name.lower())
+        ],
+        "summary": {
+            "total": len(tasks),
+            "done": done_n,
+            "active": len(tasks) - done_n,
+            "projectCount": len(projects),
+            "peopleCount": len(people),
+            "expectedHours": charts["expectedVsActual"]["expectedHours"],
+            "actualHours": charts["expectedVsActual"]["actualHours"],
+        },
+    }

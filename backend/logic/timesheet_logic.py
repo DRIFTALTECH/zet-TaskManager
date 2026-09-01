@@ -33,7 +33,8 @@ from logic.schemas import (
 log = logging.getLogger("zet.timesheet")
 
 TIME_RE = re.compile(r"^\s*(\d{1,2}):(\d{2})\s*$")
-LOCKED_STATUSES = frozenset({"submitted", "approved"})
+LOCKED_STATUSES = frozenset({"submitted"})
+REVIEWED_STATUSES = frozenset({"approved", "rejected"})
 
 
 def _dates_in_week(week_start: str) -> list[str]:
@@ -311,8 +312,6 @@ def submit_week(
         new_dates = [d for d in target_dates if d not in locked_set]
         if not new_dates:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "No new dates to submit")
-    elif existing and existing.status == "rejected":
-        new_dates = target_dates
     else:
         new_dates = target_dates
 
@@ -321,7 +320,7 @@ def submit_week(
     now = datetime.now(timezone.utc).isoformat()
     week_label = f"{ws} — {week_end_for(ws)}"
 
-    if existing and existing.status == "rejected":
+    if existing and existing.status in REVIEWED_STATUSES:
         existing.status = "submitted"
         existing.submitted_at = now
         existing.reviewer_id = reviewer_id

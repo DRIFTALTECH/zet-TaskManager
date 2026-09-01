@@ -9,8 +9,27 @@ def get_by_id(db: Db, task_id: str) -> Task | None:
     return row_to_model(Task, fetch_one(db, "SELECT * FROM tasks WHERE id = %s", (task_id,)))
 
 
+# Board/list payload — skip the real description / tags / custom-field blobs.
+_LIST_COLS = (
+    "id, title, '' AS description, project_id, section_id, user_story_id, parent_task_id, "
+    "assigned_to, assigned_by, created_by, due_date, sprint, priority, status, "
+    "is_started, started_at, completed_at, approved_by_manager, time_tracked, "
+    "min_log_minutes, estimated_hours, created_at, '[]' AS tags_json, '{}' AS custom_fields_json"
+)
+_LIST_COLS_T = (
+    "t.id, t.title, '' AS description, t.project_id, t.section_id, t.user_story_id, t.parent_task_id, "
+    "t.assigned_to, t.assigned_by, t.created_by, t.due_date, t.sprint, t.priority, t.status, "
+    "t.is_started, t.started_at, t.completed_at, t.approved_by_manager, t.time_tracked, "
+    "t.min_log_minutes, t.estimated_hours, t.created_at, '[]' AS tags_json, '{}' AS custom_fields_json"
+)
+
+
 def list_all(db: Db) -> list[Task]:
     return rows_to_models(Task, fetch_all(db, "SELECT * FROM tasks"))
+
+
+def list_all_lean(db: Db) -> list[Task]:
+    return rows_to_models(Task, fetch_all(db, f"SELECT {_LIST_COLS} FROM tasks"))
 
 
 def list_for_member_projects(db: Db, user_id: str) -> list[Task]:
@@ -21,6 +40,21 @@ def list_for_member_projects(db: Db, user_id: str) -> list[Task]:
             db,
             """
             SELECT t.* FROM tasks t
+            INNER JOIN project_members pm ON pm.project_id = t.project_id
+            WHERE pm.user_id = %s
+            """,
+            (user_id,),
+        ),
+    )
+
+
+def list_for_member_projects_lean(db: Db, user_id: str) -> list[Task]:
+    return rows_to_models(
+        Task,
+        fetch_all(
+            db,
+            f"""
+            SELECT {_LIST_COLS_T} FROM tasks t
             INNER JOIN project_members pm ON pm.project_id = t.project_id
             WHERE pm.user_id = %s
             """,
@@ -160,14 +194,14 @@ def insert_imported_task(
             user_story_id, parent_task_id,
             assigned_to, assigned_by, created_by, due_date, sprint,
             priority, status, is_started, started_at, completed_at,
-            approved_by_manager, time_tracked, min_log_minutes,
+            approved_by_manager, time_tracked, min_log_minutes, estimated_hours,
             tags_json, custom_fields_json, created_at
         ) VALUES (
             %s, %s, %s, %s, %s,
             %s, %s,
             %s, %s, %s, %s, %s,
             %s, %s, %s, %s, %s,
-            %s, %s, %s,
+            %s, %s, %s, %s,
             %s, %s, %s
         )
         """,
@@ -192,6 +226,7 @@ def insert_imported_task(
             approved_by_manager,
             time_tracked,
             1,
+            None,
             json.dumps(tags),
             json.dumps(custom_fields or {}),
             created_at,
@@ -224,6 +259,7 @@ def create_task(
     user_story_id: str | None = None,
     parent_task_id: str | None = None,
     sprint: str = "",
+    estimated_hours: str | None = None,
 ) -> Task:
     db.write(
         """
@@ -232,14 +268,14 @@ def create_task(
             user_story_id, parent_task_id,
             assigned_to, assigned_by, created_by, due_date, sprint,
             priority, status, is_started, started_at, completed_at,
-            approved_by_manager, time_tracked, min_log_minutes,
+            approved_by_manager, time_tracked, min_log_minutes, estimated_hours,
             tags_json, custom_fields_json, created_at
         ) VALUES (
             %s, %s, %s, %s, %s,
             %s, %s,
             %s, %s, %s, %s, %s,
             %s, %s, %s, %s, %s,
-            %s, %s, %s,
+            %s, %s, %s, %s,
             %s, %s, %s
         )
         """,
@@ -264,6 +300,7 @@ def create_task(
             approved_by_manager,
             time_tracked,
             min_log_minutes,
+            estimated_hours,
             json.dumps(tags),
             json.dumps(custom_fields or {}),
             created_at,
@@ -285,7 +322,7 @@ def update_task(db: Db, task: Task) -> Task:
             assigned_to = %s, assigned_by = %s, created_by = %s, due_date = %s, sprint = %s,
             priority = %s, status = %s, is_started = %s, started_at = %s,
             completed_at = %s, approved_by_manager = %s, time_tracked = %s,
-            min_log_minutes = %s,
+            min_log_minutes = %s, estimated_hours = %s,
             tags_json = %s, custom_fields_json = %s, created_at = %s
         WHERE id = %s
         """,
@@ -309,6 +346,7 @@ def update_task(db: Db, task: Task) -> Task:
             task.approved_by_manager,
             task.time_tracked,
             getattr(task, "min_log_minutes", 1) or 1,
+            getattr(task, "estimated_hours", None),
             task.tags_json,
             task.custom_fields_json,
             task.created_at,

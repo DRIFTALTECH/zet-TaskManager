@@ -40,11 +40,33 @@ def _normalize_priority(value: str | None) -> str:
 def _unique_ordered(ids: list[str]) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
-    for x in ids:
-        if x not in seen:
-            seen.add(x)
-            out.append(x)
+    for i in ids:
+        if i and i not in seen:
+            seen.add(i)
+            out.append(i)
     return out
+
+
+def _parse_estimated_hours(raw: str | None) -> float | None:
+    if raw is None or str(raw).strip() == "":
+        return None
+    try:
+        v = float(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+    if v <= 0:
+        return None
+    return round(v, 2)
+
+
+def _fmt_estimated_hours(value: float | None) -> str | None:
+    if value is None:
+        return None
+    if value < 0 or value > 10_000:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "estimatedHours must be 0–10000")
+    if value <= 0:
+        return None
+    return str(round(float(value), 2))
 
 
 def _is_task_creator(t: Task, user_id: str) -> bool:
@@ -70,9 +92,10 @@ def _build_task_out(t: Task, assignee_ids: list[str], time_log: dict[str, int]) 
     """Assemble a TaskOut from a task row plus already-loaded assignees / time log.
 
     No DB access — callers pass precomputed values so list endpoints can batch.
+    Lean list rows omit description / tags / custom fields; treat missing as empty.
     """
-    cf = json.loads(t.custom_fields_json or "{}")
-    tags = json.loads(t.tags_json or "[]")
+    cf = json.loads(getattr(t, "custom_fields_json", None) or "{}")
+    tags = json.loads(getattr(t, "tags_json", None) or "[]")
     if not assignee_ids:
         # Empty task_assignees = unassigned when assigned_to is only the creator
         # placeholder (create / CSV import). Legacy rows without a junction still
@@ -89,7 +112,7 @@ def _build_task_out(t: Task, assignee_ids: list[str], time_log: dict[str, int]) 
     return TaskOut(
         id=t.id,
         title=t.title,
-        description=t.description,
+        description=getattr(t, "description", None) or "",
         projectId=t.project_id,
         sectionId=t.section_id,
         assignedTo=primary,
@@ -106,6 +129,7 @@ def _build_task_out(t: Task, assignee_ids: list[str], time_log: dict[str, int]) 
         approvedByManager=t.approved_by_manager,
         timeTracked=t.time_tracked,
         minLogMinutes=max(0, int(getattr(t, "min_log_minutes", 1) or 1)),
+        estimatedHours=_parse_estimated_hours(getattr(t, "estimated_hours", None)),
         tags=tags if isinstance(tags, list) else [],
         createdAt=t.created_at,
         timeLog=time_log,
@@ -149,6 +173,7 @@ def to_task_out(db: Db, t: Task, viewer_user_id: str) -> TaskOut:
         approvedByManager=t.approved_by_manager,
         timeTracked=t.time_tracked,
         minLogMinutes=max(0, int(getattr(t, "min_log_minutes", 1) or 1)),
+        estimatedHours=_parse_estimated_hours(getattr(t, "estimated_hours", None)),
         tags=tags if isinstance(tags, list) else [],
         createdAt=t.created_at,
         timeLog=timelog_crud.time_log_map_for_user(db, t.id, viewer_user_id),
@@ -159,21 +184,17 @@ def to_task_out(db: Db, t: Task, viewer_user_id: str) -> TaskOut:
 
 
 def list_tasks(db: Db, current_user_id: str) -> list[TaskOut]:
-    # Only admins see every task; managers and employees see tasks in the
-    # projects they belong to (filtered in SQL by the CRUD layer).
+    # Lean board payload: title + status, no description / timeLog blobs.
+    # Open a task → GET /tasks/{id} for the full body.
     actor = user_logic.get_user_or_404(db, current_user_id)
     visible = (
-        tasks_crud.list_all(db)
+        tasks_crud.list_all_lean(db)
         if actor.role == "superadmin"
-        else tasks_crud.list_for_member_projects(db, current_user_id)
+        else tasks_crud.list_for_member_projects_lean(db, current_user_id)
     )
     ids = [t.id for t in visible]
     assignee_map = assignees_crud.map_user_ids_for_tasks(db, ids)
-    timelog_map = timelog_crud.time_log_maps_for_user(db, ids, current_user_id)
-    return [
-        _build_task_out(t, assignee_map.get(t.id, []), timelog_map.get(t.id, {}))
-        for t in visible
-    ]
+    return [_build_task_out(t, assignee_map.get(t.id, []), {}) for t in visible]
 
 
 def get_task(db: Db, current_user_id: str, task_id: str) -> TaskOut:
@@ -251,6 +272,7 @@ def create_task(db: Db, current_user_id: str, body: TaskCreate) -> TaskOut:
         tags=body.tags,
         created_at=created_at,
         min_log_minutes=min_log,
+        estimated_hours=_fmt_estimated_hours(body.estimatedHours),
         user_story_id=user_story_id,
         parent_task_id=parent_task_id,
     )
@@ -273,6 +295,8 @@ def patch_task(db: Db, current_user_id: str, task_id: str, body: TaskPatch) -> T
         if body.minLogMinutes < 0 or body.minLogMinutes > 180:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "minLogMinutes must be 0–180")
         t.min_log_minutes = int(body.minLogMinutes)
+    if "estimatedHours" in body.model_fields_set:
+        t.estimated_hours = _fmt_estimated_hours(body.estimatedHours)
     if body.title is not None:
         t.title = body.title
     if body.description is not None:

@@ -60,17 +60,18 @@ def create(
     source_text: str,
     created_at: str,
     updated_at: str,
+    assignee_ids: str = "[]",
 ) -> TempTask:
     db.write(
         """
         INSERT INTO temp_tasks (
             id, import_id, user_id, kind, parent_id, title, description,
             acceptance_criteria, project_id, section_id, priority, position,
-            source_text, created_at, updated_at
+            source_text, assignee_ids, created_at, updated_at
         ) VALUES (
             %s, %s, %s, %s, %s, %s, %s,
             %s, %s, %s, %s, %s,
-            %s, %s, %s
+            %s, %s, %s, %s
         )
         """,
         (
@@ -87,6 +88,7 @@ def create(
             priority,
             position,
             source_text,
+            assignee_ids,
             created_at,
             updated_at,
         ),
@@ -100,7 +102,7 @@ def update(db: Db, row: TempTask) -> TempTask:
         UPDATE temp_tasks SET
             title = %s, description = %s, acceptance_criteria = %s,
             project_id = %s, section_id = %s, priority = %s, position = %s,
-            parent_id = %s, updated_at = %s
+            parent_id = %s, assignee_ids = %s, updated_at = %s
         WHERE id = %s
         """,
         (
@@ -112,6 +114,7 @@ def update(db: Db, row: TempTask) -> TempTask:
             row.priority,
             row.position,
             row.parent_id,
+            getattr(row, "assignee_ids", None) or "[]",
             row.updated_at,
             row.id,
         ),

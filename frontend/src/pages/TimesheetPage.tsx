@@ -1268,7 +1268,10 @@ const TimesheetPage = () => {
   const quickDurationPreview = spanSecondsFromCompact(effQuickFrom, effQuickTo);
 
   const saveQuickEntry = async () => {
-    if (quickWorkDateLocked) return;
+    if (quickWorkDateLocked) {
+      toast.error('That day is locked until your manager finishes review');
+      return;
+    }
     const workDate = quickWorkDate ?? defaultNewDate;
     if (!quickProjectId || !quickSectionId) {
       toast.error('Select a project and section');
@@ -1886,8 +1889,8 @@ const TimesheetPage = () => {
                   {lockedDays.length > 0 && (
                     <p className="text-xs opacity-70">
                       {allLocked
-                        ? 'Submitted days in this week are locked for editing until your manager rejects them.'
-                        : 'Submitted days are locked for editing.'}
+                        ? 'Submitted days are locked until your manager finishes review.'
+                        : 'Submitted days are locked until review is finished.'}
                     </p>
                   )}
                 </div>

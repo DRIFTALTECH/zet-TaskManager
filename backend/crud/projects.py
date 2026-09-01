@@ -140,6 +140,20 @@ def member_ids(db: Db, project_id: str) -> list[str]:
     return [r["user_id"] for r in rows]
 
 
+def members_by_project(db: Db, project_ids: list[str]) -> dict[str, list[str]]:
+    if not project_ids:
+        return {}
+    rows = fetch_all(
+        db,
+        "SELECT project_id, user_id FROM project_members WHERE project_id = ANY(%s)",
+        (project_ids,),
+    )
+    out: dict[str, list[str]] = {pid: [] for pid in project_ids}
+    for r in rows:
+        out.setdefault(r["project_id"], []).append(r["user_id"])
+    return out
+
+
 def project_ids_for_user(db: Db, user_id: str) -> set[str]:
     """All project ids the user is a member of — one query (for visibility checks)."""
     rows = fetch_all(

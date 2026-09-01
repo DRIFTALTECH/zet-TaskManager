@@ -1,6 +1,5 @@
 /**
- * ClientSummaryPanel — simple client overview on the Reports page.
- * Uses project and task data until Clockify is connected.
+ * ClientSummaryPanel — client overview on Reports, from ZET projects / tasks / timesheet.
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -10,7 +9,7 @@ import {
   Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip as RTooltip, XAxis, YAxis,
 } from 'recharts';
 import {
-  ArrowUpRight, Building2, FolderKanban, Info, ListTodo, Search, Users, X,
+  ArrowUpRight, Building2, Clock, FolderKanban, ListTodo, Search, Users, X,
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import {
@@ -19,12 +18,14 @@ import {
   type ClientSortKey,
   type ClientSummary,
 } from '@/lib/client-summary';
+import { formatDurationHms } from '@/lib/timesheetSubmission';
 import { snappy } from '@/lib/motion';
 import { ZET } from '@/lib/zet-charts';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
+import type { TimesheetWorkEntry } from '@/types';
 
 const CHART_TOOLTIP = {
   background: 'hsl(var(--card))',
@@ -34,17 +35,6 @@ const CHART_TOOLTIP = {
 };
 
 const DONUT_COLORS = [ZET.indigo, ZET.slate];
-
-function ClockifyNotice() {
-  return (
-    <div className="flex items-start gap-3 rounded-xl border border-amber-500/25 bg-amber-500/[0.06] px-4 py-3">
-      <Info className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-      <p className="text-sm text-muted-foreground leading-relaxed">
-        Clockify is not connected yet. Hours and time data will appear here after the Clockify sync is enabled.
-      </p>
-    </div>
-  );
-}
 
 function ClientCard({ summary, index }: { summary: ClientSummary; index: number }) {
   const navigate = useNavigate();
@@ -57,8 +47,10 @@ function ClientCard({ summary, index }: { summary: ClientSummary; index: number 
   const barData = summary.projects.map(p => ({
     name: p.name.length > 14 ? `${p.name.slice(0, 12)}…` : p.name,
     fullName: p.name,
+    hours: Math.round((p.seconds / 3600) * 10) / 10,
     tasks: p.totalTasks,
   }));
+  const showHours = summary.seconds > 0;
 
   return (
     <motion.button
@@ -91,6 +83,10 @@ function ClientCard({ summary, index }: { summary: ClientSummary; index: number 
               <Users className="h-3.5 w-3.5" />
               {summary.teamMemberCount} people
             </span>
+            <span className="inline-flex items-center gap-1">
+              <Clock className="h-3.5 w-3.5" />
+              {formatDurationHms(summary.seconds)}
+            </span>
           </div>
         </div>
         <ArrowUpRight className="h-4 w-4 text-muted-foreground/40 group-hover:text-primary transition-colors shrink-0" />
@@ -107,7 +103,9 @@ function ClientCard({ summary, index }: { summary: ClientSummary; index: number 
               {summary.projects.map(p => (
                 <li key={p.id} className="flex items-center justify-between gap-2 text-xs">
                   <span className="truncate text-foreground/90">{p.name}</span>
-                  <span className="text-muted-foreground tabular-nums shrink-0">{p.totalTasks} tasks</span>
+                  <span className="text-muted-foreground tabular-nums shrink-0">
+                    {showHours ? formatDurationHms(p.seconds) : `${p.totalTasks} tasks`}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -156,7 +154,9 @@ function ClientCard({ summary, index }: { summary: ClientSummary; index: number 
 
             {/* Bar by project */}
             <div className="rounded-xl border border-border/40 bg-muted/10 p-2 h-[88px]">
-              <p className="text-[10px] font-medium text-muted-foreground mb-0.5 text-center">By project</p>
+              <p className="text-[10px] font-medium text-muted-foreground mb-0.5 text-center">
+                {showHours ? 'Hours by project' : 'By project'}
+              </p>
               {barData.length === 0 ? (
                 <p className="text-[10px] text-muted-foreground/50 text-center pt-6">No data</p>
               ) : (
@@ -167,9 +167,9 @@ function ClientCard({ summary, index }: { summary: ClientSummary; index: number 
                     <RTooltip
                       contentStyle={CHART_TOOLTIP}
                       labelFormatter={(_, payload) => payload?.[0]?.payload?.fullName ?? ''}
-                      formatter={(v: number) => [`${v} tasks`, 'Total']}
+                      formatter={(v: number) => showHours ? [`${v}h`, 'Hours'] : [`${v} tasks`, 'Total']}
                     />
-                    <Bar dataKey="tasks" fill={ZET.violet} radius={[3, 3, 0, 0]} maxBarSize={16} />
+                    <Bar dataKey={showHours ? 'hours' : 'tasks'} fill={ZET.violet} radius={[3, 3, 0, 0]} maxBarSize={16} />
                   </BarChart>
                 </ResponsiveContainer>
               )}
@@ -181,18 +181,20 @@ function ClientCard({ summary, index }: { summary: ClientSummary; index: number 
   );
 }
 
-export function ClientSummaryPanel() {
-  const { clients, projects, tasks, loadClients } = useAppStore();
+export function ClientSummaryPanel({ entries = [] }: { entries?: TimesheetWorkEntry[] }) {
+  const { clients, projects, tasks, loadClients, syncTasks, syncProjectsAndUsers } = useAppStore();
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<ClientSortKey>('name');
 
   useEffect(() => {
     void loadClients();
-  }, [loadClients]);
+    void syncTasks();
+    void syncProjectsAndUsers();
+  }, [loadClients, syncTasks, syncProjectsAndUsers]);
 
   const summaries = useMemo(
-    () => buildClientSummaries(clients, projects, tasks),
-    [clients, projects, tasks],
+    () => buildClientSummaries(clients, projects, tasks, entries),
+    [clients, projects, tasks, entries],
   );
 
   const filtered = useMemo(() => {
@@ -205,13 +207,11 @@ export function ClientSummaryPanel() {
 
   return (
     <div className="space-y-4">
-      <ClockifyNotice />
-
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-foreground">Client summary</h2>
           <p className="text-sm text-muted-foreground mt-0.5">
-            See how each client is doing across projects and tasks.
+            Projects, tasks, and logged time for each client in this period.
           </p>
         </div>
 
@@ -243,6 +243,7 @@ export function ClientSummaryPanel() {
               <SelectItem value="name">Name</SelectItem>
               <SelectItem value="projects">Most projects</SelectItem>
               <SelectItem value="tasks">Most tasks</SelectItem>
+              <SelectItem value="hours">Most hours</SelectItem>
             </SelectContent>
           </Select>
         </div>

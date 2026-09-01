@@ -494,9 +494,11 @@ def create_task(
     due_date: str = "",
     sprint: str = "",
     priority: str = "Medium",
+    estimated_hours: float | None = None,
 ) -> dict:
     """Create a task under a user story. user_story = story title or id.
-    assignees = names/ids (defaults to you). priority: Urgent | High | Medium | Low."""
+    assignees = names/ids (defaults to you). priority: Urgent | High | Medium | Low.
+    estimated_hours is optional."""
     db = SessionLocal()
     try:
         uid = _uid()
@@ -510,6 +512,7 @@ def create_task(
             title=title, description=description, projectId=p.id, sectionId=sec.id,
             assigneeIds=ids, assignedBy=uid, createdBy=uid, dueDate=due_date,
             sprint=sprint, priority=priority, tags=[], userStoryId=story.id,
+            estimatedHours=estimated_hours,
         )
         return task_logic.create_task_action(db, uid, body).model_dump()
     finally:

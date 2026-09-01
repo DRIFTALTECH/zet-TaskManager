@@ -246,7 +246,7 @@ class MemberBody(BaseModel):
 class TaskOut(BaseModel):
     id: str
     title: str
-    description: str
+    description: str = ""
     projectId: str
     sectionId: str
     assignedTo: str
@@ -263,6 +263,7 @@ class TaskOut(BaseModel):
     approvedByManager: bool
     timeTracked: int
     minLogMinutes: int = 1
+    estimatedHours: float | None = None
     tags: list[str]
     createdAt: str
     timeLog: dict[str, int] = Field(default_factory=dict)
@@ -286,6 +287,7 @@ class TaskCreate(BaseModel):
     status: str | None = None
     tags: list[str] = []
     minLogMinutes: int | None = None
+    estimatedHours: float | None = None
     userStoryId: str | None = None
     parentTaskId: str | None = None
 
@@ -305,6 +307,7 @@ class TaskPatch(BaseModel):
     startedAt: str | None = None
     completedAt: str | None = None
     minLogMinutes: int | None = None
+    estimatedHours: float | None = None
     userStoryId: str | None = None
     parentTaskId: str | None = None
 
@@ -384,6 +387,8 @@ class GeneratedTaskPreview(BaseModel):
     subtasks: list[GeneratedSubtaskPreview] = Field(default_factory=list)
     # When False, task is still created under the story but left unassigned.
     assign: bool = False
+    assigneeIds: list[str] = Field(default_factory=list)
+    sectionId: str | None = None
 
 
 class UserStoryGeneratePreviewOut(BaseModel):
@@ -429,6 +434,7 @@ class TempTaskPatch(BaseModel):
     projectId: str | None = None
     sectionId: str | None = None
     priority: str | None = None
+    assigneeIds: list[str] | None = None
 
 
 class TempTaskCreateBody(BaseModel):
@@ -443,6 +449,9 @@ class PrdDraftTaskOut(BaseModel):
     description: str = ""
     priority: str = "Medium"
     position: int = 0
+    projectId: str | None = None
+    sectionId: str | None = None
+    assigneeIds: list[str] = Field(default_factory=list)
 
 
 class PrdDraftStoryOut(BaseModel):
@@ -454,6 +463,7 @@ class PrdDraftStoryOut(BaseModel):
     projectId: str | None = None
     sectionId: str | None = None
     position: int = 0
+    assigneeIds: list[str] = Field(default_factory=list)
     tasks: list[PrdDraftTaskOut] = Field(default_factory=list)
 
 
@@ -466,6 +476,11 @@ class PrdDraftOut(BaseModel):
 class PrdCommitOut(BaseModel):
     storiesCreated: int
     tasksCreated: int
+
+
+class PrdCommitBody(BaseModel):
+    storyIds: list[str] = Field(default_factory=list)
+    taskIds: list[str] | None = None
 
 
 class TaskMoveBody(BaseModel):

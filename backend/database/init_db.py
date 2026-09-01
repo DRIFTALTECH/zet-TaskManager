@@ -106,6 +106,12 @@ def _migrate_task_sprint() -> None:
     _add_column_if_missing(db, "tasks", "sprint", "VARCHAR NOT NULL DEFAULT ''")
 
 
+def _migrate_task_estimated_hours() -> None:
+    """Optional estimate on every task. Null = not set (not the 1-minute timer floor)."""
+    db = get_database()
+    _add_column_if_missing(db, "tasks", "estimated_hours", "VARCHAR")
+
+
 def _migrate_clients() -> None:
     db = get_database()
     db.write(
@@ -422,6 +428,11 @@ def _migrate_forecast_visibility() -> None:
         pass
 
 
+def _migrate_temp_task_assignees() -> None:
+    db = get_database()
+    _add_column_if_missing(db, "temp_tasks", "assignee_ids", "TEXT NOT NULL DEFAULT '[]'")
+
+
 def init_db() -> None:
     # Bootstrap creates base tables. On existing DBs, CREATE TABLE IF NOT EXISTS is a
     # no-op — new columns are NOT added there. Hierarchy columns/indexes come next.
@@ -429,12 +440,14 @@ def init_db() -> None:
     _migrate_submitted_dates()
     _migrate_task_min_log_minutes()
     _migrate_task_sprint()
+    _migrate_task_estimated_hours()
     _migrate_clients()
     _migrate_skills()
     _migrate_user_stories()
     _migrate_user_story_section_optional()
     _migrate_forecast_visibility()
     _migrate_pat_expiry()
+    _migrate_temp_task_assignees()
     _seed_kanban()
     from logic.audit import purge_old_audit_logs
 

@@ -24,6 +24,14 @@ def _coerce_bool(v: Any) -> Any:
     return v
 
 
+def _coerce_text(v: Any) -> Any:
+    """Models often emit criteria as a list; we persist/display a single string."""
+    if isinstance(v, list):
+        parts = [str(item).strip() for item in v if item is not None and str(item).strip()]
+        return "\n".join(parts) or None
+    return v
+
+
 # ── Shared refs ───────────────────────────────────────────────────────────────
 
 class UserRef(BaseModel):
@@ -138,20 +146,24 @@ class ParseTaskResponse(BaseModel):
     tasks: list[ExtractedTask]
 
 
-# ── PRD extract: user stories + tasks, no assignees ───────────────────────────
+# ── PRD extract: user stories + tasks ─────────────────────────────────────────
 
 class PrdExtractedTask(BaseModel):
-    """One task under a user story. Never includes an assignee."""
+    """One task under a user story. Assignee must be a member of the matched project."""
     title: str = Field(..., description="Short, actionable task title")
     description: str | None = Field(None, description="What to build / accept for this task")
     priority: str | None = Field(None, description="One of: Urgent, High, Medium, Low")
+    assignee_id: str | None = Field(
+        None, description="User ID from the project's Members list — never invent an ID"
+    )
+    assignee_name: str | None = Field(None, description="Display name of that member")
 
 
 class PrdExtractedStory(BaseModel):
     """One user story extracted from a PRD. Tasks belong to this story."""
     title: str = Field(..., description="Short story label, 3–8 words")
     description: str | None = Field(None, description="Story description")
-    acceptance_criteria: str | None = Field(None, description="Acceptance criteria, or null")
+    acceptance_criteria: str | None = Field(None, description="Acceptance criteria as one string, or null")
     priority: str | None = Field(None, description="One of: Urgent, High, Medium, Low")
     project_id: str | None = Field(None, description="Matched project ID from the provided list, or null")
     project_name: str | None = Field(None, description="Matched project name for display, or null")
@@ -159,9 +171,37 @@ class PrdExtractedStory(BaseModel):
     section_name: str | None = Field(None, description="Matched section name for display, or null")
     tasks: list[PrdExtractedTask] = Field(default_factory=list)
 
+    @field_validator("acceptance_criteria", "description", mode="before")
+    @classmethod
+    def _text(cls, v: Any) -> Any:
+        return _coerce_text(v)
+
 
 class PrdExtractResponse(BaseModel):
     stories: list[PrdExtractedStory] = Field(default_factory=list)
+
+
+class PrdOutlineStory(BaseModel):
+    """Story shell from the fast outline pass — tasks are filled later."""
+    title: str = Field(..., description="Short story label, 3–8 words")
+    description: str | None = Field(None, description="Story description")
+    acceptance_criteria: str | None = Field(None, description="Acceptance criteria as one string, or null")
+    priority: str | None = Field(None, description="One of: Urgent, High, Medium, Low")
+    project_id: str | None = Field(None, description="Matched project ID from the provided list, or null")
+    project_name: str | None = Field(None, description="Matched project name for display, or null")
+
+    @field_validator("acceptance_criteria", "description", mode="before")
+    @classmethod
+    def _text(cls, v: Any) -> Any:
+        return _coerce_text(v)
+
+
+class PrdOutlineResponse(BaseModel):
+    stories: list[PrdOutlineStory] = Field(default_factory=list)
+
+
+class PrdTaskBundle(BaseModel):
+    tasks: list[PrdExtractedTask] = Field(default_factory=list)
 
 
 class AgentAction(BaseModel):
@@ -280,8 +320,8 @@ class TimesheetParseResponse(BaseModel):
 
 
 # ── Timesheet parser: STRICT variant (constrained decoding) ───────────────────
-# Used with service.complete_structured_strict() → method="json_schema",
-# strict=True. For constrained decoding the JSON schema must be fully closed:
+# Used with service.parse_structured() after a plain completion.
+# Keep the schema fully closed so client-side validation is strict:
 # every field required (no defaults), no numeric bounds, extra="forbid". The
 # provider then guarantees output that already matches these types — no
 # stringified scalars to coerce. We map this back onto the lenient

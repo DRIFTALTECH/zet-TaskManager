@@ -289,5 +289,107 @@ def count_active_tasks(db: Db) -> int:
     return row["count"] if row else 0
 
 
+# Lean task cols for Task / User Overview tables (includes story + duration fields).
+_OVERVIEW_TASK_COLS = """id, title, '' AS description, project_id, section_id, user_story_id, parent_task_id,
+    assigned_to, assigned_by, created_by, due_date, sprint, priority, status,
+    is_started, started_at, completed_at, approved_by_manager, time_tracked,
+    min_log_minutes, estimated_hours, created_at, '[]' AS tags_json, '{}' AS custom_fields_json"""
+
+
+def list_tasks_for_project(db: Db, project_id: str) -> list[Task]:
+    rows = fetch_all(
+        db,
+        f"""SELECT {_OVERVIEW_TASK_COLS} FROM tasks
+            WHERE project_id = %s
+            ORDER BY
+              CASE WHEN LOWER(TRIM(status)) IN ('completed', 'done') THEN 1 ELSE 0 END,
+              created_at DESC""",
+        (project_id,),
+    )
+    return rows_to_models(Task, rows)
+
+
+def list_tasks_for_assignee(db: Db, user_id: str, project_ids: list[str] | None = None) -> list[Task]:
+    """Tasks where user is primary assignee or in task_assignees, optionally scoped to projects."""
+    if project_ids is not None and len(project_ids) == 0:
+        return []
+    cols = """t.id, t.title, '' AS description, t.project_id, t.section_id,
+              t.user_story_id, t.parent_task_id, t.assigned_to, t.assigned_by, t.created_by,
+              t.due_date, t.sprint, t.priority, t.status, t.is_started, t.started_at,
+              t.completed_at, t.approved_by_manager, t.time_tracked, t.min_log_minutes,
+              t.estimated_hours, t.created_at, '[]' AS tags_json, '{}' AS custom_fields_json"""
+    order = """ORDER BY
+              CASE WHEN LOWER(TRIM(t.status)) IN ('completed', 'done') THEN 1 ELSE 0 END,
+              t.created_at DESC"""
+    if project_ids:
+        rows = fetch_all(
+            db,
+            f"""SELECT DISTINCT {cols}
+                FROM tasks t
+                LEFT JOIN task_assignees ta ON ta.task_id = t.id
+                WHERE (t.assigned_to = %s OR ta.user_id = %s)
+                  AND t.project_id = ANY(%s)
+                {order}""",
+            (user_id, user_id, project_ids),
+        )
+    else:
+        rows = fetch_all(
+            db,
+            f"""SELECT DISTINCT {cols}
+                FROM tasks t
+                LEFT JOIN task_assignees ta ON ta.task_id = t.id
+                WHERE t.assigned_to = %s OR ta.user_id = %s
+                {order}""",
+            (user_id, user_id),
+        )
+    return rows_to_models(Task, rows)
+
+
+def list_user_story_titles(db: Db, story_ids: list[str]) -> dict[str, str]:
+    if not story_ids:
+        return {}
+    rows = fetch_all(
+        db,
+        "SELECT id, title FROM user_stories WHERE id = ANY(%s)",
+        (story_ids,),
+    )
+    return {r["id"]: r["title"] for r in rows}
+
+
+def list_distinct_sprints(db: Db, project_ids: list[str]) -> list[dict]:
+    """Named sprints in the given projects, with task counts (blank sprint excluded)."""
+    if not project_ids:
+        return []
+    rows = fetch_all(
+        db,
+        """SELECT TRIM(sprint) AS sprint, COUNT(*) AS task_count
+           FROM tasks
+           WHERE project_id = ANY(%s)
+             AND TRIM(COALESCE(sprint, '')) <> ''
+           GROUP BY TRIM(sprint)
+           ORDER BY LOWER(TRIM(sprint))""",
+        (project_ids,),
+    )
+    return [{"name": r["sprint"], "taskCount": int(r["task_count"])} for r in rows]
+
+
+def list_tasks_for_sprint(db: Db, sprint: str, project_ids: list[str]) -> list[Task]:
+    """Tasks whose sprint label matches (case-sensitive trim), scoped to projects."""
+    if not project_ids:
+        return []
+    name = (sprint or "").strip()
+    if not name:
+        return []
+    rows = fetch_all(
+        db,
+        f"""SELECT {_OVERVIEW_TASK_COLS} FROM tasks
+            WHERE project_id = ANY(%s)
+              AND TRIM(COALESCE(sprint, '')) = %s
+            ORDER BY
+              CASE WHEN LOWER(TRIM(status)) IN ('completed', 'done') THEN 1 ELSE 0 END,
+              created_at DESC""",
+        (project_ids, name),
+    )
+    return rows_to_models(Task, rows)
 
 

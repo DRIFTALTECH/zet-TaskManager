@@ -165,6 +165,7 @@ class Task(Base):
     approved_by_manager = Column(Boolean, nullable=False, default=False)
     time_tracked = Column(Integer, nullable=False, default=0)
     min_log_minutes = Column(Integer, nullable=False, default=1)
+    estimated_hours = Column(String, nullable=True)
     tags_json = Column(Text, nullable=False, default="[]")
     custom_fields_json = Column(Text, nullable=False, default="{}")
     created_at = Column(String, nullable=False)
@@ -191,6 +192,7 @@ class TempTask(Base):
     priority = Column(String, nullable=False, default="Medium")
     position = Column(Integer, nullable=False, default=0)
     source_text = Column(Text, nullable=False, default="")
+    assignee_ids = Column(Text, nullable=False, default="[]")
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
 

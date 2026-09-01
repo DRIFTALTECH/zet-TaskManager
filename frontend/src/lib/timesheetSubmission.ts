@@ -12,14 +12,14 @@ export function isoWeekMonday(iso: string): string {
   return `${y}-${m}-${dd}`;
 }
 
-/** Editable when backend status is draft or rejected. */
+/** Editable unless the week is waiting on manager review. */
 export function timesheetWeekEditable(status: TimesheetSubmissionStatus): boolean {
-  return status === 'draft' || status === 'rejected';
+  return status !== 'submitted';
 }
 
-const LOCKED_STATUSES = new Set<TimesheetSubmissionStatus>(['submitted', 'approved']);
+const LOCKED_STATUSES = new Set<TimesheetSubmissionStatus>(['submitted']);
 
-/** True when this work date is in a submitted/approved batch and cannot be edited. */
+/** True when this work date is in a pending submission and cannot be edited. */
 export function timesheetDateLocked(
   submission: TimesheetSubmission | null | undefined,
   workDate: string,

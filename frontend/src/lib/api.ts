@@ -260,6 +260,10 @@ export const api = {
     return request('/tasks');
   },
 
+  async getTask(id: string): Promise<Task> {
+    return request(`/tasks/${id}`);
+  },
+
   async getTasksVersion(): Promise<{ version: number }> {
     return request('/tasks/version');
   },
@@ -350,6 +354,7 @@ export const api = {
     tags: string[];
     userStoryId: string;
     parentTaskId?: string | null;
+    estimatedHours?: number | null;
   }): Promise<Task> {
     return request('/tasks', { method: 'POST', body: JSON.stringify(body) });
   },
@@ -375,6 +380,7 @@ export const api = {
       startedAt: string | null;
       completedAt: string | null;
       minLogMinutes: number;
+      estimatedHours: number | null;
       userStoryId: string | null;
       parentTaskId: string | null;
     }>,
@@ -469,7 +475,6 @@ export const api = {
     opts: { text?: string; file?: File },
   ): Promise<{ stories: import('@/types').ExtractedStoryPreview[] }> {
     const form = new FormData();
-    form.append('project_id', projectId);
     if (opts.text) form.append('text', opts.text);
     if (opts.file) form.append('file', opts.file);
     return request(`/projects/${projectId}/user-stories/extract`, { method: 'POST', body: form });
@@ -818,6 +823,43 @@ export const api = {
     return request('/prd-imports/analyze', { method: 'POST', body: form });
   },
 
+  async analyzePrdStream(
+    form: FormData,
+    onEvent: (ev: import('@/types').PrdStreamEvent) => void,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const res = await fetch(`${baseUrl()}/prd-imports/analyze/stream`, {
+      method: 'POST',
+      headers: headers(false),
+      body: form,
+      signal,
+    });
+    if (res.status === 401) {
+      const detail = await parseError(res);
+      localStorage.removeItem(TOKEN_KEY);
+      throw new ApiError(detail || 'Unauthorized', 401);
+    }
+    if (!res.ok) throw new ApiError(await parseError(res), res.status);
+    if (!res.body) throw new ApiError('Analyze stream did not start', 502);
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const chunks = buf.split('\n\n');
+      buf = chunks.pop() ?? '';
+      for (const chunk of chunks) {
+        const line = chunk.split('\n').find(l => l.startsWith('data:'));
+        if (!line) continue;
+        const raw = line.replace(/^data:\s?/, '').trim();
+        if (!raw) continue;
+        onEvent(JSON.parse(raw) as import('@/types').PrdStreamEvent);
+      }
+    }
+  },
+
   async patchPrdItem(
     id: string,
     body: {
@@ -827,6 +869,7 @@ export const api = {
       projectId?: string | null;
       sectionId?: string | null;
       priority?: string;
+      assigneeIds?: string[];
     },
   ): Promise<import('@/types').PrdDraft> {
     return request(`/prd-imports/items/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
@@ -851,8 +894,17 @@ export const api = {
     return request('/prd-imports/draft', { method: 'DELETE' });
   },
 
-  async commitPrdDraft(): Promise<{ storiesCreated: number; tasksCreated: number }> {
-    return request('/prd-imports/commit', { method: 'POST' });
+  async commitPrdDraft(
+    storyIds?: string[],
+    taskIds?: string[] | null,
+  ): Promise<{ storiesCreated: number; tasksCreated: number }> {
+    return request('/prd-imports/commit', {
+      method: 'POST',
+      body: JSON.stringify({
+        storyIds: storyIds ?? [],
+        ...(taskIds === undefined ? {} : { taskIds }),
+      }),
+    });
   },
 
   async aiParseSource(form: FormData): Promise<{ sourceText: string }> {

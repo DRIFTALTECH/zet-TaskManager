@@ -4,6 +4,7 @@ from database.database import Db, get_db
 from logic import meeting_notes_logic
 from logic.schemas import ScrumCreate, ScrumDaySummary, ScrumOut, ScrumUpdate
 from routes.deps import get_current_user_id
+from offloop import offloop
 from upload_guard import read_limited
 
 router = APIRouter()
@@ -41,7 +42,7 @@ async def transcribe(
     """Transcribe a dropped meeting recording to text (for review before saving).
     Returns {text}."""
     audio = await read_limited(file, MAX_AUDIO_BYTES, label='Audio')
-    return {"text": meeting_notes_logic.transcribe_audio(audio, file.filename)}
+    return {"text": await offloop(meeting_notes_logic.transcribe_audio, audio, file.filename)}
 
 
 @router.put("/scrum/{scrum_id}", response_model=ScrumOut)

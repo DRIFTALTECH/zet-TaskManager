@@ -45,6 +45,7 @@ export const navItems: NavItem[] = [
  */
 export function isNavItemActive(item: NavItem, pathname: string): boolean {
   if (item.path === '/manage') return pathname.startsWith('/manage');
+  if (item.path === '/overview') return pathname === '/overview' || pathname.startsWith('/overview/');
   if (item.path === '/users/forecast') return pathname === '/users/forecast';
   if (item.path === '/users') {
     return pathname === '/users' || (pathname.startsWith('/users/') && pathname !== '/users/forecast');

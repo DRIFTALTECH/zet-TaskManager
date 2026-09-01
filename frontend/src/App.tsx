@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes, Navigate, useNavigate } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -36,15 +36,7 @@ const DashboardPanArea = lazy(() =>
 );
 import { useLiveSync } from "./hooks/useTaskSync";
 import Companion from "./components/agents/Companion";
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 60_000,
-      refetchOnWindowFocus: false,
-    },
-  },
-});
+import { queryClient } from "./lib/queryClient";
 
 /** Full-screen progress used for every wait before the app is usable. */
 function FullScreenStatus({ message }: { message: string }) {
@@ -79,7 +71,9 @@ function AppLayout({ children }: { children: React.ReactNode }) {
         </ErrorBoundary>
       </main>
       </div>
-      <Companion />
+      <ErrorBoundary area="Assistant">
+        <Companion />
+      </ErrorBoundary>
     </div>
   );
 }
@@ -239,6 +233,7 @@ const App = () => (
           <Route path="/ai" element={<ProtectedRoute><AIPage /></ProtectedRoute>} />
           <Route path="/prd" element={<ProtectedRoute managerOnly><PrdImportPage /></ProtectedRoute>} />
           <Route path="/overview" element={<ProtectedRoute managerOnly><DashboardPanArea><OverviewPage /></DashboardPanArea></ProtectedRoute>} />
+          <Route path="/overview/users" element={<Navigate to="/overview?tab=user" replace />} />
           <Route path="/superadmin" element={<ProtectedRoute><SuperAdminPage /></ProtectedRoute>} />
           <Route path="/admin" element={<Navigate to="/superadmin" replace />} />
           <Route path="/admin/login" element={<Navigate to="/login" replace />} />

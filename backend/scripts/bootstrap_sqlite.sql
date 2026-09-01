@@ -107,6 +107,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     approved_by_manager BOOLEAN NOT NULL DEFAULT FALSE,
     time_tracked INTEGER NOT NULL DEFAULT 0,
     min_log_minutes INTEGER NOT NULL DEFAULT 1,
+    estimated_hours VARCHAR,
     tags_json TEXT NOT NULL DEFAULT '[]',
     custom_fields_json TEXT NOT NULL DEFAULT '{}',
     created_at VARCHAR NOT NULL
@@ -319,6 +320,7 @@ CREATE TABLE IF NOT EXISTS temp_tasks (
     priority VARCHAR NOT NULL DEFAULT 'Medium',
     position INTEGER NOT NULL DEFAULT 0,
     source_text TEXT NOT NULL DEFAULT '',
+    assignee_ids TEXT NOT NULL DEFAULT '[]',
     created_at VARCHAR NOT NULL,
     updated_at VARCHAR NOT NULL
 );

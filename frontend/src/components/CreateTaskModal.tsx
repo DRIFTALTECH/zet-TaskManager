@@ -51,6 +51,7 @@ const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus, lockStory
   const [assigneeIds, setAssigneeIds] = useState<Set<string>>(new Set());
   const [dueDate, setDueDate] = useState('');
   const [sprint, setSprint] = useState('');
+  const [estimatedHours, setEstimatedHours] = useState('');
   const [priority, setPriority] = useState<Priority>('Medium');
   const [tagsStr, setTagsStr] = useState('');
   const [showNewSection, setShowNewSection] = useState(false);
@@ -167,6 +168,7 @@ const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus, lockStory
     setAssigneeIds(new Set());
     setDueDate(localTodayISO());
     setSprint('');
+    setEstimatedHours('');
     setPriority('Medium');
     setTagsStr('');
     setShowNewSection(false);
@@ -222,6 +224,13 @@ const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus, lockStory
     const ids = [...assigneeIds];
     const subtasks = collectSubtaskTitles(subtaskRows);
     if (subtasks.ok === false) return toast.error(subtasks.error);
+    const estRaw = estimatedHours.trim();
+    let est: number | null = null;
+    if (estRaw) {
+      const n = Number(estRaw);
+      if (!Number.isFinite(n) || n < 0) return toast.error('Estimated time must be a number of hours');
+      est = n > 0 ? n : null;
+    }
     const status = statusRef.current || initialStatus || 'backlog';
     try {
       const created = await createTask({
@@ -238,6 +247,7 @@ const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus, lockStory
         tags: tagsStr.split(',').map(t => t.trim()).filter(Boolean),
         userStoryId: storyId,
         status,
+        estimatedHours: est,
       });
       if (status && created.status !== status) {
         await updateTask(created.id, { status });
@@ -513,6 +523,23 @@ const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus, lockStory
                   maxLength={120}
                   className={field}
                 />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="ct-estimate">Estimated time <span className="font-normal text-muted-foreground">(optional)</span></Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    id="ct-estimate"
+                    type="number"
+                    min="0"
+                    step="0.25"
+                    inputMode="decimal"
+                    value={estimatedHours}
+                    onChange={e => setEstimatedHours(e.target.value)}
+                    placeholder="Hours"
+                    className={field}
+                  />
+                  <span className="text-xs text-muted-foreground shrink-0">hours</span>
+                </div>
               </div>
               <div className="space-y-2">
                 <Label>Priority</Label>

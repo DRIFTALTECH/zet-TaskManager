@@ -76,6 +76,15 @@ def _refs(db, user_id: str) -> tuple[list[UserRef], list[ProjectRef]]:
     return users, projects
 
 
+MAX_DOCS = 8
+
+
+def _file_text(data: bytes, name: str) -> str:
+    if _ext(name) in AUDIO_EXT:
+        return service.transcribe(data, name or "audio.webm").strip()
+    return _document_text(data, name or "").strip()
+
+
 def resolve_source(
     db,
     user_id: str,
@@ -83,19 +92,28 @@ def resolve_source(
     text: str | None = None,
     file_bytes: bytes | None = None,
     filename: str | None = None,
+    files: list[tuple[bytes, str]] | None = None,
 ) -> str:
-    """Resolve any input to plain text: transcribe audio, read a document, or pass
-    typed text through. Used for the 'review before extract' step so the user can
-    see/edit what was parsed. Manager/admin only (same gate as extraction)."""
+    """Resolve pasted text and one or more documents to a single source string."""
     if not project_logic.is_managerial(db, user_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only managers and admins can create tasks this way.")
-    source = (text or "").strip()
+    docs: list[tuple[bytes, str]] = []
     if file_bytes:
-        if _ext(filename) in AUDIO_EXT:
-            source = service.transcribe(file_bytes, filename or "audio.webm")
-        else:
-            source = _document_text(file_bytes, filename or "")
-    return source.strip()
+        docs.append((file_bytes, filename or "upload"))
+    docs.extend(files or [])
+    docs = [(data, name) for data, name in docs if data][:MAX_DOCS]
+    pasted = (text or "").strip()
+    chunks: list[str] = []
+    if pasted:
+        chunks.append(pasted)
+    # ponytail: one outline over concatenated docs, not N extract chains
+    named = bool(pasted and docs) or len(docs) > 1
+    for data, name in docs:
+        body = _file_text(data, name)
+        if not body:
+            continue
+        chunks.append(f"===== {name} =====\n{body}" if named else body)
+    return "\n\n".join(chunks).strip()
 
 
 def extract_tasks(

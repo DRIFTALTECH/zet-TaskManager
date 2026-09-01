@@ -31,7 +31,7 @@ not hand them a working login; a superadmin approves them at /superadmin.
 
 Rows are still validated individually and a failure never aborts the file. Every
 row goes through `timesheet_logic.create_entry`, so imports obey the same rules as
-manual entry — no future dates, and no writing into a submitted or approved week.
+manual entry — no future dates, and no writing into a week pending review.
 """
 
 import csv

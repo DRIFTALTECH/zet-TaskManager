@@ -124,6 +124,63 @@ def get_overview(
     )
 
 
+@router.get("/task-overview")
+def get_task_overview(
+    project_id: str = Query(..., alias="projectId"),
+    status_filter: str = Query("all", alias="status"),
+    current_user=Depends(_get_current_user),
+    db: Db = Depends(get_db),
+):
+    """Project task table + charts (manager/admin only)."""
+    if current_user.role == "employee":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Manager or admin access required")
+    return analytics_logic.get_task_overview(db, current_user, project_id, status_filter)
+
+
+@router.get("/user-overview")
+def get_user_overview(
+    user_id: str = Query(..., alias="userId"),
+    status_filter: str = Query("all", alias="status"),
+    project_id: str | None = Query(None, alias="projectId"),
+    current_user=Depends(_get_current_user),
+    db: Db = Depends(get_db),
+):
+    """Person task table + charts (manager/admin only)."""
+    if current_user.role == "employee":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Manager or admin access required")
+    return analytics_logic.get_user_overview(
+        db, current_user, user_id, status_filter, project_id,
+    )
+
+
+@router.get("/sprints")
+def list_sprints(
+    project_id: str | None = Query(None, alias="projectId"),
+    current_user=Depends(_get_current_user),
+    db: Db = Depends(get_db),
+):
+    """Distinct sprint labels for the Sprint Overview picker."""
+    if current_user.role == "employee":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Manager or admin access required")
+    return analytics_logic.list_sprints(db, current_user, project_id)
+
+
+@router.get("/sprint-overview")
+def get_sprint_overview(
+    sprint: str = Query(...),
+    project_id: str | None = Query(None, alias="projectId"),
+    status_filter: str = Query("all", alias="status"),
+    current_user=Depends(_get_current_user),
+    db: Db = Depends(get_db),
+):
+    """Sprint-scoped tasks, projects, people, and hours (manager/admin only)."""
+    if current_user.role == "employee":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Manager or admin access required")
+    return analytics_logic.get_sprint_overview(
+        db, current_user, sprint, project_id, status_filter,
+    )
+
+
 # ── Timesheet Analytics ────────────────────────────────────────────────────────
 
 @router.get("/timesheet-analytics")

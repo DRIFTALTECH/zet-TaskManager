@@ -3,8 +3,9 @@ AI service layer — LangChain + DeepSeek V4 Flash (OpenAI-compatible API).
 
 Public helpers:
   complete()              → plain text response
-  complete_structured()   → Pydantic model via with_structured_output()
-  complete_structured_strict() → structured output (same path; DeepSeek has no Groq json_schema)
+  parse_structured()      → payload (text/dict/list) → validated Pydantic model
+  complete_structured()   → plain completion + parse_structured (no response_format)
+  complete_structured_strict() → same path
   bind_agent(tools)       → tool-bound chat runnable for the Zani agent
   parse_message_content() → strip reasoning from any LLM message/result
   transcribe()            → speech-to-text via Groq Whisper (unchanged)
@@ -14,6 +15,7 @@ Chat, agent, and structured-output calls use DeepSeek only. Override via:
   DEEPSEEK_AGENT_MODEL / DEEPSEEK_STRICT_MODEL
 """
 
+import json
 import os
 from typing import TypeVar, Type
 
@@ -22,7 +24,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 from pydantic import BaseModel
 
-from ai.response_parser import extract_final_answer, message_to_text, sanitize_model_strings
+from ai.response_parser import extract_final_answer, message_to_text
+from ai.structured import parse_structured as parse_structured
 
 # ── Models ────────────────────────────────────────────────────────────────────
 # Official API id: deepseek-v4-flash (serves the latest V4 Flash snapshot).
@@ -45,7 +48,7 @@ def _api_key() -> str:
     return (os.getenv("DEEPSEEK_API_KEY") or "").strip()
 
 
-def _deepseek(model: str, temperature: float) -> ChatOpenAI | None:
+def _deepseek(model: str, temperature: float, timeout: float | None = None) -> ChatOpenAI | None:
     """DeepSeek chat model, or None if no API key is configured."""
     key = _api_key()
     if not key:
@@ -55,7 +58,7 @@ def _deepseek(model: str, temperature: float) -> ChatOpenAI | None:
         temperature=temperature,
         api_key=key,
         base_url=_BASE_URL,
-        timeout=_LLM_TIMEOUT,
+        timeout=timeout if timeout is not None else _LLM_TIMEOUT,
         max_retries=_LLM_MAX_RETRIES,
         max_tokens=_MAX_TOKENS,
     )
@@ -103,15 +106,27 @@ def complete(prompt: ChatPromptTemplate, variables: dict) -> str:
     return parse_message_content((prompt | llm).invoke(variables))
 
 
+def _with_json_instruction(prompt: ChatPromptTemplate, schema: Type[BaseModel]) -> ChatPromptTemplate:
+    """Ask for JSON in the prompt. Never send response_format — DeepSeek V4 rejects it."""
+    schema_txt = json.dumps(schema.model_json_schema(), indent=2).replace("{", "{{").replace("}", "}}")
+    extra = (
+        "Return a single JSON object only that matches this schema. "
+        "No markdown fences and no commentary.\n" + schema_txt
+    )
+    return ChatPromptTemplate.from_messages([*prompt.messages, ("human", extra)])
+
+
 def complete_structured(
     prompt: ChatPromptTemplate,
     variables: dict,
     schema: Type[T],
+    *,
+    timeout: float | None = None,
 ) -> T:
-    """Invoke a prompt template and return a validated Pydantic model (tool-calling)."""
-    llm = _require(_deepseek(_DEFAULT_MODEL, 0.1))
-    runnable = prompt | llm.with_structured_output(schema)
-    return sanitize_model_strings(runnable.invoke(variables))
+    """Plain completion + parse_structured. Does not send response_format."""
+    llm = _require(_deepseek(_DEFAULT_MODEL, 0.1, timeout=timeout))
+    text = parse_message_content((_with_json_instruction(prompt, schema) | llm).invoke(variables))
+    return parse_structured(text, schema)
 
 
 def complete_structured_strict(
@@ -121,14 +136,12 @@ def complete_structured_strict(
     *,
     model: str | None = None,
     temperature: float = 0,
+    timeout: float | None = None,
 ) -> T:
-    """
-    Structured output via DeepSeek tool-calling.
-    The schema should be "strict-clean": every field required, extra="forbid".
-    """
-    llm = _require(_deepseek(model or _STRICT_MODEL, temperature))
-    runnable = prompt | llm.with_structured_output(schema)
-    return sanitize_model_strings(runnable.invoke(variables))
+    """Same as complete_structured (DeepSeek has no json_schema constrained decode)."""
+    llm = _require(_deepseek(model or _STRICT_MODEL, temperature, timeout=timeout))
+    text = parse_message_content((_with_json_instruction(prompt, schema) | llm).invoke(variables))
+    return parse_structured(text, schema)
 
 
 def transcribe(audio_bytes: bytes, filename: str = "audio.webm") -> str:

@@ -27,10 +27,41 @@ const DialogOverlay = React.forwardRef<
 ));
 DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 
+function isFileInput(el: EventTarget | null): boolean {
+  return el instanceof HTMLInputElement && el.type === 'file';
+}
+
+function isFilePickGesture(el: EventTarget | null): boolean {
+  if (isFileInput(el)) return true;
+  if (!(el instanceof Element)) return false;
+  if (el.closest('input[type="file"]')) return true;
+  const label = el.closest('label');
+  return !!label?.querySelector('input[type="file"]');
+}
+
+/** Native file pickers steal focus; Radix treats that as “click outside” and unmounts the dialog. */
+function isFilePickerDismiss(event: { target: EventTarget | null; detail?: { originalEvent?: Event } }): boolean {
+  const orig = event.detail?.originalEvent?.target ?? event.target;
+  return isFilePickGesture(orig);
+}
+
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
->(({ className, children, ...props }, ref) => (
+>(({ className, children, onPointerDownOutside, onFocusOutside, onInteractOutside, ...props }, ref) => {
+  const pickingFile = React.useRef(false);
+
+  React.useEffect(() => {
+    const clear = () => { window.setTimeout(() => { pickingFile.current = false; }, 400); };
+    window.addEventListener('focus', clear);
+    return () => window.removeEventListener('focus', clear);
+  }, []);
+
+  const guardDismiss = (event: { preventDefault: () => void; target: EventTarget | null; detail?: { originalEvent?: Event } }) => {
+    if (pickingFile.current || isFilePickerDismiss(event)) event.preventDefault();
+  };
+
+  return (
   <DialogPortal>
     <DialogOverlay />
     <DialogPrimitive.Content
@@ -40,6 +71,11 @@ const DialogContent = React.forwardRef<
         className,
       )}
       {...props}
+      onPointerDownCapture={e => { if (isFilePickGesture(e.target)) pickingFile.current = true; }}
+      onChangeCapture={e => { if (isFileInput(e.target)) window.setTimeout(() => { pickingFile.current = false; }, 0); }}
+      onPointerDownOutside={e => { guardDismiss(e); onPointerDownOutside?.(e); }}
+      onFocusOutside={e => { guardDismiss(e); onFocusOutside?.(e); }}
+      onInteractOutside={e => { guardDismiss(e); onInteractOutside?.(e); }}
     >
       <DialogPrimitive.Close className="absolute right-4 top-4 z-[60] flex h-8 w-8 items-center justify-center rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
         <X className="h-4 w-4" />
@@ -48,7 +84,8 @@ const DialogContent = React.forwardRef<
       {children}
     </DialogPrimitive.Content>
   </DialogPortal>
-));
+  );
+});
 DialogContent.displayName = DialogPrimitive.Content.displayName;
 
 const DialogHeader = ({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) => (

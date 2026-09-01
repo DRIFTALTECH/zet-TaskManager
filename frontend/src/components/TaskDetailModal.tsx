@@ -1,5 +1,5 @@
 import { useAppStore } from '@/stores/appStore';
-import { Task, Priority, TaskStatus, TaskAttachment, TaskFeedback, UserStory } from '@/types';
+import { Task, Priority, TaskStatus, TaskAttachment, TaskFeedback } from '@/types';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,7 @@ import {
   CheckSquare, Square,
 } from 'lucide-react';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { taskAssigneeIds, isTaskAssignedTo, normalizePriority, childTasksOf, isTaskDone } from '@/lib/task-utils';
 import { projectPickerLabel } from '@/lib/project-utils';
 import UserAvatar from '@/components/UserAvatar';
@@ -24,6 +25,7 @@ import { SubtaskManager } from '@/components/SubtaskSection';
 import { matchAgentBrand, AgentBrandBadge } from '@/lib/agent-brand';
 import { dueBucketDateTextClass, getDueBucket } from '@/lib/due-date-utils';
 import { api } from '@/lib/api';
+import { projectKeys, queryClient, taskKeys } from '@/lib/queryClient';
 import { formatLocalDateTime } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -112,6 +114,26 @@ function cfSig(cf?: Record<string, string>) {
   return JSON.stringify(Object.keys(cf || {}).sort().reduce<Record<string, string>>((a, k) => { a[k] = (cf || {})[k]; return a; }, {}));
 }
 
+function renderMessageWithMentions(message: string, userNames: string[]) {
+  if (!message.includes('@')) return message;
+
+  const escaped = [...new Set(userNames.filter(Boolean))]
+    .sort((a, b) => b.length - a.length)
+    .map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const pattern = escaped.length
+    ? new RegExp(`(@(?:${escaped.join('|')}|\\S+))`, 'g')
+    : /@\S+/g;
+
+  const parts = message.split(pattern);
+  return parts.map((part, i) =>
+    part.startsWith('@') ? (
+      <span key={i} className="font-semibold text-violet-600 dark:text-violet-400">{part}</span>
+    ) : (
+      part
+    ),
+  );
+}
+
 function useElapsedTime(epochStart: number | null): string {
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -145,11 +167,19 @@ function Avatar({ name, avatar, size = 'md' }: { name: string; avatar?: string; 
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
+const TaskDetailModal = ({ task: listTask, open, onOpenChange }: Props) => {
   const {
     users, projects, kanbanColumns, updateTask, currentUser, deleteTask, reopenTaskToBacklog,
     activeTimers, startTimer, stopTimer, tasks: allTasks, moveTask,
   } = useAppStore();
+  const { data: fullTask } = useQuery({
+    queryKey: taskKeys.detail(listTask?.id ?? '_'),
+    queryFn: () => api.getTask(listTask!.id),
+    enabled: open && !!listTask?.id,
+    staleTime: Infinity,
+    placeholderData: listTask ?? undefined,
+  });
+  const task = fullTask ?? listTask;
   const nestedChildren = useMemo(
     () => (task ? childTasksOf(allTasks, task.id) : []),
     [task, allTasks],
@@ -159,8 +189,8 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
   const [draftPriority, setDraftPriority] = useState<Priority>('Medium');
   const [draftAssigneeIds, setDraftAssigneeIds] = useState<string[]>([]);
   const [draftCustomRows, setDraftCustomRows] = useState<CustomFieldRow[]>([]);
-  const [draftUserStoryId, setDraftUserStoryId] = useState<string>('');
   const [draftSprint, setDraftSprint] = useState('');
+  const [draftEstimatedHours, setDraftEstimatedHours] = useState('');
   const [draftDueDate, setDraftDueDate] = useState('');
   const [draftProjectId, setDraftProjectId] = useState('');
   const [draftSectionId, setDraftSectionId] = useState('');
@@ -169,12 +199,28 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
   const [draftStartedAt, setDraftStartedAt] = useState('');
   const [draftCompletedAt, setDraftCompletedAt] = useState('');
   const [tagInput, setTagInput] = useState('');
-  const [sectionStories, setSectionStories] = useState<UserStory[]>([]);
-  const [storiesLoading, setStoriesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const [feedbackList, setFeedbackList] = useState<TaskFeedback[]>([]);
-  const [feedbackLoading, setFeedbackLoading] = useState(false);
+  const taskId = task?.id ?? '';
+  const storyProjectId = draftProjectId || task?.projectId || '';
+  const { data: feedbackList = [], isLoading: feedbackLoading } = useQuery({
+    queryKey: taskKeys.feedback(taskId),
+    queryFn: () => api.listTaskFeedback(taskId),
+    enabled: open && !!taskId,
+    staleTime: Infinity,
+  });
+  const { data: attachments = [], isLoading: attachmentsLoading } = useQuery({
+    queryKey: taskKeys.attachments(taskId),
+    queryFn: () => api.getAttachments(taskId),
+    enabled: open && !!taskId,
+    staleTime: Infinity,
+  });
+  const { data: sectionStories = [] } = useQuery({
+    queryKey: projectKeys.userStories(storyProjectId),
+    queryFn: () => api.listProjectUserStories(storyProjectId),
+    enabled: open && !!storyProjectId,
+    staleTime: Infinity,
+  });
   const [newFeedbackText, setNewFeedbackText] = useState('');
   const [postingFeedback, setPostingFeedback] = useState(false);
   const [editingFeedbackId, setEditingFeedbackId] = useState<string | null>(null);
@@ -194,8 +240,6 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
   const [showAiSummary, setShowAiSummary] = useState(false);
 
   // ── Attachments ─────────────────────────────────────────────────────────────
-  const [attachments, setAttachments] = useState<TaskAttachment[]>([]);
-  const [attachmentsLoading, setAttachmentsLoading] = useState(false);
   const [uploadingFile, setUploadingFile] = useState(false);
   // Inline viewer: preview a doc/diff/image in-app instead of downloading.
   const [viewer, setViewer] = useState<{ att: TaskAttachment; kind: 'text' | 'image' | 'binary'; text?: string; url?: string; loading: boolean } | null>(null);
@@ -246,8 +290,8 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
     setDraftPriority(normalizePriority(t.priority));
     setDraftAssigneeIds([...taskAssigneeIds(t)]);
     setDraftCustomRows(rowsFromTask(t.customFields));
-    setDraftUserStoryId(t.userStoryId ?? '');
     setDraftSprint(t.sprint ?? '');
+    setDraftEstimatedHours(t.estimatedHours != null && t.estimatedHours > 0 ? String(t.estimatedHours) : '');
     setDraftDueDate(dateOnly(t.dueDate));
     setDraftProjectId(t.projectId);
     setDraftSectionId(t.sectionId);
@@ -258,50 +302,12 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
     setTagInput('');
   }, []);
 
-  const loadFeedback = useCallback(async () => {
-    if (!task?.id) return;
-    setFeedbackLoading(true);
-    try { setFeedbackList(await api.listTaskFeedback(task.id)); }
-    catch (e) { toast.error(e instanceof Error ? e.message : 'Could not load feedback'); }
-    finally { setFeedbackLoading(false); }
-  }, [task?.id]);
-
-  const loadAttachments = useCallback(async () => {
-    if (!task?.id) return;
-    setAttachmentsLoading(true);
-    try { setAttachments(await api.getAttachments(task.id)); }
-    catch { /* silently ignore */ }
-    finally { setAttachmentsLoading(false); }
-  }, [task?.id]);
-
-  useEffect(() => { if (task && open) resetDraft(task); }, [open, task?.id, assigneeKey, resetDraft]);
+  useEffect(() => { if (task && open) resetDraft(task); }, [open, task?.id, task?.description, assigneeKey, resetDraft]);
   useEffect(() => {
     if (!open || !task?.id) return;
-    void loadFeedback();
-    void loadAttachments();
     setNewFeedbackText(''); setEditingFeedbackId(null); setEditingFeedbackText('');
     setAiSummary(null); setShowAiSummary(false);
-  }, [open, task?.id, loadFeedback, loadAttachments]);
-
-  useEffect(() => {
-    if (!open || !task?.projectId) {
-      setSectionStories([]);
-      return;
-    }
-    let cancelled = false;
-    setStoriesLoading(true);
-    void (async () => {
-      try {
-        const rows = await api.listProjectUserStories(draftProjectId || task.projectId);
-        if (!cancelled) setSectionStories(rows);
-      } catch {
-        if (!cancelled) setSectionStories([]);
-      } finally {
-        if (!cancelled) setStoriesLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [open, draftProjectId, task?.projectId, task?.id]);
+  }, [open, task?.id]);
 
   const isDirty = useMemo(() => {
     if (!task || !canEdit) return false;
@@ -310,9 +316,9 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
       draftDescription !== (task.description ?? '') ||
       draftPriority !== normalizePriority(task.priority) ||
       cfSig(recordFromRows(draftCustomRows)) !== cfSig(task.customFields) ||
-      (draftUserStoryId || '') !== (task.userStoryId || '') ||
       sortedKey(draftAssigneeIds) !== sortedKey(taskAssigneeIds(task)) ||
       draftSprint.trim() !== (task.sprint ?? '').trim() ||
+      (draftEstimatedHours.trim() || '') !== (task.estimatedHours != null && task.estimatedHours > 0 ? String(task.estimatedHours) : '') ||
       draftDueDate !== dateOnly(task.dueDate) ||
       draftProjectId !== task.projectId ||
       draftSectionId !== task.sectionId ||
@@ -321,7 +327,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
       draftStartedAt !== dateOnly(task.startedAt) ||
       draftCompletedAt !== dateOnly(task.completedAt)
     );
-  }, [task, canEdit, draftTitle, draftDescription, draftPriority, draftAssigneeIds, draftCustomRows, draftUserStoryId, draftSprint, draftDueDate, draftProjectId, draftSectionId, draftStatus, draftTags, draftStartedAt, draftCompletedAt]);
+  }, [task, canEdit, draftTitle, draftDescription, draftPriority, draftAssigneeIds, draftCustomRows, draftSprint, draftEstimatedHours, draftDueDate, draftProjectId, draftSectionId, draftStatus, draftTags, draftStartedAt, draftCompletedAt]);
 
   const timerEpochStart = task ? (activeTimers[task.id] ?? null) : null;
   const elapsed = useElapsedTime(timerEpochStart);
@@ -371,6 +377,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
   if (displayStatus && !statusOptions.some(s => s.id === displayStatus)) {
     statusOptions.push({ id: displayStatus, label: statusCfg.label });
   }
+  const linkedStory = sectionStories.find(s => s.id === (task.userStoryId || ''));
 
   const toggleAssignee = (uid: string) => setDraftAssigneeIds(prev =>
     prev.includes(uid) ? prev.filter(id => id !== uid) : [...prev, uid]);
@@ -387,7 +394,6 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
     const next = projects.find(p => p.id === pid);
     const firstSection = next?.sections[0]?.id ?? '';
     setDraftSectionId(firstSection);
-    setDraftUserStoryId('');
     const memberIds = new Set(next?.members ?? []);
     setDraftAssigneeIds(prev => prev.filter(id => memberIds.has(id)));
   };
@@ -396,7 +402,13 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
     const title = draftTitle.trim();
     if (!title) { toast.error('Title is required'); return; }
     if (!draftSectionId) { toast.error('Pick a section in the selected project'); return; }
-    if (!draftUserStoryId) { toast.error('Pick a user story'); return; }
+    const estRaw = draftEstimatedHours.trim();
+    let estimatedHours: number | null = null;
+    if (estRaw) {
+      const n = Number(estRaw);
+      if (!Number.isFinite(n) || n < 0) { toast.error('Estimated time must be a number of hours'); return; }
+      estimatedHours = n > 0 ? n : null;
+    }
     const ids = [...new Set(draftAssigneeIds)];
     setSaving(true);
     try {
@@ -405,9 +417,9 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
         description: draftDescription,
         priority: draftPriority,
         customFields: recordFromRows(draftCustomRows),
-        userStoryId: draftUserStoryId,
         assigneeIds: ids,
         sprint: draftSprint.trim(),
+        estimatedHours,
         dueDate: draftDueDate,
         projectId: draftProjectId || task.projectId,
         sectionId: draftSectionId || task.sectionId,
@@ -427,7 +439,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
     setPostingFeedback(true);
     try {
       const created = await api.createTaskFeedback(task.id, newFeedbackText.trim(), mentionedUserIds);
-      setFeedbackList(prev => [...prev, created]);
+      queryClient.setQueryData(taskKeys.feedback(task.id), (prev: TaskFeedback[] | undefined) => [...(prev ?? []), created]);
       setNewFeedbackText('');
       setMentionedUserIds([]);
       setMentionQuery(null);
@@ -489,7 +501,9 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
     if (!editingFeedbackId || !editingFeedbackText.trim()) return;
     try {
       const updated = await api.patchTaskFeedback(task.id, editingFeedbackId, editingFeedbackText.trim());
-      setFeedbackList(prev => prev.map(f => f.id === updated.id ? updated : f));
+      queryClient.setQueryData(taskKeys.feedback(task.id), (prev: TaskFeedback[] | undefined) =>
+        (prev ?? []).map(f => f.id === updated.id ? updated : f),
+      );
       setEditingFeedbackId(null); setEditingFeedbackText('');
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not update feedback'); }
   };
@@ -498,7 +512,9 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
     if (!window.confirm('Delete this comment?')) return;
     try {
       await api.deleteTaskFeedback(task.id, id);
-      setFeedbackList(prev => prev.filter(f => f.id !== id));
+      queryClient.setQueryData(taskKeys.feedback(task.id), (prev: TaskFeedback[] | undefined) =>
+        (prev ?? []).filter(f => f.id !== id),
+      );
       if (editingFeedbackId === id) { setEditingFeedbackId(null); setEditingFeedbackText(''); }
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not delete feedback'); }
   };
@@ -621,6 +637,29 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
             {/* ── LEFT pane ─────────────────────────────────────── */}
             <div className="flex-1 min-w-0 md:overflow-y-auto overscroll-contain p-5 sm:p-7 space-y-7">
 
+              {linkedStory && (
+                <section className="rounded-xl border border-violet-500/20 overflow-hidden">
+                  <div className="flex items-center gap-2 px-4 py-2.5 bg-violet-500/10">
+                    <BookOpen className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />
+                    <span className="text-[11px] font-bold uppercase tracking-wide text-violet-600 dark:text-violet-400">User story</span>
+                  </div>
+                  <div className="px-4 py-3.5 space-y-3 bg-violet-500/5">
+                    <p className="text-sm font-semibold text-foreground">{linkedStory.title}</p>
+                    {linkedStory.description?.trim() ? (
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground/90">{linkedStory.description}</p>
+                    ) : (
+                      <p className="text-sm italic text-muted-foreground/50">No story description.</p>
+                    )}
+                    {linkedStory.acceptanceCriteria?.trim() ? (
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Acceptance criteria</p>
+                        <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground/80">{linkedStory.acceptanceCriteria}</p>
+                      </div>
+                    ) : null}
+                  </div>
+                </section>
+              )}
+
               {/* Description */}
               <section>
                 <SectionLabel icon={MessageSquare} label="Description" accent="text-blue-400/70" />
@@ -685,7 +724,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
               {canEdit && (
                 <section>
                   <SectionLabel icon={User2} label="Manage Assignees" accent="text-violet-400/70" />
-                  {(draftUserStoryId || task.userStoryId) && (
+                  {task.userStoryId && (
                     <p className="text-[11px] text-muted-foreground/60 mb-2">
                       Linked to a user story — you can leave assignees empty; the task stays under the story.
                     </p>
@@ -848,7 +887,9 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                     setUploadingFile(true);
                     try {
                       const att = await api.uploadAttachment(task.id, file);
-                      setAttachments(prev => [...prev, att]);
+                      queryClient.setQueryData(taskKeys.attachments(task.id), (prev: TaskAttachment[] | undefined) =>
+                        [...(prev ?? []), att],
+                      );
                       toast.success(`${file.name} uploaded`);
                     } catch (err) { toast.error(err instanceof Error ? err.message : 'Upload failed'); }
                     finally { setUploadingFile(false); e.target.value = ''; }
@@ -857,7 +898,9 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                   const handleDelete = async (att: TaskAttachment) => {
                     try {
                       await api.deleteAttachment(task.id, att.id);
-                      setAttachments(prev => prev.filter(a => a.id !== att.id));
+                      queryClient.setQueryData(taskKeys.attachments(task.id), (prev: TaskAttachment[] | undefined) =>
+                        (prev ?? []).filter(a => a.id !== att.id),
+                      );
                       toast.success('Attachment deleted');
                     } catch { toast.error('Could not delete attachment'); }
                   };
@@ -1062,7 +1105,7 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                                     } ${brand ? 'border-l-[3px]' : ''}`}
                                     style={brand ? { borderLeftColor: brand.bg } : undefined}
                                   >
-                                    {fb.message}
+                                    {renderMessageWithMentions(fb.message, users.map(u => u.name))}
                                   </div>
                                   {isOwn && (
                                     <div className="flex gap-1 mt-0.5">
@@ -1170,31 +1213,15 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                 )}
               </section>
 
-              {/* User story */}
-              <section>
-                <SectionLabel icon={BookOpen} label="User story" accent="text-violet-400/70" />
-                {canEdit ? (
-                  <Select
-                    value={draftUserStoryId || undefined}
-                    onValueChange={setDraftUserStoryId}
-                    disabled={storiesLoading}
-                  >
-                    <SelectTrigger className="w-full text-xs h-9">
-                      <SelectValue placeholder={storiesLoading ? 'Loading…' : 'Choose user story'} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {sectionStories.map(s => (
-                        <SelectItem key={s.id} value={s.id}>{s.title}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
+              {/* User story — read-only; set at task creation */}
+              {task.userStoryId && (
+                <section>
+                  <SectionLabel icon={BookOpen} label="User story" accent="text-violet-400/70" />
                   <p className="text-xs text-muted-foreground">
-                    {sectionStories.find(s => s.id === (task.userStoryId || ''))?.title
-                      || (task.userStoryId ? 'Linked story' : 'No user story')}
+                    {linkedStory?.title || 'Linked story'}
                   </p>
-                )}
-              </section>
+                </section>
+              )}
 
               {/* Status */}
               <section>
@@ -1271,6 +1298,32 @@ const TaskDetailModal = ({ task, open, onOpenChange }: Props) => {
                   />
                 ) : (
                   <div className="text-sm text-foreground">{task.sprint?.trim() || 'No sprint'}</div>
+                )}
+              </section>
+
+              {/* Estimated time */}
+              <section>
+                <SectionLabel icon={Clock} label="Estimated time" accent="text-amber-400/70" />
+                {canEdit ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.25"
+                      inputMode="decimal"
+                      value={draftEstimatedHours}
+                      onChange={e => setDraftEstimatedHours(e.target.value)}
+                      placeholder="Hours"
+                      className="w-full text-sm font-semibold bg-muted/40 border border-border/50 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 transition-all"
+                    />
+                    <span className="text-xs text-muted-foreground shrink-0">hours</span>
+                  </div>
+                ) : (
+                  <div className="text-sm text-foreground">
+                    {task.estimatedHours != null && task.estimatedHours > 0
+                      ? `${task.estimatedHours}h`
+                      : '—'}
+                  </div>
                 )}
               </section>
 

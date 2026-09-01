@@ -45,7 +45,7 @@ export const AGENTS: Record<AgentId, AgentDef> = {
 /** Resolve which mascot owns a given route path. Falls back to Zani everywhere. */
 export function agentForPath(pathname: string): AgentId {
   if (pathname === '/') return 'tasker';
-  if (pathname.startsWith('/manage') || pathname.startsWith('/users') || pathname === '/meeting-notes') return 'pilot';
+  if (pathname.startsWith('/manage') || pathname.startsWith('/users') || pathname === '/meeting-notes' || pathname.startsWith('/overview')) return 'pilot';
   return 'zani';
 }
 

@@ -3,14 +3,16 @@
  * (same table as /prd) → edit → Save to ZET.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { FileUp, Loader2, Sparkles } from 'lucide-react';
+import { FileUp, Loader2, Sparkles, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/stores/appStore';
-import type { PrdDraft, UserStory } from '@/types';
+import type { PrdDraft, PrdDraftStory, UserStory } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { PrdDraftTable } from '@/components/PrdDraftTable';
+import { PrdStudio } from '@/components/prd/PrdStudio';
+import { coercePrdDraft } from '@/components/PrdDraftTable';
+import { mergePrdFiles, PRD_FILE_ACCEPT } from '@/lib/prdSession';
 
 type Props = {
   projectId: string;
@@ -30,17 +32,18 @@ export default function SplitRequirementsPanel({
   const projects = useAppStore(s => s.projects);
   const syncTasks = useAppStore(s => s.syncTasks);
   const [text, setText] = useState('');
-  const [file, setFile] = useState<File | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState<PrdDraft>(emptyDraft());
   const [dragOver, setDragOver] = useState(false);
+  const [pendingStoryIds, setPendingStoryIds] = useState<Set<string>>(new Set());
 
   const loadDraft = useCallback(async () => {
     try {
-      const d = await api.getPrdDraft();
-      const mine = d.stories.length > 0 && d.stories.every(s => !s.projectId || s.projectId === projectId);
-      setDraft(mine ? d : emptyDraft());
+      const next = coercePrdDraft(await api.getPrdDraft());
+      const mine = next.stories.length > 0 && next.stories.every(s => !s.projectId || s.projectId === projectId);
+      setDraft(mine ? next : emptyDraft());
     } catch {
       setDraft(emptyDraft());
     }
@@ -48,21 +51,49 @@ export default function SplitRequirementsPanel({
 
   useEffect(() => { void loadDraft(); }, [loadDraft]);
 
-  const runAnalyze = async (dropped?: File | null) => {
-    const useFile = dropped === undefined ? file : dropped;
-    if (!text.trim() && !useFile) {
+  const runAnalyze = async () => {
+    if (!text.trim() && files.length === 0) {
       toast.error('Paste text or drop a requirements document');
       return;
     }
     setLoading(true);
+    setPendingStoryIds(new Set());
+    setDraft(emptyDraft());
     try {
       const fd = new FormData();
       fd.append('project_id', projectId);
       if (text.trim()) fd.append('text', text.trim());
-      if (useFile) fd.append('file', useFile);
-      const next = await api.analyzePrd(fd);
+      for (const f of files) fd.append('files', f);
+      let finished: PrdDraft | null = null;
+      await api.analyzePrdStream(fd, ev => {
+        if (ev.type === 'story') {
+          setPendingStoryIds(prev => new Set(prev).add(ev.story.id));
+          setDraft(prev => ({
+            ...prev,
+            stories: [...prev.stories.filter(s => s.id !== ev.story.id), ev.story],
+          }));
+        }
+        if (ev.type === 'tasks') {
+          setPendingStoryIds(prev => {
+            const next = new Set(prev);
+            next.delete(ev.storyId);
+            return next;
+          });
+          setDraft(prev => ({
+            ...prev,
+            stories: prev.stories.map((s: PrdDraftStory) =>
+              s.id === ev.storyId ? { ...s, tasks: ev.tasks } : s,
+            ),
+          }));
+        }
+        if (ev.type === 'done') {
+          setPendingStoryIds(new Set());
+          finished = coercePrdDraft(ev.draft);
+        }
+        if (ev.type === 'error') throw new Error(ev.message);
+      });
+      const next = coercePrdDraft(finished ?? emptyDraft());
       setDraft(next);
-      if (dropped) setFile(dropped);
       if (!next.stories.length) toast.message('No user stories found in the document');
       else toast.success(`Staged ${next.stories.length} user stor${next.stories.length === 1 ? 'y' : 'ies'}`);
     } catch (e) {
@@ -72,13 +103,17 @@ export default function SplitRequirementsPanel({
     }
   };
 
-  const commit = async () => {
+  const commit = async (storyIds: string[], taskIds: string[]) => {
     setSaving(true);
     try {
-      const res = await api.commitPrdDraft();
-      setDraft(emptyDraft());
-      setText('');
-      setFile(null);
+      const res = await api.commitPrdDraft(storyIds, taskIds);
+      const leftover = coercePrdDraft(await api.getPrdDraft());
+      const mine = leftover.stories.length > 0 && leftover.stories.every(s => !s.projectId || s.projectId === projectId);
+      setDraft(mine ? leftover : emptyDraft());
+      if (!mine || leftover.stories.length === 0) {
+        setText('');
+        setFiles([]);
+      }
       await syncTasks();
       window.dispatchEvent(new Event('zet:stories-changed'));
       onCreated?.([]);
@@ -86,7 +121,8 @@ export default function SplitRequirementsPanel({
         `Saved ${res.storiesCreated} stor${res.storiesCreated === 1 ? 'y' : 'ies'} and ${res.tasksCreated} task${res.tasksCreated === 1 ? '' : 's'}`,
       );
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Could not save to ZET');
+      toast.error(e instanceof Error ? e.message : 'Could not save story');
+      throw e;
     } finally {
       setSaving(false);
     }
@@ -101,58 +137,93 @@ export default function SplitRequirementsPanel({
         <h3 className="text-sm font-bold text-foreground">Split document into user stories</h3>
       </div>
       <p className="text-xs text-muted-foreground/60 mb-4">
-        Upload a large requirements file (PDF, DOCX, TXT) or paste text. AI divides it into user stories,
+        Upload one or more PDFs (or DOCX/TXT) or paste text. AI divides them into user stories,
         each with tasks and subtasks.
       </p>
 
-      <div className="space-y-3 mb-4">
+      <div
+        className="space-y-3 mb-4"
+        onDragOver={e => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={e => {
+          if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+          setDragOver(false);
+        }}
+        onDrop={e => {
+          e.preventDefault();
+          setDragOver(false);
+          setFiles(prev => mergePrdFiles(prev, e.dataTransfer.files));
+        }}
+      >
         <Textarea
           value={text}
           onChange={e => setText(e.target.value)}
-          rows={5}
-          placeholder="Paste requirements, specs, or meeting notes…"
-          className="font-mono text-xs"
-        />
-        <div
-          onDragOver={e => {
-            e.preventDefault();
-            setDragOver(true);
-          }}
-          onDragLeave={() => setDragOver(false)}
+          onDragOver={e => e.preventDefault()}
           onDrop={e => {
             e.preventDefault();
             setDragOver(false);
-            const f = e.dataTransfer.files?.[0];
-            if (f) void runAnalyze(f);
+            setFiles(prev => mergePrdFiles(prev, e.dataTransfer.files));
           }}
+          rows={5}
+          placeholder="Paste requirements, specs, or meeting notes — or drop PDFs here…"
+          className={`font-mono text-xs ${dragOver ? 'border-primary bg-primary/5' : ''}`}
+        />
+        <div
           className={`rounded-xl border border-dashed px-4 py-5 text-center text-xs ${
             dragOver ? 'border-primary bg-primary/5' : 'border-border/40 text-muted-foreground/50'
           }`}
         >
-          {file ? (
-            <span className="text-foreground font-medium">{file.name}</span>
+          {files.length > 0 ? (
+            <div className="flex flex-wrap justify-center gap-2">
+              {files.map(f => (
+                <span key={`${f.name}-${f.size}`} className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-muted/40 px-2.5 py-1 font-mono text-[11px] text-foreground">
+                  {f.name}
+                  <button type="button" onClick={() => setFiles(prev => prev.filter(x => x !== f))} aria-label={`Remove ${f.name}`}>
+                    <X className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                  </button>
+                </span>
+              ))}
+            </div>
           ) : (
             <>
-              Drag & drop a PDF/DOCX, or{' '}
+              Drag & drop PDFs, or{' '}
               <label className="text-primary underline cursor-pointer">
                 browse
                 <input
                   type="file"
                   className="sr-only"
-                  accept=".pdf,.docx,.txt,.md"
+                  accept={PRD_FILE_ACCEPT}
+                  multiple
                   onChange={e => {
-                    const f = e.target.files?.[0];
-                    if (f) void runAnalyze(f);
+                    setFiles(prev => mergePrdFiles(prev, e.target.files));
+                    e.target.value = '';
                   }}
                 />
               </label>
             </>
           )}
         </div>
+        {files.length > 0 && (
+          <label className="text-xs text-primary underline cursor-pointer">
+            Add more files
+            <input
+              type="file"
+              className="sr-only"
+              accept={PRD_FILE_ACCEPT}
+              multiple
+              onChange={e => {
+                setFiles(prev => mergePrdFiles(prev, e.target.files));
+                e.target.value = '';
+              }}
+            />
+          </label>
+        )}
         <Button
           type="button"
           className="w-full sm:w-auto"
-          disabled={loading || (!text.trim() && !file)}
+          disabled={loading || (!text.trim() && files.length === 0)}
           onClick={() => void runAnalyze()}
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Sparkles className="h-4 w-4 mr-2" />}
@@ -160,14 +231,16 @@ export default function SplitRequirementsPanel({
         </Button>
       </div>
 
-      {hasDraft && (
-        <PrdDraftTable
+      {(hasDraft || loading) && (
+        <PrdStudio
           draft={draft}
           projects={projects}
-          saving={saving}
-          hidePlacement
+          saving={saving || loading}
+          analyzing={loading}
+          pendingStoryIds={pendingStoryIds}
+          lockProjectId={projectId}
           onChange={setDraft}
-          onCommit={() => void commit()}
+          onCommit={commit}
         />
       )}
     </section>

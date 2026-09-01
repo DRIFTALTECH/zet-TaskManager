@@ -182,7 +182,7 @@ export function WorkHistorySheet({
                   <li key={t.id} className="rounded-lg border border-border/20 px-3 py-2 text-sm space-y-0.5">
                     <p className="font-medium line-clamp-2">{t.title}</p>
                     <div className="flex gap-2 text-[11px] text-muted-foreground">
-                      <span className="capitalize">{t.status.replace('_', ' ')}</span>
+                      <span className="capitalize">{(t.status || '').replace('_', ' ')}</span>
                       {t.projectName && <span>· {t.projectName}</span>}
                     </div>
                   </li>

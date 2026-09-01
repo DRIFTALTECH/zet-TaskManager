@@ -4,10 +4,12 @@
  * - SubtaskManager: load and manage subtasks on an existing task.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { CheckSquare, ListChecks, Plus, Square, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
+import { queryClient, taskKeys } from '@/lib/queryClient';
 import type { TaskChecklist } from '@/types';
 import { newSubtaskDraftRow, type SubtaskDraftRow } from '@/lib/subtask-utils';
 import { cn } from '@/lib/utils';
@@ -83,32 +85,23 @@ type ManagerProps = {
 };
 
 export function SubtaskManager({ taskId, className }: ManagerProps) {
-  const [items, setItems] = useState<TaskChecklist[]>([]);
-  const [loading, setLoading] = useState(false);
+  const { data: items = [], isLoading: loading } = useQuery({
+    queryKey: taskKeys.checklists(taskId),
+    queryFn: () => api.getChecklists(taskId),
+    enabled: !!taskId,
+    staleTime: Infinity,
+  });
   const [newTitle, setNewTitle] = useState('');
   const [adding, setAdding] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
 
-  const load = useCallback(async () => {
-    if (!taskId) return;
-    setLoading(true);
-    try {
-      setItems(await api.getChecklists(taskId));
-    } catch {
-      /* ignore — parent may show task without subtasks */
-    } finally {
-      setLoading(false);
-    }
-  }, [taskId]);
-
   useEffect(() => {
-    void load();
     setShowAddForm(false);
     setNewTitle('');
     setEditingId(null);
-  }, [taskId, load]);
+  }, [taskId]);
 
   const done = items.filter(c => c.isDone).length;
   const total = items.length;
@@ -130,7 +123,7 @@ export function SubtaskManager({ taskId, className }: ManagerProps) {
     setAdding(true);
     try {
       const item = await api.createChecklist(taskId, title);
-      setItems(prev => [...prev, item]);
+      queryClient.setQueryData(taskKeys.checklists(taskId), (prev: TaskChecklist[] | undefined) => [...(prev ?? []), item]);
       setNewTitle('');
       setShowAddForm(false);
     } catch (e) {
@@ -143,7 +136,9 @@ export function SubtaskManager({ taskId, className }: ManagerProps) {
   const toggleDone = async (item: TaskChecklist) => {
     try {
       const updated = await api.patchChecklist(taskId, item.id, { isDone: !item.isDone });
-      setItems(prev => prev.map(c => (c.id === updated.id ? updated : c)));
+      queryClient.setQueryData(taskKeys.checklists(taskId), (prev: TaskChecklist[] | undefined) =>
+        (prev ?? []).map(c => (c.id === updated.id ? updated : c)),
+      );
     } catch {
       toast.error('Could not update subtask');
     }
@@ -159,7 +154,9 @@ export function SubtaskManager({ taskId, className }: ManagerProps) {
     }
     try {
       const updated = await api.patchChecklist(taskId, item.id, { title });
-      setItems(prev => prev.map(c => (c.id === updated.id ? updated : c)));
+      queryClient.setQueryData(taskKeys.checklists(taskId), (prev: TaskChecklist[] | undefined) =>
+        (prev ?? []).map(c => (c.id === updated.id ? updated : c)),
+      );
     } catch {
       toast.error('Could not edit subtask');
     }
@@ -168,7 +165,9 @@ export function SubtaskManager({ taskId, className }: ManagerProps) {
   const deleteSubtask = async (itemId: string) => {
     try {
       await api.deleteChecklist(taskId, itemId);
-      setItems(prev => prev.filter(c => c.id !== itemId));
+      queryClient.setQueryData(taskKeys.checklists(taskId), (prev: TaskChecklist[] | undefined) =>
+        (prev ?? []).filter(c => c.id !== itemId),
+      );
     } catch {
       toast.error('Could not delete subtask');
     }

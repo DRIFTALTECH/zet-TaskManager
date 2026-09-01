@@ -225,6 +225,21 @@ def test_submit_approve_reject_flow(db):
     assert approved.reviewerName == mgr.name
     assert approved.reviewedAt is not None
 
+    timesheet_logic.create_entry(
+        db,
+        emp.id,
+        TimesheetEntryCreate(
+            workDate=date.today().isoformat(),
+            projectId=pid,
+            sectionId=sid,
+            description="after approve",
+            timeFrom="15:00",
+            timeTo="16:00",
+        ),
+    )
+    again = timesheet_logic.submit_week(db, emp.id, ws)
+    assert again.status == "submitted"
+
 
 def test_manager_submissions_listing(db):
     suffix = new_id("t")
@@ -409,15 +424,13 @@ def test_manager_reopen_and_reject_transitions(db):
     approved = timesheet_logic.approve_submission(db, mgr.id, sub.id)
     assert approved.status == "approved"
 
-    with pytest.raises(HTTPException) as exc:
-        timesheet_logic.create_entry(
-            db, emp.id,
-            TimesheetEntryCreate(
-                workDate=date.today().isoformat(), projectId=pid, sectionId=sid,
-                description="blocked", timeFrom="11:00", timeTo="12:00",
-            ),
-        )
-    assert exc.value.status_code == 409
+    timesheet_logic.create_entry(
+        db, emp.id,
+        TimesheetEntryCreate(
+            workDate=date.today().isoformat(), projectId=pid, sectionId=sid,
+            description="after approve", timeFrom="11:00", timeTo="12:00",
+        ),
+    )
 
     reopened = timesheet_logic.reopen_submission(db, mgr.id, sub.id)
     assert reopened.status == "submitted"

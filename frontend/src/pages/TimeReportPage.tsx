@@ -725,7 +725,7 @@ const ReportsPage = () => {
         )}
 
         {tab === 'clients' && isManager && (
-          <ClientSummaryPanel />
+          <ClientSummaryPanel entries={filtered} />
         )}
       </div>
     </motion.div>

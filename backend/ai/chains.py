@@ -24,7 +24,11 @@ from ai.schemas import (
     MeetingIngestResponse,
     MomParseResult,
     ParseTaskResponse,
+    PrdExtractedStory,
     PrdExtractResponse,
+    PrdOutlineResponse,
+    PrdOutlineStory,
+    PrdTaskBundle,
     StrictMomParseResult,
     StrictTimesheetParseResponse,
     SummarizeTaskResponse,
@@ -55,7 +59,13 @@ def _projects_str(projects) -> str:
         sections = getattr(p, "sections", []) or []
         sec_list = ", ".join(f"{s.name} (ID: {s.id})" for s in sections) if sections else "none"
         members = getattr(p, "members", []) or []
-        mem_list = ", ".join(f"{m.name} (ID: {m.id})" for m in members) if members else "none"
+        mem_bits = []
+        for m in members:
+            exp = getattr(m, "current_experience_months", 0) or 0
+            title = getattr(m, "job_title", "") or "role n/a"
+            exp_str = f"{exp // 12}y {exp % 12}m" if exp else "exp n/a"
+            mem_bits.append(f"{m.name} (ID: {m.id}; {title}; {exp_str})")
+        mem_list = ", ".join(mem_bits) if mem_bits else "none"
         lines.append(f"- ID: {p.id} | Name: {p.name} | Sections: {sec_list} | Members: {mem_list}")
     return "\n".join(lines)
 
@@ -120,8 +130,11 @@ def parse_task(text: str, users=None, projects=None) -> ParseTaskResponse:
     return result
 
 
+_PRD_LLM_TIMEOUT = 90.0
+
+
 def extract_prd(text: str, projects=None) -> PrdExtractResponse:
-    """PRD / spec → user stories with tasks. No people assignment."""
+    """PRD / spec → user stories with tasks assigned to project members."""
     result = service.complete_structured(
         prompts.EXTRACT_PRD_PROMPT,
         {
@@ -129,8 +142,42 @@ def extract_prd(text: str, projects=None) -> PrdExtractResponse:
             "projects": _projects_str(projects or []),
         },
         PrdExtractResponse,
+        timeout=_PRD_LLM_TIMEOUT,
     )
     return result
+
+
+def outline_prd(text: str, projects=None) -> PrdOutlineResponse:
+    """Fast pass: story shells only."""
+    return service.complete_structured(
+        prompts.OUTLINE_PRD_PROMPT,
+        {
+            "text": text,
+            "projects": _projects_str(projects or []),
+        },
+        PrdOutlineResponse,
+        timeout=_PRD_LLM_TIMEOUT,
+    )
+
+
+def expand_prd_story(
+    text: str,
+    story: PrdOutlineStory | PrdExtractedStory,
+    projects=None,
+) -> PrdTaskBundle:
+    """Second pass: tasks for one story."""
+    return service.complete_structured(
+        prompts.EXPAND_PRD_STORY_PROMPT,
+        {
+            "text": text[:16000],
+            "title": story.title,
+            "description": story.description or "",
+            "acceptance_criteria": getattr(story, "acceptance_criteria", None) or "",
+            "projects": _projects_str(projects or []),
+        },
+        PrdTaskBundle,
+        timeout=_PRD_LLM_TIMEOUT,
+    )
 
 
 def chat(req: ChatRequest, db: Db, current_user: User) -> ChatResponse:
@@ -255,11 +302,8 @@ def chat(req: ChatRequest, db: Db, current_user: User) -> ChatResponse:
 def parse_timesheet(summary: str, work_date: str, projects=None) -> TimesheetParseResponse:
     """Convert a natural language day summary into structured timesheet rows.
 
-    Primary path uses constrained decoding (strict json_schema) so the model
-    cannot emit stringified scalars or extra keys — this is what previously
-    triggered Groq 400 tool_use_failed errors. If the strict path fails for any
-    reason (model/provider hiccup), fall back to the lenient tool-calling path,
-    whose coercers tolerate stringified scalars.
+    Plain JSON completion + parse_structured (DeepSeek rejects response_format).
+    Strict schema first; fall back to the lenient schema if validation fails.
     """
     variables = {
         "summary": summary,
@@ -318,8 +362,7 @@ def extract_tasks_from_audio(audio_bytes: bytes, filename: str, users=None, proj
 def parse_meeting_notes(notes: str) -> MomParseResult:
     """Turn raw scrum/MOM text into a clean per-person breakdown.
 
-    Tries constrained decoding first (guaranteed-valid JSON); falls back to the
-    lenient structured path if the strict model/provider hiccups.
+    Strict schema first via parse_structured; falls back to the lenient schema.
     """
     variables = {"notes": notes}
     try:

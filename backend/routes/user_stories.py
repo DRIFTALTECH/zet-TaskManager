@@ -15,6 +15,7 @@ from logic.schemas import (
     UserStoryPatch,
 )
 from routes.deps import get_current_user_id
+from offloop import offloop
 from upload_guard import read_limited
 
 router = APIRouter()
@@ -53,7 +54,6 @@ def create_user_story(
 )
 async def extract_user_stories(
     project_id: str,
-    section_id: str | None = Form(None),
     text: str | None = Form(None),
     file: UploadFile | None = File(None),
     user_id: str = Depends(get_current_user_id),
@@ -66,9 +66,7 @@ async def extract_user_stories(
 
         raw = await file.read()
         source = _document_text(raw, file.filename or "requirements.txt") or source
-    return user_story_logic.extract_stories_preview(
-        db, user_id, project_id, section_id, source
-    )
+    return await offloop(user_story_logic.extract_stories_preview, db, user_id, project_id, source)
 
 
 @router.post("/user-stories/bulk", response_model=list[UserStoryOut])
@@ -171,8 +169,9 @@ async def upload_story_attachment(
     db: Db = Depends(get_db),
 ):
     content = await read_limited(file, attachment_logic.MAX_FILE_SIZE, label='Attachment')
-    return attachment_logic.upload_for_user_story(
-        db, story_id, user_id, file.filename, file.content_type, content
+    return await offloop(
+        attachment_logic.upload_for_user_story,
+        db, story_id, user_id, file.filename, file.content_type, content,
     )
 
 

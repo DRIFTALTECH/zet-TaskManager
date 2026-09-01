@@ -19,6 +19,7 @@ from logic.schemas import (
     TimerStopBody,
 )
 from routes.deps import get_current_user_id, require_superadmin
+from offloop import offloop
 from upload_guard import read_limited
 
 router = APIRouter()
@@ -37,7 +38,7 @@ async def import_tasks_csv(
 ):
     """Import a delivery-sheet CSV into tasks. Superadmin only."""
     content = await read_limited(file, tasks_import_logic.MAX_CSV_BYTES, label="CSV")
-    return tasks_import_logic.import_delivery_csv(db, actor_id, file.filename, content)
+    return await offloop(tasks_import_logic.import_delivery_csv, db, actor_id, file.filename, content)
 
 
 @router.get("/timers/active", response_model=list[TimerRunOut])
@@ -74,6 +75,11 @@ def stop_timer(task_id: str, body: TimerStopBody, user_id: str = Depends(get_cur
 def tasks_version(user_id: str = Depends(get_current_user_id)):
     """Tiny endpoint for smart polling — prefer GET /sync/version for all channels."""
     return {"version": realtime.current("tasks")}
+
+
+@router.get("/{task_id}", response_model=TaskOut)
+def get_task(task_id: str, user_id: str = Depends(get_current_user_id), db: Db = Depends(get_db)):
+    return task_logic.get_task(db, user_id, task_id)
 
 
 @router.post("", response_model=TaskOut)

@@ -40,6 +40,7 @@ import { getLocalDateString } from '@/lib/utils';
 import ChangeClientDialog from '@/components/ChangeClientDialog';
 import UserStoriesPanel from '@/components/UserStoriesPanel';
 import SplitRequirementsPanel from '@/components/SplitRequirementsPanel';
+import ErrorBoundary from '@/components/ErrorBoundary';
 import {
   projectAccent, formatHM, hoursDecimal,
   PRIORITY_STYLES, STATUS_PALETTE, activeTasksForUser,
@@ -872,16 +873,20 @@ const ProjectDetailPage = () => {
         </section>
 
         {/* ── Split requirements → stories + tasks ─────────────────────── */}
-        <SplitRequirementsPanel
-          projectId={project.id}
-          accentClass={accent.text}
-        />
+        <ErrorBoundary area="Requirements">
+          <SplitRequirementsPanel
+            projectId={project.id}
+            accentClass={accent.text}
+          />
+        </ErrorBoundary>
 
         <section className="rounded-2xl border border-border/35 bg-card/40 p-6">
-          <UserStoriesPanel
-            projectId={project.id}
-            members={users.filter(u => project.members.includes(u.id))}
-          />
+          <ErrorBoundary area="User stories">
+            <UserStoriesPanel
+              projectId={project.id}
+              members={users.filter(u => project.members.includes(u.id))}
+            />
+          </ErrorBoundary>
         </section>
 
         {/* ── Sections ──────────────────────────────────────────────────── */}
@@ -959,14 +964,14 @@ const ProjectDetailPage = () => {
                 const priStyle = PRIORITY_STYLES[priority] ?? PRIORITY_STYLES.Low;
                 return (
                   <div key={task.id}
-                    className={`group flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 rounded-xl border border-border/30 bg-card hover:border-border/60 hover:shadow-sm p-3.5 transition-all ${busy ? 'opacity-60' : ''}`}>
+                    className={`group flex flex-col sm:flex-row sm:items-start gap-2 sm:gap-3 rounded-xl border border-border/30 bg-card hover:border-border/60 hover:shadow-sm p-3.5 transition-all overflow-hidden ${busy ? 'opacity-60' : ''}`}>
                     <div className="flex items-start gap-2 min-w-0 flex-1">
                       <span className={`shrink-0 text-[10px] px-2 py-0.5 rounded-full font-bold border ${priStyle}`}>{priority}</span>
-                      <button onClick={() => setSelectedTask(task)} className="flex-1 min-w-0 text-left">
-                        <h4 className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors break-words [overflow-wrap:anywhere] leading-snug">{task.title}</h4>
+                      <button onClick={() => setSelectedTask(task)} className="min-w-0 flex-1 text-left">
+                        <h4 className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors leading-snug line-clamp-2 break-all" title={task.title}>{task.title}</h4>
                         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 mt-1 text-[11px] text-muted-foreground/55">
-                          {assignees.length > 0 && <span>{assignees.map(a => a!.name).join(', ')}</span>}
-                          {section && <><span>·</span><span>{section.name}</span></>}
+                          {assignees.length > 0 && <span className="truncate max-w-[10rem]">{assignees.map(a => a!.name).join(', ')}</span>}
+                          {section && <><span>·</span><span className="truncate max-w-[10rem]">{section.name}</span></>}
                           {task.timeTracked > 0 && <><span>·</span><span>{formatHM(task.timeTracked)}</span></>}
                         </div>
                       </button>

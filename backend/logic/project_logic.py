@@ -36,13 +36,24 @@ def _section_out(s) -> SectionOut:
     return SectionOut(id=s.id, name=s.name, projectId=s.project_id)
 
 
-def to_project_out(db: Db, p: Project) -> ProjectOut:
-    members = projects_crud.member_ids(db, p.id)
-    secs = sections_crud.list_for_project(db, p.id)
-    client_name = None
-    if p.client_id:
-        client = clients_crud.get_by_id(db, p.client_id)
-        client_name = client.name if client else None
+def to_project_out(
+    db: Db,
+    p: Project,
+    *,
+    members: list[str] | None = None,
+    sections: list | None = None,
+    client_name: str | None = None,
+    client_resolved: bool = False,
+) -> ProjectOut:
+    if members is None:
+        members = projects_crud.member_ids(db, p.id)
+    if sections is None:
+        sections = sections_crud.list_for_project(db, p.id)
+    if not client_resolved:
+        client_name = None
+        if p.client_id:
+            client = clients_crud.get_by_id(db, p.client_id)
+            client_name = client.name if client else None
     return ProjectOut(
         id=p.id,
         name=p.name,
@@ -51,7 +62,7 @@ def to_project_out(db: Db, p: Project) -> ProjectOut:
         clientName=client_name,
         createdBy=p.created_by,
         members=members,
-        sections=[_section_out(s) for s in secs],
+        sections=[_section_out(s) for s in sections],
         createdAt=p.created_at,
         backgroundImage=p.background_image or "",
         accentColor=p.accent_color or "",
@@ -98,7 +109,21 @@ def list_projects(db: Db, current_user_id: str) -> list[ProjectOut]:
         if is_admin(db, current_user_id)
         else projects_crud.list_for_member(db, current_user_id)
     )
-    return [to_project_out(db, p) for p in projects]
+    ids = [p.id for p in projects]
+    members_map = projects_crud.members_by_project(db, ids)
+    sections_map = sections_crud.list_for_projects(db, ids)
+    names = clients_crud.names_by_ids(db, [p.client_id for p in projects if p.client_id])
+    return [
+        to_project_out(
+            db,
+            p,
+            members=members_map.get(p.id, []),
+            sections=sections_map.get(p.id, []),
+            client_name=names.get(p.client_id) if p.client_id else None,
+            client_resolved=True,
+        )
+        for p in projects
+    ]
 
 
 def create_project(db: Db, current_user_id: str, body: ProjectCreate) -> ProjectOut:

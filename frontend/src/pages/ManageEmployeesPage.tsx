@@ -499,7 +499,7 @@ const ManageEmployeesPage = () => {
                             task.status === 'done' ? 'bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/25' :
                             'bg-muted text-muted-foreground border-border/40'
                           }`}>
-                            {task.status.replace('_', ' ')}
+                            {(task.status || '').replace('_', ' ')}
                           </span>
                         </motion.div>
                       );

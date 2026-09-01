@@ -180,7 +180,7 @@ function EmployeeActiveTasksDialog({
                   {t.priority ? ` · ${t.priority}` : ''}
                 </p>
                 <p className="text-[10px] text-muted-foreground/60 mt-0.5 capitalize">
-                  {t.status.replace(/_/g, ' ')}
+                  {(t.status || '').replace(/_/g, ' ')}
                   {t.slipDays > 0 ? ` · ${t.slipDays}d behind` : ''}
                 </p>
               </li>

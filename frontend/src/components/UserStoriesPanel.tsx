@@ -241,14 +241,14 @@ export default function UserStoriesPanel({
                   )}
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs font-semibold text-foreground break-words">
+                      <span className="text-xs font-semibold text-foreground line-clamp-2 break-all" title={story.title}>
                         {story.title}
                       </span>
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-border/40 text-muted-foreground">
                         {story.priority}
                       </span>
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-border/40 capitalize text-muted-foreground">
-                        {story.status.replace(/_/g, ' ')}
+                        {(story.status || 'backlog').replace(/_/g, ' ')}
                       </span>
                       {avatars.length > 0 && (
                         <span className="flex -space-x-1.5">
@@ -379,7 +379,7 @@ export default function UserStoriesPanel({
                                 <div className="min-w-0 flex-1">
                                   <div className="text-xs font-medium text-foreground">{t.title}</div>
                                   <div className="text-[10px] text-muted-foreground/55 capitalize">
-                                    {t.status.replace(/_/g, ' ')} · {t.priority}
+                                    {(t.status || '').replace(/_/g, ' ')} · {t.priority}
                                     {kids.length > 0 && (
                                       <span className="ml-1.5">· {kids.length} subtask(s)</span>
                                     )}
@@ -403,7 +403,7 @@ export default function UserStoriesPanel({
                                         <span>
                                           <span className="font-medium text-foreground/80">{st.title}</span>
                                           <span className="ml-1.5 capitalize opacity-60">
-                                            {st.status.replace(/_/g, ' ')}
+                                            {(st.status || '').replace(/_/g, ' ')}
                                           </span>
                                           <span className="ml-1.5 opacity-50">
                                             · {stAssigned ? 'assigned' : 'unassigned'}
@@ -613,18 +613,19 @@ function GeneratePreviewDialog({
   onConfirmed: (tasks: GeneratedTaskPreview[]) => Promise<void>;
 }) {
   // Task checkbox = create. Created tasks stay unassigned until the story is assigned.
+  const tasks = Array.isArray(preview.tasks) ? preview.tasks : [];
   const [includeTasks, setIncludeTasks] = useState<Set<string>>(
-    () => new Set(preview.tasks.map(t => t.key)),
+    () => new Set(tasks.map(t => t.key)),
   );
   const [includeSubs, setIncludeSubs] = useState<Set<string>>(() => {
     const s = new Set<string>();
-    for (const t of preview.tasks) for (const st of t.subtasks) s.add(st.key);
+    for (const t of tasks) for (const st of t.subtasks ?? []) s.add(st.key);
     return s;
   });
   const [saving, setSaving] = useState(false);
 
-  const allTaskKeys = preview.tasks.map(t => t.key);
-  const allSubKeys = preview.tasks.flatMap(t => t.subtasks.map(s => s.key));
+  const allTaskKeys = tasks.map(t => t.key);
+  const allSubKeys = tasks.flatMap(t => (t.subtasks ?? []).map(s => s.key));
 
   const selectAll = () => {
     setIncludeTasks(new Set(allTaskKeys));
@@ -635,12 +636,12 @@ function GeneratePreviewDialog({
   };
 
   const confirm = async () => {
-    const selected: GeneratedTaskPreview[] = preview.tasks
+    const selected: GeneratedTaskPreview[] = tasks
       .filter(t => includeTasks.has(t.key))
       .map(t => ({
         ...t,
         assign: false,
-        subtasks: t.subtasks.filter(st => includeSubs.has(st.key)),
+        subtasks: (t.subtasks ?? []).filter(st => includeSubs.has(st.key)),
       }));
     if (!selected.length) {
       toast.error('Select at least one task to create');
@@ -674,7 +675,7 @@ function GeneratePreviewDialog({
           </Button>
         </div>
         <div className="space-y-2">
-          {preview.tasks.map(t => (
+          {tasks.map(t => (
             <div key={t.key} className="rounded-md border border-border/40 p-2 space-y-1.5">
               <label className="flex items-start gap-2 cursor-pointer">
                 <Checkbox
@@ -698,9 +699,9 @@ function GeneratePreviewDialog({
                   </div>
                 </div>
               </label>
-              {t.subtasks.length > 0 && (
+              {(t.subtasks ?? []).length > 0 && (
                 <div className="ml-6 space-y-1 border-l border-border/30 pl-2">
-                  {t.subtasks.map(st => (
+                  {(t.subtasks ?? []).map(st => (
                     <label key={st.key} className="flex items-start gap-2 cursor-pointer">
                       <Checkbox
                         checked={includeSubs.has(st.key)}
@@ -1010,14 +1011,15 @@ function ExtractStoriesDialog({
         text: text.trim() || undefined,
         file: file || undefined,
       });
-      if (!res.stories.length) {
+      const stories = Array.isArray(res.stories) ? res.stories : [];
+      if (!stories.length) {
         toast.message('No user stories found in the document');
         return;
       }
-      setPreview(res.stories);
-      setChecked(new Set(res.stories.map(s => s.key)));
+      setPreview(stories);
+      setChecked(new Set(stories.map(s => s.key).filter(Boolean)));
       const keys = new Set<string>();
-      for (const s of res.stories) for (const t of s.tasks ?? []) keys.add(t.key);
+      for (const s of stories) for (const t of s.tasks ?? []) if (t.key) keys.add(t.key);
       setIncludeTaskKeys(keys);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Extract failed');

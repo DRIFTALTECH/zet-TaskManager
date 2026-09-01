@@ -48,6 +48,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { pageEnter } from '@/lib/motion';
 import {
+  getDueBucket,
   taskMatchesDueDateRange,
   taskMatchesPriorityFilter,
 } from '@/lib/due-date-utils';
@@ -281,6 +282,21 @@ function DashStatusChip({ status, columns, doneColumnId }: { status: string; col
   return <span className={`text-[10px] font-semibold tracking-wide whitespace-nowrap ${tone}`}>{label}</span>;
 }
 
+function DashStatusBullet({ status, doneColumnId, dueDate }: { status: string; doneColumnId: string; dueDate?: string }) {
+  const id = status === 'completed' ? doneColumnId : status;
+  const isDone = id === 'done' || status === 'completed';
+  const overdue = !isDone && getDueBucket(dueDate ?? '') === 'overdue';
+  const title = overdue ? 'Overdue' : (id.replace(/_/g, ' ') || 'Backlog');
+  const dot =
+    isDone ? 'bg-emerald-500' :
+    overdue ? 'bg-red-500' :
+    id === 'in_progress' ? 'bg-violet-500' :
+    id === 'in_review' ? 'bg-sky-500' :
+    id === 'testing' ? 'bg-amber-500' :
+    'border-[1.5px] border-muted-foreground/45 bg-transparent';
+  return <span className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full ${dot}`} title={title} aria-hidden />;
+}
+
 const LIST_COLS = 'grid grid-cols-[minmax(0,1fr)_5.5rem_7.5rem_5rem_5.5rem] gap-2 items-center';
 
 function DashListTaskRow({
@@ -323,6 +339,7 @@ function DashListTaskRow({
           ) : (
             <span className="w-4 shrink-0" />
           )}
+          <DashStatusBullet status={task.status} doneColumnId={doneColumnId} dueDate={task.dueDate} />
           <span className="truncate font-medium">{task.title}</span>
           {kids.length > 0 && (
             <span className="text-[10px] text-muted-foreground shrink-0">{kids.length}</span>
@@ -449,6 +466,7 @@ const DashboardPage = () => {
   });
   const [expandedStoryId, setExpandedStoryId] = useState<string | null>(null);
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  const [collapsedProjectIds, setCollapsedProjectIds] = useState<Set<string>>(() => new Set());
   const [openFilter, setOpenFilter] = useState<string | null>(null);
   const [lockCreateStory, setLockCreateStory] = useState<UserStory | null>(null);
   const [assignStory, setAssignStory] = useState<UserStory | null>(null);
@@ -809,6 +827,16 @@ const DashboardPage = () => {
     setExpandedStoryId(prev => (prev === id ? null : id));
     setExpandedTaskId(null);
   };
+  const toggleProjectExpanded = (projectId: string) => {
+    setCollapsedProjectIds(prev => {
+      const next = new Set(prev);
+      if (next.has(projectId)) next.delete(projectId);
+      else next.add(projectId);
+      return next;
+    });
+    setExpandedStoryId(null);
+    setExpandedTaskId(null);
+  };
   const toggleTaskExpanded = (id: string) => {
     setExpandedTaskId(prev => (prev === id ? null : id));
   };
@@ -940,33 +968,41 @@ const DashboardPage = () => {
               {listProjectBlocks.map(block => {
                 const noneId = `${block.projectId}::none`;
                 const empty = block.stories.length === 0 && block.orphans.length === 0;
+                const projectExpanded = !collapsedProjectIds.has(block.projectId);
                 return (
             <div key={block.projectId} className="rounded-xl border border-dashed border-border p-2 space-y-2">
-              <div className="flex items-center gap-2 px-2 py-1.5">
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => toggleProjectExpanded(block.projectId)}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleProjectExpanded(block.projectId); } }}
+                className="flex items-center gap-2 px-2 py-1.5 hover:bg-muted/40 cursor-pointer rounded-lg"
+              >
+                <ChevronRight className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${projectExpanded ? 'rotate-90' : ''}`} />
                 <FolderOpen className="h-4 w-4 text-primary shrink-0" />
                 <span className="text-sm font-semibold truncate">{block.projectName}</span>
               </div>
-              {empty ? (
+              {projectExpanded && empty ? (
                 <p className="px-2 pb-2 text-xs text-muted-foreground">
                   No user stories yet. Create one — tasks live under a story.
                 </p>
               ) : null}
-              {block.stories.map(s => {
+              {projectExpanded && block.stories.map(s => {
                 const storyTasks = filteredProjectTasks.filter(t => t.userStoryId === s.id);
                 const expanded = expandedStoryId === s.id;
                 const aids = storyAssigneeIds(s);
                 const doneN = storyTasks.filter(t => t.status === 'done' || t.status === 'completed' || t.status === doneColumnId).length;
                 return (
                   <div key={s.id} className="rounded-lg border border-dashed border-border/70 overflow-hidden">
-                    <div className={`${LIST_COLS} min-h-10 px-2 py-1`}>
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => toggleStoryExpanded(s.id)}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleStoryExpanded(s.id); } }}
+                      className={`${LIST_COLS} min-h-10 px-2 py-1 hover:bg-muted/40 cursor-pointer`}
+                    >
                       <div className="flex items-center gap-1.5 min-w-0">
-                        <button
-                          type="button"
-                          className="shrink-0 p-0.5 text-muted-foreground hover:text-foreground"
-                          onClick={() => toggleStoryExpanded(s.id)}
-                        >
-                          <ChevronRight className={`h-4 w-4 transition-transform ${expanded ? 'rotate-90' : ''}`} />
-                        </button>
+                        <ChevronRight className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${expanded ? 'rotate-90' : ''}`} />
                         <BookOpen className="h-3.5 w-3.5 text-primary shrink-0" />
                         <span className="truncate font-semibold text-sm">{s.title}</span>
                         <span className="text-[10px] text-muted-foreground shrink-0">{doneN}/{storyTasks.length}</span>
@@ -980,8 +1016,8 @@ const DashboardPage = () => {
                       <span className="text-[11px] text-muted-foreground">Story</span>
                       <span />
                       <div className="flex items-center justify-end gap-1">
-                        <Button type="button" size="sm" variant="ghost" className="h-6 text-[10px] px-2" onClick={() => openAssignStory(s)}>Assign</Button>
-                        <Button type="button" size="sm" variant="ghost" className="h-6 text-[10px] px-1.5" onClick={() => openCreateForStory(s, 'backlog')}><Plus className="h-3 w-3" /></Button>
+                        <Button type="button" size="sm" variant="ghost" className="h-6 text-[10px] px-2" onClick={e => { e.stopPropagation(); openAssignStory(s); }}>Assign</Button>
+                        <Button type="button" size="sm" variant="ghost" className="h-6 text-[10px] px-1.5" onClick={e => { e.stopPropagation(); openCreateForStory(s, 'backlog'); }}><Plus className="h-3 w-3" /></Button>
                       </div>
                     </div>
                     {expanded && storyTasks.map(t => (
@@ -1001,13 +1037,17 @@ const DashboardPage = () => {
                   </div>
                 );
               })}
-              {block.orphans.length > 0 && (
+              {projectExpanded && block.orphans.length > 0 && (
                 <div className="rounded-lg border border-dashed border-border/70 overflow-hidden">
-                  <div className={`${LIST_COLS} min-h-10 px-2 py-1`}>
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => toggleStoryExpanded(noneId)}
+                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleStoryExpanded(noneId); } }}
+                    className={`${LIST_COLS} min-h-10 px-2 py-1 hover:bg-muted/40 cursor-pointer`}
+                  >
                     <div className="flex items-center gap-1.5 min-w-0">
-                      <button type="button" className="shrink-0 p-0.5 text-muted-foreground" onClick={() => toggleStoryExpanded(noneId)}>
-                        <ChevronRight className={`h-4 w-4 transition-transform ${expandedStoryId === noneId ? 'rotate-90' : ''}`} />
-                      </button>
+                      <ChevronRight className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${expandedStoryId === noneId ? 'rotate-90' : ''}`} />
                       <span className="truncate font-semibold text-sm text-muted-foreground">No story</span>
                       <span className="text-[10px] text-muted-foreground">{block.orphans.length}</span>
                     </div>

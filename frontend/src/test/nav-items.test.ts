@@ -19,6 +19,11 @@ describe('isNavItemActive', () => {
     expect(isNavItemActive(item('/users/forecast'), '/users/forecast')).toBe(true);
   });
 
+  it('highlights Overview on nested overview routes', () => {
+    expect(isNavItemActive(item('/overview'), '/overview')).toBe(true);
+    expect(isNavItemActive(item('/overview'), '/overview/users')).toBe(true);
+  });
+
   it('matches plain routes exactly', () => {
     expect(isNavItemActive(item('/timesheet'), '/timesheet')).toBe(true);
     expect(isNavItemActive(item('/timesheet'), '/timesheet/approvals')).toBe(false);

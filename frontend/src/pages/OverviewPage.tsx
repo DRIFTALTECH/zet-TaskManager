@@ -3,15 +3,15 @@
  */
 
 import { useMemo, useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import {
-  Bar, BarChart, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
+  Bar, BarChart, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import {
   AlertTriangle, CheckCircle2, Clock, FolderOpen,
-  ListTodo, Star, Users, TrendingUp, Award,
+  ListTodo, Star, TrendingUp, Award,
 } from 'lucide-react';
 import { useAppStore } from '@/stores/appStore';
 import { analyticsExtApi } from '@/lib/analyticsApi';
@@ -27,6 +27,10 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { formatRangeLabel, resolveRange, type RangeSelection } from '@/lib/date-range';
+import { OverviewSectionTabs } from '@/components/analytics/OverviewSectionTabs';
+import TaskOverviewPanel from '@/components/analytics/TaskOverviewPanel';
+import UserOverviewPanel from '@/components/analytics/UserOverviewPanel';
+import SprintOverviewPanel from '@/components/analytics/SprintOverviewPanel';
 
 const CHART_TOOLTIP = {
   background: 'hsl(var(--card))',
@@ -38,15 +42,27 @@ const CHART_TOOLTIP = {
 export default function OverviewPage() {
   const currentUser = useAppStore(s => s.currentUser);
   const projects = useAppStore(s => s.projects);
+  const users = useAppStore(s => s.users);
   const isManager = currentUser?.role === 'manager' || currentUser?.role === 'superadmin';
+  const [searchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const activeTab: 'project' | 'task' | 'user' | 'sprint' =
+    tabParam === 'task' ? 'task'
+      : tabParam === 'user' ? 'user'
+        : tabParam === 'sprint' ? 'sprint'
+          : 'project';
 
-  // Same period control as Timesheet, Calendar and Reports.
   const [selection, setSelection] = useState<RangeSelection>({ preset: 'last30', offset: 0 });
   const [projectId, setProjectId] = useState('all');
+  const [taskProjectId, setTaskProjectId] = useState('');
+  const [taskStatus, setTaskStatus] = useState<'all' | 'active' | 'done'>('all');
+  const [userId, setUserId] = useState('');
+  const [userProjectId, setUserProjectId] = useState('all');
+  const [userStatus, setUserStatus] = useState<'all' | 'active' | 'done'>('all');
+  const [sprintName, setSprintName] = useState('');
+  const [sprintProjectId, setSprintProjectId] = useState('all');
+  const [sprintStatus, setSprintStatus] = useState<'all' | 'active' | 'done'>('all');
 
-  // The analytics API takes startDate/endDate. resolveRange works in LOCAL dates —
-  // the previous defaultRange() used toISOString(), which shifts to UTC and picked
-  // the wrong day for anyone east of Greenwich in the early hours.
   const range = useMemo(() => {
     const r = resolveRange(selection);
     return { startDate: r.start, endDate: r.end };
@@ -58,13 +74,42 @@ export default function OverviewPage() {
     return projects.filter(p => currentUser.projectIds.includes(p.id));
   }, [currentUser, projects]);
 
+  const visibleUsers = useMemo(() => {
+    if (!currentUser) return [];
+    if (currentUser.role === 'superadmin') {
+      return users.filter(u => u.isActive !== false).sort((a, b) => a.name.localeCompare(b.name));
+    }
+    const memberIds = new Set(visibleProjects.flatMap(p => p.members));
+    return users
+      .filter(u => memberIds.has(u.id) && u.isActive !== false)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [currentUser, users, visibleProjects]);
+
+  const effectiveTaskProjectId = visibleProjects.some(p => p.id === taskProjectId)
+    ? taskProjectId
+    : (visibleProjects[0]?.id ?? '');
+  const effectiveUserId = visibleUsers.some(u => u.id === userId)
+    ? userId
+    : (visibleUsers[0]?.id ?? '');
+
+  const { data: sprintListData } = useQuery({
+    queryKey: ['sprints', sprintProjectId],
+    queryFn: () => analyticsExtApi.listSprints(sprintProjectId === 'all' ? undefined : sprintProjectId),
+    enabled: isManager && activeTab === 'sprint',
+    staleTime: 30_000,
+  });
+  const sprintOptions = sprintListData?.sprints ?? [];
+  const effectiveSprint = sprintOptions.some(s => s.name === sprintName)
+    ? sprintName
+    : (sprintOptions[0]?.name ?? '');
+
   const selectedProject = visibleProjects.find(p => p.id === projectId);
 
   const { data, isLoading, isFetching, error } = useQuery({
     queryKey: ['overview', range, projectId],
     queryFn: () => analyticsExtApi.getOverview(range, projectId === 'all' ? undefined : projectId),
     staleTime: 0,
-    enabled: isManager,
+    enabled: isManager && activeTab === 'project',
   });
 
   const insightContext = useMemo(() => {
@@ -92,9 +137,21 @@ export default function OverviewPage() {
     };
   }, [data, range, projectId, selectedProject?.name]);
 
-  // Guard sits below every hook: an early return above them changes the hook
-  // count between renders, which crashes React.
   if (!isManager) return <Navigate to="/" replace />;
+
+  const subtitle =
+    activeTab === 'task'
+      ? 'Tasks, time, priority, and user stories by project'
+      : activeTab === 'user'
+        ? 'Tasks and time for one person'
+        : activeTab === 'sprint'
+          ? 'Everything in one sprint — tasks, projects, people, hours'
+          : (
+            <>
+              {selectedProject ? selectedProject.name : 'Team snapshot'} ·{' '}
+              {formatRangeLabel(resolveRange(selection), selection.preset)}
+            </>
+          );
 
   return (
     <motion.div
@@ -103,39 +160,180 @@ export default function OverviewPage() {
       transition={pageEnter}
       className="min-h-full flex flex-col"
     >
-      {/* Header strip — matches Reports and Timesheet. */}
+      {/* Static header — title + one control row; only body data swaps per tab */}
       <div className="shrink-0 px-4 sm:px-8 pt-6 sm:pt-7 pb-5 border-b border-border/30 bg-gradient-to-b from-muted/20 to-transparent">
-        <div className="flex flex-wrap items-end justify-between gap-4 max-w-[1400px] w-full mx-auto">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Overview</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {selectedProject ? selectedProject.name : 'Team snapshot'} ·{' '}
-            {formatRangeLabel(resolveRange(selection), selection.preset)}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 min-w-0">
-          <Select value={projectId} onValueChange={setProjectId}>
-            <SelectTrigger className="h-9 w-auto min-w-[170px] max-w-[240px] text-sm">
-              <SelectValue placeholder="Project" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All projects</SelectItem>
-              {visibleProjects.map(p => (
-                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="max-w-[1400px] w-full mx-auto space-y-4">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">Overview</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>
+          </div>
 
-          <DateRangePicker
-            value={selection}
-            onChange={setSelection}
-            allowedPresets={['week', 'lastweek', 'month', 'last30', 'custom']}
-          />
-        </div>
+          <div className="flex flex-wrap items-center gap-2 min-w-0">
+            <OverviewSectionTabs active={activeTab} />
+
+            {activeTab === 'project' && (
+              <>
+                <Select value={projectId} onValueChange={setProjectId}>
+                  <SelectTrigger className="h-9 w-auto min-w-[170px] max-w-[240px] text-sm">
+                    <SelectValue placeholder="Project" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All projects</SelectItem>
+                    {visibleProjects.map(p => (
+                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <DateRangePicker
+                  value={selection}
+                  onChange={setSelection}
+                  allowedPresets={['week', 'lastweek', 'month', 'last30', 'custom']}
+                />
+              </>
+            )}
+
+            {activeTab === 'task' && (
+              <>
+                <Select value={effectiveTaskProjectId} onValueChange={setTaskProjectId}>
+                  <SelectTrigger className="h-9 w-auto min-w-[170px] max-w-[240px] text-sm">
+                    <SelectValue placeholder="Project" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {visibleProjects.map(p => (
+                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="inline-flex h-9 rounded-lg border border-border/70 bg-card/70 p-0.5">
+                  {([
+                    ['all', 'All'],
+                    ['active', 'Active'],
+                    ['done', 'Done'],
+                  ] as const).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setTaskStatus(id)}
+                      className={cn(
+                        'rounded-md px-3 text-xs font-medium transition-colors',
+                        taskStatus === id ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {activeTab === 'user' && (
+              <>
+                <Select value={effectiveUserId} onValueChange={setUserId}>
+                  <SelectTrigger className="h-9 w-auto min-w-[170px] max-w-[240px] text-sm">
+                    <SelectValue placeholder="Person" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {visibleUsers.map(u => (
+                      <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={userProjectId} onValueChange={setUserProjectId}>
+                  <SelectTrigger className="h-9 w-auto min-w-[160px] max-w-[220px] text-sm">
+                    <SelectValue placeholder="Project" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All projects</SelectItem>
+                    {visibleProjects.map(p => (
+                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="inline-flex h-9 rounded-lg border border-border/70 bg-card/70 p-0.5">
+                  {([
+                    ['all', 'All'],
+                    ['active', 'Active'],
+                    ['done', 'Done'],
+                  ] as const).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setUserStatus(id)}
+                      className={cn(
+                        'rounded-md px-3 text-xs font-medium transition-colors',
+                        userStatus === id ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {activeTab === 'sprint' && (
+              <>
+                <Select
+                  value={effectiveSprint || undefined}
+                  onValueChange={setSprintName}
+                  disabled={sprintOptions.length === 0}
+                >
+                  <SelectTrigger className="h-9 w-auto min-w-[170px] max-w-[260px] text-sm">
+                    <SelectValue placeholder={sprintOptions.length ? 'Select sprint' : 'No sprints yet'} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {sprintOptions.map(s => (
+                      <SelectItem key={s.name} value={s.name}>
+                        {s.name} ({s.taskCount})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={sprintProjectId} onValueChange={setSprintProjectId}>
+                  <SelectTrigger className="h-9 w-auto min-w-[160px] max-w-[220px] text-sm">
+                    <SelectValue placeholder="Project" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All projects</SelectItem>
+                    {visibleProjects.map(p => (
+                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="inline-flex h-9 rounded-lg border border-border/70 bg-card/70 p-0.5">
+                  {([
+                    ['all', 'All'],
+                    ['active', 'Active'],
+                    ['done', 'Done'],
+                  ] as const).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setSprintStatus(id)}
+                      className={cn(
+                        'rounded-md px-3 text-xs font-medium transition-colors',
+                        sprintStatus === id ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
       <div className="flex-1 p-4 sm:p-8 space-y-8 max-w-[1400px] w-full mx-auto">
+      {activeTab === 'task' ? (
+        <TaskOverviewPanel projectId={effectiveTaskProjectId} status={taskStatus} />
+      ) : activeTab === 'user' ? (
+        <UserOverviewPanel userId={effectiveUserId} projectId={userProjectId} status={userStatus} />
+      ) : activeTab === 'sprint' ? (
+        <SprintOverviewPanel sprint={effectiveSprint} projectId={sprintProjectId} status={sprintStatus} />
+      ) : (
+        <>
       {isLoading && (
         <div className="flex items-center gap-3 justify-center text-muted-foreground text-sm py-24">
           <div className="h-6 w-6 rounded-full border-2 border-violet-400/30 border-t-violet-400 animate-spin" />
@@ -155,9 +353,6 @@ export default function OverviewPage() {
 
       {data && (
         <>
-          {/* Headline: the one judgement an admin needs before any number.
-              healthScore and onTimeCompletionPct were computed by the API and
-              never shown — this is where they belong. */}
           {(() => {
             const condition = healthScoreToCondition(data.healthScore);
             const tone =
@@ -354,6 +549,8 @@ export default function OverviewPage() {
             scope="overview_team_summary"
             context={insightContext}
           />
+        </>
+      )}
         </>
       )}
       </div>
