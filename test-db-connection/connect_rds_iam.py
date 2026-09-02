@@ -75,11 +75,43 @@ def _reject_aws_credential_as_db_user(user: str) -> None:
         )
 
 
+def _region_from_rds_host(host: str) -> str | None:
+    """Parse the region label from an *.rds.amazonaws.com hostname."""
+    parts = host.split(".")
+    if len(parts) >= 4 and parts[-3] == "rds" and parts[-2] == "amazonaws":
+        return parts[-4]
+    return None
+
+
+def _assert_region_matches_hosts(region: str, *hosts: str) -> None:
+    for host in hosts:
+        host_region = _region_from_rds_host(host)
+        if host_region and host_region != region:
+            raise RuntimeError(
+                f"AWS_REGION={region} does not match host {host} "
+                f"(parsed {host_region}). IAM tokens must be signed in the "
+                f"cluster region or PAM authentication will fail."
+            )
+
+
+def _log_signer_identity() -> None:
+    """Log the IAM principal that will sign DB tokens (never secrets)."""
+    try:
+        ident = boto3.client("sts", region_name=AWS_REGION).get_caller_identity()
+        arn = ident.get("Arn", "?")
+        acct = ident.get("Account", "?")
+        log.info("zet.db.connector | iam signer arn=%s account=%s", arn, acct)
+        print(f"zet.db.connector | iam signer arn={arn} account={acct}", flush=True)
+    except Exception as exc:  # noqa: BLE001 — boot must still state why tokens may fail
+        log.warning("zet.db.connector | could not resolve IAM signer: %s", exc)
+
+
 DB_USER = _require_env("DB_USER")
 _reject_aws_credential_as_db_user(DB_USER)
 DB_WRITE_HOST = _require_env("DB_WRITE_HOST")
 DB_READ_HOST = _require_env("DB_READ_HOST")
 AWS_REGION = _require_env("AWS_REGION")
+_assert_region_matches_hosts(AWS_REGION, DB_WRITE_HOST, DB_READ_HOST)
 DB_PORT = int((os.getenv("DB_PORT") or "5432").strip() or "5432")
 DB_NAME = (os.getenv("DB_NAME") or "postgres").strip() or "postgres"
 
@@ -97,6 +129,7 @@ _IDENTITY = (
 )
 log.info(_IDENTITY)
 print(_IDENTITY, flush=True)
+_log_signer_identity()
 
 # Region-specific RDS CA bundle (used for sslmode=verify-full).
 CA_BUNDLE_URL = (

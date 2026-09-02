@@ -7,7 +7,9 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # Load backend/.env before routes import auth_logic (which reads MICROSOFT_CLIENT_ID at import time).
-load_dotenv(Path(__file__).resolve().parent / ".env")
+# override=True so a Lightsail/EC2 AWS_REGION (this box is ap-south-1) cannot
+# beat the Aurora signing region in .env (cluster is ap-south-2).
+load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
 
 # ── Logging ─────────────────────────────────────────────────────────────────────
 logging.config.dictConfig({

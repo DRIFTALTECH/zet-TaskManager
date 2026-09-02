@@ -30,7 +30,8 @@ def load_connector() -> ModuleType:
     """
     backend_env = Path(__file__).resolve().parents[1] / ".env"
     if backend_env.is_file():
-        load_dotenv(backend_env)
+        # Instance/task AWS_REGION must not win over backend/.env (token region).
+        load_dotenv(backend_env, override=True)
     cdir = connector_dir()
     env_file = cdir / ".env"
     if env_file.is_file():
