@@ -29,7 +29,7 @@ class ConnectionPools:
         self._read_pool: Any | None = None
         self._write_pool: Any | None = None
         self._pools_expire_at = 0.0
-        self._tokens: dict[str, tuple[str, float]] = {}
+        self._tokens: dict[tuple[str, str], tuple[str, float]] = {}
         self._token_lock = threading.Lock()
         self._minconn = max(1, int(os.environ.get("DB_POOL_MIN", "2")))
         self._maxconn = max(self._minconn, int(os.environ.get("DB_POOL_MAX", "20")))
@@ -66,8 +66,10 @@ class ConnectionPools:
 
     def _iam_token(self, hostname: str) -> str:
         now = time.time()
+        user = self._connector.DB_USER
+        key = (hostname, user)
         with self._token_lock:
-            cached = self._tokens.get(hostname)
+            cached = self._tokens.get(key)
             if cached and now < cached[1] - 60:
                 return cached[0]
             pre = os.environ.get("DB_AUTH_TOKEN")
@@ -77,10 +79,10 @@ class ConnectionPools:
                 token = self._connector._rds_client().generate_db_auth_token(
                     DBHostname=hostname,
                     Port=self._connector.DB_PORT,
-                    DBUsername=self._connector.DB_USER,
+                    DBUsername=user,
                     Region=self._connector.AWS_REGION,
                 )
-            self._tokens[hostname] = (token, now + _TOKEN_TTL_SECONDS)
+            self._tokens[key] = (token, now + _TOKEN_TTL_SECONDS)
             return token
 
     def _ca_bundle(self) -> str:

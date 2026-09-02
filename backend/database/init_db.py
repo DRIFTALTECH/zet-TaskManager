@@ -33,6 +33,11 @@ def _run_bootstrap() -> None:
     that mean a column is not present yet so later migrations can add it.
     """
     db = get_database()
+    # CREATE TABLE IF NOT EXISTS still needs CREATE on schema public. Skip the
+    # whole script when the cluster is already bootstrapped so a DML-only IAM
+    # role can start the process.
+    if not use_sqlite() and _table_exists(db, "users"):
+        return
     sql = _BOOTSTRAP_SQLITE if use_sqlite() else _BOOTSTRAP_AURORA
     for stmt in sql.split(";"):
         s = stmt.strip()
@@ -114,14 +119,16 @@ def _migrate_task_estimated_hours() -> None:
 
 def _migrate_clients() -> None:
     db = get_database()
-    db.write(
+    _create_table_if_missing(
+        db,
+        "clients",
         """
         CREATE TABLE IF NOT EXISTS clients (
             id VARCHAR PRIMARY KEY,
             name VARCHAR NOT NULL,
             created_at VARCHAR NOT NULL
         )
-        """
+        """,
     )
     try:
         db.write("ALTER TABLE projects ADD COLUMN client_id VARCHAR REFERENCES clients (id)")
@@ -131,33 +138,50 @@ def _migrate_clients() -> None:
 
 def _migrate_skills() -> None:
     db = get_database()
-    db.write(
+    _create_table_if_missing(
+        db,
+        "skills",
         """
         CREATE TABLE IF NOT EXISTS skills (
             id VARCHAR PRIMARY KEY,
             name VARCHAR NOT NULL,
             created_at VARCHAR NOT NULL
         )
-        """
+        """,
     )
-    db.write(
+    _create_table_if_missing(
+        db,
+        "user_skills",
         """
         CREATE TABLE IF NOT EXISTS user_skills (
             user_id VARCHAR NOT NULL REFERENCES users (id) ON DELETE CASCADE,
             skill_id VARCHAR NOT NULL REFERENCES skills (id) ON DELETE CASCADE,
             PRIMARY KEY (user_id, skill_id)
         )
-        """
+        """,
     )
-    db.write(
+    _create_table_if_missing(
+        db,
+        "task_skills",
         """
         CREATE TABLE IF NOT EXISTS task_skills (
             task_id VARCHAR NOT NULL REFERENCES tasks (id) ON DELETE CASCADE,
             skill_id VARCHAR NOT NULL REFERENCES skills (id) ON DELETE CASCADE,
             PRIMARY KEY (task_id, skill_id)
         )
-        """
+        """,
     )
+
+
+def _create_table_if_missing(db, table: str, ddl: str) -> None:
+    """Skip CREATE TABLE when the relation already exists.
+
+    Postgres still demands CREATE on schema public for IF NOT EXISTS, which a
+    least-privilege IAM role (app_user) will not have on a live cluster.
+    """
+    if _table_exists(db, table):
+        return
+    db.write(ddl)
 
 
 def _table_exists(db, table: str) -> bool:
@@ -280,7 +304,9 @@ def _migrate_user_stories() -> None:
     db = get_database()
 
     # 1) user_stories table (no-op if present)
-    db.write(
+    _create_table_if_missing(
+        db,
+        "user_stories",
         """
         CREATE TABLE IF NOT EXISTS user_stories (
             id VARCHAR PRIMARY KEY,
@@ -300,7 +326,7 @@ def _migrate_user_stories() -> None:
             created_at VARCHAR NOT NULL,
             updated_at VARCHAR NOT NULL
         )
-        """
+        """,
     )
 
     # 2) Nullable hierarchy columns on existing tasks (NULL = legacy standalone tasks)
@@ -323,7 +349,9 @@ def _migrate_user_stories() -> None:
         )
 
     # 3) Multi-assignee + attachments (mirror task_assignees / task_attachments)
-    db.write(
+    _create_table_if_missing(
+        db,
+        "user_story_assignees",
         """
         CREATE TABLE IF NOT EXISTS user_story_assignees (
             user_story_id VARCHAR NOT NULL REFERENCES user_stories (id) ON DELETE CASCADE,
@@ -331,9 +359,11 @@ def _migrate_user_stories() -> None:
             position INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (user_story_id, user_id)
         )
-        """
+        """,
     )
-    db.write(
+    _create_table_if_missing(
+        db,
+        "user_story_attachments",
         """
         CREATE TABLE IF NOT EXISTS user_story_attachments (
             id VARCHAR PRIMARY KEY,
@@ -345,7 +375,7 @@ def _migrate_user_stories() -> None:
             uploaded_by VARCHAR NOT NULL REFERENCES users (id),
             created_at VARCHAR NOT NULL
         )
-        """
+        """,
     )
 
     # Backfill assignees from legacy single assignee_id
@@ -407,7 +437,9 @@ def _migrate_pat_expiry() -> None:
 
 def _migrate_forecast_visibility() -> None:
     db = get_database()
-    db.write(
+    _create_table_if_missing(
+        db,
+        "forecast_visibility",
         """
         CREATE TABLE IF NOT EXISTS forecast_visibility (
             id VARCHAR PRIMARY KEY,
@@ -418,7 +450,7 @@ def _migrate_forecast_visibility() -> None:
             hidden_at VARCHAR,
             restored_at VARCHAR
         )
-        """
+        """,
     )
     try:
         db.write(

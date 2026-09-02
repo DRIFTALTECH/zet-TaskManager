@@ -4,29 +4,33 @@ Connect to Aurora / RDS PostgreSQL using an IAM authentication token.
 
 A fresh token is generated on every connection via boto3
 (rds.generate_db_auth_token). The token acts as the DB password and is
-valid for 15 minutes. SSL is mandatory for IAM auth; this script uses
-sslmode=verify-full and validates the server certificate against the
-region-specific RDS CA bundle (auto-downloaded if absent).
+valid for 15 minutes. SSL is mandatory for IAM auth.
 
-Prereqs (must already be true on the AWS side):
-  * IAM database authentication enabled on the cluster.
-  * DB user has the rds_iam role:  GRANT rds_iam TO postgres;
-    NOTE: once a Postgres role has rds_iam it authenticates ONLY via IAM
-    token -- password login for that role stops working.
-  * Caller's IAM identity has an attached policy allowing rds-db:connect
-    on the DB resource, e.g.:
-      arn:aws:rds-db:ap-south-2:<account-id>:dbuser:<cluster-resource-id>/postgres
-  * DB_HOST region must match AWS_REGION (e.g. both ap-south-2).
+Required environment variables (no aliases, no silent defaults for identity):
+  DB_USER         Postgres role that has GRANT rds_iam (never the master user)
+  DB_WRITE_HOST   Aurora cluster / writer endpoint
+  DB_READ_HOST    Aurora reader endpoint
+  AWS_REGION      Must match the cluster's region (e.g. ap-south-2)
 
-AWS credentials are taken from the default boto3 chain
+Optional:
+  DB_PORT         default 5432
+  DB_NAME         default postgres
+  DB_AUTH_TOKEN   passthrough token when boto3 creds are unavailable
+  DB_SSL_ROOT_CERT  override CA bundle path
+
+These are Postgres usernames and hostnames — not AWS credentials.
+An Access Key ID (AKIA...) in DB_USER is rejected at import.
+
+AWS credentials come from the default boto3 chain
 (env vars / shared config / SSO / instance or task role).
 
-Copy .env.example to .env and fill in DB_WRITE_HOST / DB_READ_HOST
-(or legacy DB_HOST / RDS_HOSTNAME) before running.
-
-ZET's db_wrapper.pool expects module attrs DB_WRITE_HOST and DB_READ_HOST.
+ZET's db_wrapper.pool expects module attrs DB_WRITE_HOST, DB_READ_HOST,
+DB_USER, DB_PORT, DB_NAME, AWS_REGION, and _rds_client().
 """
 
+from __future__ import annotations
+
+import logging
 import os
 import sys
 import urllib.request
@@ -39,29 +43,60 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# --- Config (from .env or environment) ----------------------------------------
-# Prefer explicit read/write hosts (used by backend/db_wrapper/pool.py).
-# Fallbacks keep older .env layouts working:
-#   DB_WRITE_HOST ← DB_WRITE_HOST | RDS_HOSTNAME | DB_HOST
-#   DB_READ_HOST  ← DB_READ_HOST  | DB_HOST      | DB_WRITE_HOST
-DB_WRITE_HOST = (
-    os.getenv("DB_WRITE_HOST")
-    or os.getenv("RDS_HOSTNAME")
-    or os.getenv("DB_HOST")
-    or ""
-).strip()
-DB_READ_HOST = (
-    os.getenv("DB_READ_HOST")
-    or os.getenv("DB_HOST")
-    or DB_WRITE_HOST
-    or ""
-).strip()
-# Legacy single-host alias (CLI / older scripts).
-DB_HOST = (os.getenv("DB_HOST") or DB_WRITE_HOST or DB_READ_HOST or "").strip() or None
-DB_PORT = int(os.getenv("DB_PORT") or os.getenv("RDS_PORT") or "5432")
-DB_NAME = (os.getenv("DB_NAME") or os.getenv("RDS_DB_NAME") or "postgres").strip()
-DB_USER = (os.getenv("DB_USER") or os.getenv("RDS_USERNAME") or "postgres").strip()
-AWS_REGION = (os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "ap-south-2").strip()
+log = logging.getLogger("zet.db.connector")
+
+_REQUIRED = ("DB_USER", "DB_WRITE_HOST", "DB_READ_HOST", "AWS_REGION")
+_DEAD_ALIASES = (
+    "RDS_USERNAME",
+    "RDS_HOSTNAME",
+    "RDS_PORT",
+    "RDS_DB_NAME",
+    "DATABASE_URL",
+    "DB_HOST",
+)
+
+
+def _require_env(name: str) -> str:
+    value = (os.getenv(name) or "").strip()
+    if not value:
+        raise RuntimeError(
+            f"{name} is required and has no default. Set it in backend/.env. "
+            "This is a Postgres username or Aurora hostname — not an AWS credential."
+        )
+    return value
+
+
+def _reject_aws_credential_as_db_user(user: str) -> None:
+    """Fail if someone pasted an IAM access key into DB_USER."""
+    if user.upper().startswith("AKIA"):
+        raise RuntimeError(
+            "DB_USER looks like an AWS access key ID (AKIA...). "
+            "DB_USER must be a Postgres role (e.g. app_user), not an AWS credential."
+        )
+
+
+DB_USER = _require_env("DB_USER")
+_reject_aws_credential_as_db_user(DB_USER)
+DB_WRITE_HOST = _require_env("DB_WRITE_HOST")
+DB_READ_HOST = _require_env("DB_READ_HOST")
+AWS_REGION = _require_env("AWS_REGION")
+DB_PORT = int((os.getenv("DB_PORT") or "5432").strip() or "5432")
+DB_NAME = (os.getenv("DB_NAME") or "postgres").strip() or "postgres"
+
+_leftover = [k for k in _DEAD_ALIASES if (os.getenv(k) or "").strip()]
+if _leftover:
+    log.warning(
+        "Ignoring leftover env vars %s; the connector reads only "
+        "DB_USER, DB_WRITE_HOST, DB_READ_HOST, AWS_REGION",
+        ", ".join(_leftover),
+    )
+
+_IDENTITY = (
+    f"zet.db.connector | identity user={DB_USER} write={DB_WRITE_HOST} "
+    f"read={DB_READ_HOST} region={AWS_REGION} db={DB_NAME} port={DB_PORT}"
+)
+log.info(_IDENTITY)
+print(_IDENTITY, flush=True)
 
 # Region-specific RDS CA bundle (used for sslmode=verify-full).
 CA_BUNDLE_URL = (
@@ -83,8 +118,6 @@ def ensure_ca_bundle(path: str, url: str) -> str:
     if os.path.exists(path) and os.path.getsize(path) > 0:
         return path
     print(f"CA bundle not found. Downloading from {url} ...")
-    # Use certifi's CA store — python.org macOS builds often lack system trust roots,
-    # so bare urllib.urlretrieve fails with SSLCertVerificationError.
     import ssl
 
     try:
@@ -111,13 +144,8 @@ def generate_iam_token() -> str:
         print("Using DB_AUTH_TOKEN from environment (passthrough, no boto3).")
         return pre
 
-    host = DB_WRITE_HOST or DB_HOST
-    if not host:
-        raise ValueError(
-            "DB_WRITE_HOST (or DB_HOST / RDS_HOSTNAME) is required for IAM token generation."
-        )
     return _rds_client().generate_db_auth_token(
-        DBHostname=host,
+        DBHostname=DB_WRITE_HOST,
         Port=DB_PORT,
         DBUsername=DB_USER,
         Region=AWS_REGION,
@@ -127,20 +155,17 @@ def generate_iam_token() -> str:
 def get_db_connection(*, write: bool = True):
     """Open a new connection using a fresh IAM token."""
     host = DB_WRITE_HOST if write else DB_READ_HOST
-    host = host or DB_HOST
-    if not host:
-        raise ValueError(
-            "DB_WRITE_HOST / DB_READ_HOST (or DB_HOST) is required. "
-            "Set them in .env or export them in your shell."
-        )
-
     ensure_ca_bundle(CA_BUNDLE_PATH, CA_BUNDLE_URL)
-    token = _rds_client().generate_db_auth_token(
-        DBHostname=host,
-        Port=DB_PORT,
-        DBUsername=DB_USER,
-        Region=AWS_REGION,
-    ) if not os.environ.get("DB_AUTH_TOKEN") else os.environ["DB_AUTH_TOKEN"]
+    token = (
+        os.environ["DB_AUTH_TOKEN"]
+        if os.environ.get("DB_AUTH_TOKEN")
+        else _rds_client().generate_db_auth_token(
+            DBHostname=host,
+            Port=DB_PORT,
+            DBUsername=DB_USER,
+            Region=AWS_REGION,
+        )
+    )
 
     conn = psycopg2.connect(
         host=host,
@@ -175,7 +200,7 @@ class DBConnectionPool:
 
 def main() -> int:
     pool = DBConnectionPool()
-    print(f"Connecting to {DB_HOST}:{DB_PORT}/{DB_NAME} as {DB_USER} (IAM token) ...")
+    print(f"Connecting to {DB_WRITE_HOST}:{DB_PORT}/{DB_NAME} as {DB_USER} (IAM token) ...")
     try:
         rows = pool.execute_query(
             "SELECT version(), current_user, now() AS current_time;"

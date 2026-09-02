@@ -22,7 +22,15 @@ def connector_dir() -> Path:
 
 
 def load_connector() -> ModuleType:
-    """Import connect_rds_iam from the connector package after loading its .env."""
+    """Import connect_rds_iam from the connector package after loading .env files.
+
+    backend/.env is the app source of truth and is loaded first. A connector
+    .env (if present) cannot override those values. Required identity vars
+    have no silent defaults — missing DB_USER must not become postgres.
+    """
+    backend_env = Path(__file__).resolve().parents[1] / ".env"
+    if backend_env.is_file():
+        load_dotenv(backend_env)
     cdir = connector_dir()
     env_file = cdir / ".env"
     if env_file.is_file():

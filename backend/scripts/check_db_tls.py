@@ -9,7 +9,7 @@ reach the database at all. Run this from the environment that will host the app
 
 It tries verify-full first, then falls back to require, so the output tells you
 whether a failure is a certificate problem or a plain connectivity problem.
-Read-only: it runs SELECT 1 and nothing else.
+Read-only: it runs SELECT current_user on both reader and writer and nothing else.
 """
 
 import sys
@@ -30,15 +30,17 @@ from db_wrapper.pool import ConnectionPools  # noqa: E402
 def _try(kwargs: dict, label: str) -> bool:
     redacted = {k: ("<token>" if k == "password" else v) for k, v in kwargs.items()}
     print(f"\n{label}")
+    print(f"  host        : {redacted.get('host')}")
+    print(f"  user        : {redacted.get('user')}")
     print(f"  sslmode     : {redacted.get('sslmode')}")
     print(f"  sslrootcert : {redacted.get('sslrootcert', '(none)')}")
     try:
         conn = psycopg2.connect(**kwargs)
         cur = conn.cursor()
-        cur.execute("SELECT current_database(), version()")
-        db, ver = cur.fetchone()
+        cur.execute("SELECT current_database(), current_user, version()")
+        db, user, ver = cur.fetchone()
         conn.close()
-        print(f"  RESULT      : OK — connected to '{db}'")
+        print(f"  RESULT      : OK — connected to '{db}' as {user}")
         print(f"                {ver.split(',')[0]}")
         return True
     except Exception as e:
@@ -61,14 +63,15 @@ def main() -> int:
     print(f"  region     : {connector.AWS_REGION}")
 
     try:
-        strict = pools._connect_kwargs(connector.DB_READ_HOST)
+        read_kw = pools._connect_kwargs(connector.DB_READ_HOST)
+        write_kw = pools._connect_kwargs(connector.DB_WRITE_HOST)
     except Exception as e:
         print(f"\nCould not even build connection settings: {type(e).__name__}: {e}")
         print("Most likely no AWS credentials are available to generate an IAM token.")
         print("In production attach a task/instance role with rds-db:connect.")
         return 1
 
-    bundle = strict.get("sslrootcert")
+    bundle = read_kw.get("sslrootcert")
     if bundle:
         pem = Path(bundle)
         if pem.is_file():
@@ -76,14 +79,25 @@ def main() -> int:
         else:
             print(f"  CA bundle  : {bundle} -- MISSING")
 
-    if _try(strict, "1) verify-full (what the app will use)"):
+    read_ok = _try(read_kw, "1) reader  verify-full (what the app will use)")
+    write_ok = _try(write_kw, "2) writer  verify-full (what the app will use)")
+    if read_ok and write_ok:
         print("\nVerdict: safe to deploy with certificate verification on.\n")
         return 0
 
-    loose = dict(strict)
-    loose["sslmode"] = "require"
-    loose.pop("sslrootcert", None)
-    if _try(loose, "2) require (no certificate validation)"):
+    any_require_ok = False
+    if not read_ok:
+        loose = dict(read_kw)
+        loose["sslmode"] = "require"
+        loose.pop("sslrootcert", None)
+        any_require_ok = _try(loose, "3) reader  require (no certificate validation)") or any_require_ok
+    if not write_ok:
+        loose = dict(write_kw)
+        loose["sslmode"] = "require"
+        loose.pop("sslrootcert", None)
+        any_require_ok = _try(loose, "4) writer  require (no certificate validation)") or any_require_ok
+
+    if any_require_ok:
         print("\nVerdict: the network and credentials are fine — this is a CERTIFICATE")
         print("problem. Either the CA bundle does not chain to this cluster's")
         print("certificate, or something is intercepting TLS on this path.")
