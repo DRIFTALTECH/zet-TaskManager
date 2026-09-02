@@ -7,7 +7,24 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+# Identity vars must come from backend/.env even if the instance already set
+# AWS_REGION (Lightsail is ap-south-1; Aurora is ap-south-2). Do not override
+# unrelated secrets (JWT, CORS) that systemd injects.
+_IDENTITY_KEYS = ("DB_USER", "DB_WRITE_HOST", "DB_READ_HOST", "AWS_REGION")
+
+
+def _apply_identity_from_env_file(path: Path) -> None:
+    if not path.is_file():
+        return
+    load_dotenv(path)  # fill missing keys only
+    parsed = dotenv_values(path)
+    for key in _IDENTITY_KEYS:
+        raw = parsed.get(key)
+        if raw is not None and str(raw).strip():
+            os.environ[key] = str(raw).strip()
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -29,9 +46,7 @@ def load_connector() -> ModuleType:
     have no silent defaults — missing DB_USER must not become postgres.
     """
     backend_env = Path(__file__).resolve().parents[1] / ".env"
-    if backend_env.is_file():
-        # Instance/task AWS_REGION must not win over backend/.env (token region).
-        load_dotenv(backend_env, override=True)
+    _apply_identity_from_env_file(backend_env)
     cdir = connector_dir()
     env_file = cdir / ".env"
     if env_file.is_file():

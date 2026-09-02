@@ -802,6 +802,45 @@ export const api = {
     });
   },
 
+  async aiChatStream(
+    messages: { role: 'user' | 'assistant'; content: string }[],
+    users: { id: string; name: string; job_title?: string; current_experience_months?: number }[],
+    projects: { id: string; name: string; sections?: { id: string; name: string }[] }[],
+    onEvent: (ev: import('@/types').ZaniChatStreamEvent) => void,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const res = await fetch(`${baseUrl()}/ai/chat/stream`, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ messages, users, projects }),
+      signal,
+    });
+    if (res.status === 401) {
+      const detail = await parseError(res);
+      localStorage.removeItem(TOKEN_KEY);
+      throw new ApiError(detail || 'Unauthorized', 401);
+    }
+    if (!res.ok) throw new ApiError(await parseError(res), res.status);
+    if (!res.body) throw new ApiError('Chat stream did not start', 502);
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const chunks = buf.split('\n\n');
+      buf = chunks.pop() ?? '';
+      for (const chunk of chunks) {
+        const line = chunk.split('\n').find(l => l.startsWith('data:'));
+        if (!line) continue;
+        const raw = line.replace(/^data:\s?/, '').trim();
+        if (!raw) continue;
+        onEvent(JSON.parse(raw) as import('@/types').ZaniChatStreamEvent);
+      }
+    }
+  },
+
   async aiExtractTasks(
     form: FormData,
   ): Promise<{ sourceText: string; tasks: import('@/types').AIExtractedTask[] }> {

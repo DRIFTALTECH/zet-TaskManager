@@ -1,7 +1,9 @@
+import json
 import logging
 import os
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 
 import ratelimit
 
@@ -84,6 +86,33 @@ def ai_chat(
     except Exception as e:
         log.exception("AI request failed")
         raise HTTPException(status_code=500, detail=f"AI error: {e}")
+
+
+@router.post("/chat/stream")
+def ai_chat_stream(
+    body: ChatRequest,
+    user_id: str = Depends(get_current_user_id),
+    db: Db = Depends(get_db),
+):
+    """SSE stream for Zani chat — token deltas + tool status + final metadata."""
+    _ai_quota(user_id)
+    current_user = user_logic.get_user_or_404(db, user_id)
+
+    def events():
+        try:
+            for ev in chains.chat_stream(body, db, current_user):
+                yield f"data: {json.dumps(ev, default=str)}\n\n"
+        except RuntimeError as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e) or _AI_UNAVAILABLE})}\n\n"
+        except Exception as e:
+            log.exception("AI chat stream failed")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e) or _USER_FACING_AI_ERROR})}\n\n"
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+    )
 
 
 # ── Generate description ──────────────────────────────────────────────────────

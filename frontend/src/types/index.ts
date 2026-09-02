@@ -331,6 +331,20 @@ export interface AIChatResponse {
   cards: AICard[];
 }
 
+export type ZaniChatStreamEvent =
+  | { type: 'token'; delta: string }
+  | { type: 'status'; message: string }
+  | { type: 'reset' }
+  | { type: 'error'; message: string }
+  | {
+      type: 'done';
+      message: string;
+      tasks: AIExtractedTask[];
+      actions: AIChatAction[];
+      proposals: AIProposal[];
+      cards: AICard[];
+    };
+
 // ── Personal Agent Cards ──────────────────────────────────────────────────────
 
 export interface AICardTaskData {

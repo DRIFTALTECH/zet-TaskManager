@@ -222,7 +222,7 @@ export default function Companion() {
   const setMascotDropTask = useAppStore(s => s.setMascotDropTask);
 
   const agent: AgentId | null =
-    location.pathname === '/' ? 'tasker' : location.pathname === '/ai' ? 'zani' : null;
+    location.pathname === '/' ? 'tasker' : null;
   const isTasker = agent === 'tasker';
 
   const [reaction, setReaction] = useState<Reaction>('idle');

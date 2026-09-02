@@ -6,7 +6,7 @@
  */
 import { useAppStore } from '@/stores/appStore';
 import { projectPickerLabel } from '@/lib/project-utils';
-import { isTaskAssignedTo, taskAssigneeIds, normalizePriority } from '@/lib/task-utils';
+import { isTaskAssignedTo, isTaskConfirmed, taskAssigneeIds, normalizePriority } from '@/lib/task-utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
@@ -484,6 +484,7 @@ const ProjectDetailPage = () => {
     finally { setMovingId(null); }
   };
   const doApprove = async (task: Task) => {
+    if (isTaskConfirmed(task)) return;
     setMovingId(task.id);
     try { await approveTask(task.id); /* Tasker mascot animates the approval */ }
     catch (e) { toast.error(e instanceof Error ? e.message : 'Could not approve'); }
@@ -993,7 +994,7 @@ const ProjectDetailPage = () => {
                         <>
                           <MoveBtn disabled={busy || !prevCol} onClick={() => prevCol && void doMove(task, prevCol.id)} title={prevCol ? `Move to ${prevCol.label}` : 'At first column'} dir="left" />
                           <MoveBtn disabled={busy || !nextCol} onClick={() => nextCol && void doMove(task, nextCol.id)} title={nextCol ? `Move to ${nextCol.label}` : 'At last column'} dir="right" />
-                          {isDoneCol && (
+                          {isDoneCol && !task.approvedByManager && (
                             <button disabled={busy} onClick={() => void doApprove(task)}
                               className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 transition-all disabled:opacity-40" title="Approve & complete">
                               <Check className="h-3.5 w-3.5" /> Approve

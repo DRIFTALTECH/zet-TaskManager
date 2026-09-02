@@ -456,7 +456,8 @@ def approve_task(db: Db, current_user_id: str, task_id: str) -> TaskOut:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Task not found")
     project_logic.ensure_project_member(db, t.project_id, current_user_id)
     if t.status == "completed":
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Task is already completed")
+        # Already confirmed — return as-is so a stale Approve click is not an error.
+        return to_task_out(db, t, current_user_id)
     t.status = "completed"
     t.approved_by_manager = True
     t.completed_at = date.today().isoformat()
@@ -572,7 +573,11 @@ def reopen_to_backlog_action(db: Db, user_id: str, task_id: str) -> TaskOut:
 
 
 def approve_task_action(db: Db, user_id: str, task_id: str) -> TaskOut:
+    existing = tasks_crud.get_by_id(db, task_id)
+    already_completed = bool(existing and existing.status == "completed")
     result = approve_task(db, user_id, task_id)
+    if already_completed:
+        return result
     log_audit(db, user_id, "task.approved", "task", task_id, result.title, {})
     notification_logic.notify_users(
         db, user_ids=list(set(result.assigneeIds) | {result.createdBy}),

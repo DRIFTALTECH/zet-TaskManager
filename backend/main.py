@@ -4,12 +4,17 @@ import os
 import time
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 
-# Load backend/.env before routes import auth_logic (which reads MICROSOFT_CLIENT_ID at import time).
-# override=True so a Lightsail/EC2 AWS_REGION (this box is ap-south-1) cannot
-# beat the Aurora signing region in .env (cluster is ap-south-2).
-load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
+_ENV_FILE = Path(__file__).resolve().parent / ".env"
+load_dotenv(_ENV_FILE)
+# Force DB identity from .env so an instance AWS_REGION cannot win. Leave JWT/CORS
+# to systemd when those keys are already set.
+_parsed = dotenv_values(_ENV_FILE)
+for _key in ("DB_USER", "DB_WRITE_HOST", "DB_READ_HOST", "AWS_REGION"):
+    _raw = _parsed.get(_key)
+    if _raw is not None and str(_raw).strip():
+        os.environ[_key] = str(_raw).strip()
 
 # ── Logging ─────────────────────────────────────────────────────────────────────
 logging.config.dictConfig({

@@ -44,13 +44,14 @@ export const navItems: NavItem[] = [
  * nothing while the rail correctly highlighted the parent item.
  */
 export function isNavItemActive(item: NavItem, pathname: string): boolean {
-  if (item.path === '/manage') return pathname.startsWith('/manage');
-  if (item.path === '/overview') return pathname === '/overview' || pathname.startsWith('/overview/');
-  if (item.path === '/users/forecast') return pathname === '/users/forecast';
+  const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
+  if (item.path === '/manage') return path.startsWith('/manage');
+  if (item.path === '/overview') return path === '/overview' || path.startsWith('/overview/');
+  if (item.path === '/users/forecast') return path === '/users/forecast';
   if (item.path === '/users') {
-    return pathname === '/users' || (pathname.startsWith('/users/') && pathname !== '/users/forecast');
+    return path === '/users' || (path.startsWith('/users/') && path !== '/users/forecast');
   }
-  return pathname === item.path;
+  return path === item.path;
 }
 
 /** Items this user may see, in order. */

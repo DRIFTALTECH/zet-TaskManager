@@ -52,7 +52,7 @@ import {
   taskMatchesDueDateRange,
   taskMatchesPriorityFilter,
 } from '@/lib/due-date-utils';
-import { isTopLevelTask, storyAssigneeIds, taskMatchesAssigneeFilter, taskMatchesSprintFilter, NO_SPRINT_FILTER_ID, UNASSIGNED_FILTER_ID, childTasksOf, taskAssigneeIds, normalizePriority } from '@/lib/task-utils';
+import { isTopLevelTask, isTaskConfirmed, storyAssigneeIds, taskMatchesAssigneeFilter, taskMatchesSprintFilter, NO_SPRINT_FILTER_ID, UNASSIGNED_FILTER_ID, childTasksOf, taskAssigneeIds, normalizePriority } from '@/lib/task-utils';
 import UserAvatar from '@/components/UserAvatar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import AssigneeMultiSelect from '@/components/AssigneeMultiSelect';
@@ -234,7 +234,7 @@ function KanbanColumnPanel({
               key={task.id}
               task={task}
               onClick={() => onTaskClick(task)}
-              showApprove={isManager && isDoneColumn}
+              showApprove={isManager && isDoneColumn && !isTaskConfirmed(task)}
               onApprove={() => onApprove(task.id)}
               approving={approvingId === task.id}
               showProjectPill={showProjectPill}
@@ -313,7 +313,7 @@ function DashListTaskRow({
   onToggleExpand: (id: string) => void;
 }) {
   const open = expandedId === task.id;
-  const kids = childTasksOf(allTasks, task.id);
+  const kids = childTasksOf(allTasks, task.id).filter(t => !isTaskConfirmed(t));
   const aids = taskAssigneeIds(task);
   const assignees = aids.map(id => users.find(u => u.id === id)).filter(Boolean) as typeof users;
   const priority = normalizePriority(task.priority);
@@ -642,14 +642,12 @@ const DashboardPage = () => {
       projectId: p.id,
       projectName: projectPickerLabel(p),
       stories: dashStories.filter(s => s.projectId === p.id),
-      orphans: orphanTasks.filter(t => t.projectId === p.id),
+      orphans: orphanTasks.filter(t => t.projectId === p.id && !isTaskConfirmed(t)),
     })).filter(b => !isAllProjects || b.stories.length > 0 || b.orphans.length > 0);
   }, [isAllProjects, userProjects, dashStories, orphanTasks, selectedProjectId]);
 
   const tasksForColumn = (colId: string) =>
-    filteredProjectTasks.filter(
-      t => t.status === colId || (colId === doneColumnId && t.status === 'completed'),
-    );
+    filteredProjectTasks.filter(t => t.status === colId && !isTaskConfirmed(t));
 
   const handleSetDoneColumn = (colId: string) => {
     const next = doneColumnId === colId ? 'done' : colId;
@@ -738,6 +736,8 @@ const DashboardPage = () => {
   };
 
   const handleApprove = async (id: string) => {
+    const task = tasks.find(t => t.id === id);
+    if (task && isTaskConfirmed(task)) return;
     setApprovingId(id);
     try {
       await approveTask(id);
@@ -989,6 +989,7 @@ const DashboardPage = () => {
               ) : null}
               {projectExpanded && block.stories.map(s => {
                 const storyTasks = filteredProjectTasks.filter(t => t.userStoryId === s.id);
+                const openStoryTasks = storyTasks.filter(t => !isTaskConfirmed(t));
                 const expanded = expandedStoryId === s.id;
                 const aids = storyAssigneeIds(s);
                 const doneN = storyTasks.filter(t => t.status === 'done' || t.status === 'completed' || t.status === doneColumnId).length;
@@ -1020,7 +1021,7 @@ const DashboardPage = () => {
                         <Button type="button" size="sm" variant="ghost" className="h-6 text-[10px] px-1.5" onClick={e => { e.stopPropagation(); openCreateForStory(s, 'backlog'); }}><Plus className="h-3 w-3" /></Button>
                       </div>
                     </div>
-                    {expanded && storyTasks.map(t => (
+                    {expanded && openStoryTasks.map(t => (
                       <DashListTaskRow
                         key={t.id}
                         task={t}

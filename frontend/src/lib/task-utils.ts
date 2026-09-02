@@ -14,6 +14,15 @@ export function isTaskDone(task: Task): boolean {
   return task.status === 'completed' || task.status === 'done';
 }
 
+/**
+ * Manager already confirmed this work (or it is in the terminal `completed`
+ * status). These leave the active dashboard — they are not waiting for Approve.
+ * `done` without confirmation still shows so a manager can confirm it.
+ */
+export function isTaskConfirmed(task: Pick<Task, 'status' | 'approvedByManager'>): boolean {
+  return task.status === 'completed' || task.approvedByManager;
+}
+
 /** Sentinel for Dashboard / board “Person” filter — match tasks with no assignees. */
 export const UNASSIGNED_FILTER_ID = '__unassigned__';
 

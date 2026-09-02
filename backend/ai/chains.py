@@ -180,20 +180,23 @@ def expand_prd_story(
     )
 
 
-def chat(req: ChatRequest, db: Db, current_user: User) -> ChatResponse:
-    """
-    Agentic chat via manual LCEL tool-calling loop.
-    Supports: create_project, create_section, create_task,
-    add_member_to_project, list_projects, list_users.
-    Manager-only tools are enforced at the tool level.
-    """
-    from ai.tools import build_tools
+_TOOL_STATUS: dict[str, str] = {
+    "create_project": "Drafting a project proposal…",
+    "create_section": "Drafting a section…",
+    "create_task": "Drafting a task…",
+    "add_member_to_project": "Preparing member change…",
+    "list_projects": "Fetching projects…",
+    "list_users": "Fetching team…",
+    "get_my_tasks": "Looking up your tasks…",
+    "get_my_tasks_due_today": "Checking what's due today…",
+    "get_my_overdue_tasks": "Finding overdue tasks…",
+    "get_my_stats": "Pulling your stats…",
+    "get_my_timesheet_this_week": "Loading this week's timesheet…",
+    "get_my_projects": "Loading your projects…",
+}
 
-    tools = build_tools(db, current_user)
-    tools_by_name = {t.name: t for t in tools}
-    llm = service.bind_agent(tools)  # DeepSeek V4 Flash
 
-    # Build system message with injected context
+def _build_chat_messages(req: ChatRequest, current_user: User) -> list:
     system_content = prompts.AGENT_SYSTEM.format(
         user_name=current_user.name,
         user_role=current_user.role,
@@ -201,8 +204,6 @@ def chat(req: ChatRequest, db: Db, current_user: User) -> ChatResponse:
         users=_users_str(req.users),
         projects=_projects_str(req.projects),
     )
-
-    # Build full message list: system + history + current user message
     messages: list = [SystemMessage(content=system_content)]
     for msg in req.messages[:-1]:
         if msg.role == "user":
@@ -210,22 +211,79 @@ def chat(req: ChatRequest, db: Db, current_user: User) -> ChatResponse:
         else:
             messages.append(AIMessage(content=msg.content))
     messages.append(HumanMessage(content=req.messages[-1].content))
+    return messages
 
+
+def _parse_tool_result(
+    raw: str,
+    tool_name: str,
+    actions: list[AgentAction],
+    proposals: list[AIProposal],
+    cards: list[AICard],
+) -> tuple[str, str]:
+    """Parse tool output prefix → (status, summary). Mutates actions/proposals/cards."""
+    if raw.startswith("PROPOSED:"):
+        status = "proposed"
+        json_str = raw[len("PROPOSED:"):].strip()
+        try:
+            data = _json.loads(json_str)
+            proposals.append(AIProposal(**data))
+            summary = (
+                data.get("title")
+                or data.get("name")
+                or data.get("section_name")
+                or data.get("user_name")
+                or "pending"
+            )
+        except Exception:
+            summary = json_str[:120]
+    elif raw.startswith("CARDS:"):
+        status = "data"
+        json_str = raw[len("CARDS:"):].strip()
+        try:
+            items = _json.loads(json_str)
+            for item in items:
+                card_type = item.get("type", "unknown")
+                card_data = {k: v for k, v in item.items() if k != "type"}
+                cards.append(AICard(type=card_type, data=card_data))
+            summary = f"Fetched {len(items)} result(s)"
+        except Exception:
+            summary = "Data retrieved"
+    elif raw.startswith("ALREADY_EXISTS:"):
+        status = "already_exists"
+        summary = raw[len("ALREADY_EXISTS:"):].strip()
+    elif raw.startswith("SUCCESS:"):
+        status = "success"
+        summary = raw[len("SUCCESS:"):].strip()
+    elif raw.startswith("ACCESS DENIED:"):
+        status = "denied"
+        summary = raw[len("ACCESS DENIED:"):].strip()
+    else:
+        status = "error"
+        summary = raw[len("ERROR:"):].strip() if raw.startswith("ERROR:") else raw
+
+    if status != "error":
+        actions.append(AgentAction(tool=tool_name, status=status, summary=summary))
+    return status, summary
+
+
+def _run_agent_loop(
+    llm,
+    messages: list,
+    tools_by_name: dict,
+) -> tuple[str, list[AgentAction], list[AIProposal], list[AICard]]:
     actions: list[AgentAction] = []
     proposals: list[AIProposal] = []
     cards: list[AICard] = []
     response = None
 
-    # Agentic loop — capped at 8; lower = less runaway tool chaining
     for _ in range(8):
         response = llm.invoke(messages)
         messages.append(response)
 
-        # No tool calls → done
         if not getattr(response, "tool_calls", None):
             break
 
-        # Execute each tool call and append ToolMessage results
         for tc in response.tool_calls:
             tool_name = tc["name"]
             tool_args = tc["args"]
@@ -239,54 +297,36 @@ def chat(req: ChatRequest, db: Db, current_user: User) -> ChatResponse:
                 except Exception as exc:
                     raw = f"ERROR: {exc}"
 
-            raw = str(raw)
-
-            # Parse status prefix
-            if raw.startswith("PROPOSED:"):
-                status = "proposed"
-                json_str = raw[len("PROPOSED:"):].strip()
-                try:
-                    data = _json.loads(json_str)
-                    proposals.append(AIProposal(**data))
-                    summary = (
-                        data.get("title")
-                        or data.get("name")
-                        or data.get("section_name")
-                        or data.get("user_name")
-                        or "pending"
-                    )
-                except Exception:
-                    summary = json_str[:120]
-            elif raw.startswith("CARDS:"):
-                status = "data"
-                json_str = raw[len("CARDS:"):].strip()
-                try:
-                    items = _json.loads(json_str)
-                    for item in items:
-                        card_type = item.get("type", "unknown")
-                        card_data = {k: v for k, v in item.items() if k != "type"}
-                        cards.append(AICard(type=card_type, data=card_data))
-                    summary = f"Fetched {len(items)} result(s)"
-                except Exception:
-                    summary = "Data retrieved"
-            elif raw.startswith("ALREADY_EXISTS:"):
-                status = "already_exists"
-                summary = raw[len("ALREADY_EXISTS:"):].strip()
-            elif raw.startswith("SUCCESS:"):
-                status = "success"
-                summary = raw[len("SUCCESS:"):].strip()
-            elif raw.startswith("ACCESS DENIED:"):
-                status = "denied"
-                summary = raw[len("ACCESS DENIED:"):].strip()
-            else:
-                status = "error"
-                summary = raw[len("ERROR:"):].strip() if raw.startswith("ERROR:") else raw
-
-            if status != "error":
-                actions.append(AgentAction(tool=tool_name, status=status, summary=summary))
-            messages.append(ToolMessage(content=raw, tool_call_id=tc["id"]))
+            _parse_tool_result(str(raw), tool_name, actions, proposals, cards)
+            messages.append(ToolMessage(content=str(raw), tool_call_id=tc["id"]))
 
     final_text = service.parse_message_content(response) if response is not None else ""
+    return final_text, actions, proposals, cards
+
+
+def _merge_stream_chunks(chunks: list) -> object | None:
+    if not chunks:
+        return None
+    merged = chunks[0]
+    for chunk in chunks[1:]:
+        merged = merged + chunk
+    return merged
+
+
+def chat(req: ChatRequest, db: Db, current_user: User) -> ChatResponse:
+    """
+    Agentic chat via manual LCEL tool-calling loop.
+    Supports: create_project, create_section, create_task,
+    add_member_to_project, list_projects, list_users.
+    Manager-only tools are enforced at the tool level.
+    """
+    from ai.tools import build_tools
+
+    tools = build_tools(db, current_user)
+    tools_by_name = {t.name: t for t in tools}
+    llm = service.bind_agent(tools)
+    messages = _build_chat_messages(req, current_user)
+    final_text, actions, proposals, cards = _run_agent_loop(llm, messages, tools_by_name)
 
     return ChatResponse(
         message=final_text,
@@ -295,6 +335,83 @@ def chat(req: ChatRequest, db: Db, current_user: User) -> ChatResponse:
         proposals=proposals,
         cards=cards,
     )
+
+
+def chat_stream(req: ChatRequest, db: Db, current_user: User):
+    """
+    SSE generator for agentic chat. Yields dict events:
+      status — tool step in progress (frontend shows status line)
+      token  — streamed text delta on the final assistant reply
+      reset  — discard partial tokens (model chose tools instead of text)
+      done   — final payload (message, actions, proposals, cards)
+    """
+    from ai.tools import build_tools
+
+    tools = build_tools(db, current_user)
+    tools_by_name = {t.name: t for t in tools}
+    llm = service.bind_agent(tools)
+    messages = _build_chat_messages(req, current_user)
+
+    actions: list[AgentAction] = []
+    proposals: list[AIProposal] = []
+    cards: list[AICard] = []
+
+    for _ in range(8):
+        chunks: list = []
+        for chunk in llm.stream(messages):
+            chunks.append(chunk)
+            if getattr(chunk, "tool_call_chunks", None):
+                continue
+            delta = service.message_to_text(getattr(chunk, "content", ""))
+            if delta:
+                yield {"type": "token", "delta": delta}
+
+        response = _merge_stream_chunks(chunks)
+        if response is None:
+            break
+
+        messages.append(response)
+        tool_calls = getattr(response, "tool_calls", None) or []
+
+        if not tool_calls:
+            final_text = service.parse_message_content(response)
+            yield {
+                "type": "done",
+                "message": final_text,
+                "tasks": [],
+                "actions": [a.model_dump() for a in actions],
+                "proposals": [p.model_dump() for p in proposals],
+                "cards": [c.model_dump() for c in cards],
+            }
+            return
+
+        yield {"type": "reset"}
+
+        for tc in tool_calls:
+            tool_name = tc["name"]
+            yield {
+                "type": "status",
+                "message": _TOOL_STATUS.get(tool_name, f"Running {tool_name.replace('_', ' ')}…"),
+            }
+            tool = tools_by_name.get(tool_name)
+            if tool is None:
+                raw = f"ERROR: Unknown tool '{tool_name}'"
+            else:
+                try:
+                    raw = tool.invoke(tc["args"])
+                except Exception as exc:
+                    raw = f"ERROR: {exc}"
+            _parse_tool_result(str(raw), tool_name, actions, proposals, cards)
+            messages.append(ToolMessage(content=str(raw), tool_call_id=tc["id"]))
+
+    yield {
+        "type": "done",
+        "message": "",
+        "tasks": [],
+        "actions": [a.model_dump() for a in actions],
+        "proposals": [p.model_dump() for p in proposals],
+        "cards": [c.model_dump() for c in cards],
+    }
 
 
 # ── Timesheet parser ──────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes, Navigate, useNavigate } from "react-router-dom";
+import { BrowserRouter, Route, Routes, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAppStore } from "@/stores/appStore";
@@ -55,6 +55,15 @@ function PageSkeleton() {
       Loading…
     </div>
   );
+}
+
+/** S3 website hosting 301s /prd → /prd/, which does not match Route path="/prd". */
+function StripTrailingSlash() {
+  const { pathname, search, hash } = useLocation();
+  if (pathname.length > 1 && pathname.endsWith("/")) {
+    return <Navigate to={`${pathname.replace(/\/+$/, "")}${search}${hash}`} replace />;
+  }
+  return null;
 }
 
 function AppLayout({ children }: { children: React.ReactNode }) {
@@ -209,6 +218,7 @@ const App = () => (
       <ThemeHandler />
       <BootstrapGate>
       <BrowserRouter>
+        <StripTrailingSlash />
         <MsalRedirectResume>
         <Routes>
           <Route path="/login" element={<LoginPage />} />

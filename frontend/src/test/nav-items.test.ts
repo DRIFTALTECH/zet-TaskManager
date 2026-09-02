@@ -27,6 +27,7 @@ describe('isNavItemActive', () => {
   it('matches plain routes exactly', () => {
     expect(isNavItemActive(item('/timesheet'), '/timesheet')).toBe(true);
     expect(isNavItemActive(item('/timesheet'), '/timesheet/approvals')).toBe(false);
+    expect(isNavItemActive(item('/prd'), '/prd/')).toBe(true);
   });
 
   it('does not mark Dashboard active on other routes', () => {
