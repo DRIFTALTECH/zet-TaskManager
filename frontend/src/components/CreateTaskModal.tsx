@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useAppStore } from '@/stores/appStore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
@@ -10,7 +11,9 @@ import { Users, Layers, Tag, Sparkles, BookOpen, FolderOpen, Plus } from 'lucide
 import { cn } from '@/lib/utils';
 import { localTodayISO, localTomorrowISO } from '@/lib/due-date-utils';
 import { api } from '@/lib/api';
+import { projectKeys, STORY_STALE_TIME } from '@/lib/queryClient';
 import { projectPickerLabel } from '@/lib/project-utils';
+import { SprintSelect } from '@/components/SprintSelect';
 import { SubtaskDraftSection } from '@/components/SubtaskSection';
 import { collectSubtaskTitles, newSubtaskDraftRow, type SubtaskDraftRow } from '@/lib/subtask-utils';
 import type { TaskPrefill } from '@/pages/AIPage';
@@ -30,6 +33,8 @@ interface Props {
   initialStatus?: string;
   /** When set, the task is created under this story (project locked; section still chosen per task). */
   lockStory?: UserStory | null;
+  /** When set (and no lockStory), project is locked. */
+  lockProjectId?: string | null;
 }
 
 const priorities: Priority[] = ['Low', 'Medium', 'High', 'Urgent'];
@@ -41,7 +46,7 @@ const priorityChoice: Record<Priority, string> = {
   Low: 'border-green-500/30 bg-green-500/15 text-green-600 dark:text-green-400',
 };
 
-const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus, lockStory }: Props) => {
+const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus, lockStory, lockProjectId }: Props) => {
   const { currentUser, projects, users, createTask, updateTask, addSection, selectedProjectId } = useAppStore();
   const statusRef = useRef(initialStatus || 'backlog');
   const [title, setTitle] = useState('');
@@ -60,8 +65,6 @@ const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus, lockStory
   const [generatingDesc, setGeneratingDesc] = useState(false);
   const [subtaskRows, setSubtaskRows] = useState<SubtaskDraftRow[]>(() => [newSubtaskDraftRow()]);
   const [userStoryId, setUserStoryId] = useState('');
-  const [sectionStories, setSectionStories] = useState<UserStory[]>([]);
-  const [storiesLoading, setStoriesLoading] = useState(false);
 
   const userProjects = currentUser ? projects.filter(p => currentUser.projectIds.includes(p.id)) : [];
 
@@ -91,10 +94,16 @@ const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus, lockStory
       setUserStoryId(lockStory.id);
       return;
     }
+    if (lockProjectId) {
+      setManualProjectId(lockProjectId);
+      const secs = projects.find(p => p.id === lockProjectId)?.sections ?? [];
+      setSectionId(prev => prev || (secs[0]?.id ?? ''));
+      return;
+    }
     if (selectedProjectId && userProjects.some(p => p.id === selectedProjectId)) {
       setManualProjectId(prev => prev || selectedProjectId);
     }
-  }, [open, initialStatus, lockStory]);
+  }, [open, initialStatus, lockStory, lockProjectId]);
 
   // Apply AI prefill when provided
   useEffect(() => {
@@ -109,35 +118,18 @@ const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus, lockStory
     if (prefill.tags?.length) setTagsStr(prefill.tags.join(', '));
   }, [prefill, open]);
 
+  const { data: sectionStories = [], isLoading: storiesLoading } = useQuery({
+    queryKey: projectKeys.userStories(effectiveProjectId || '_'),
+    queryFn: () => api.listProjectUserStories(effectiveProjectId!),
+    enabled: open && !!effectiveProjectId && !lockStory,
+    staleTime: STORY_STALE_TIME,
+    refetchOnMount: false,
+  });
+
   useEffect(() => {
-    if (lockStory) return;
-    if (!open || !effectiveProjectId) {
-      setSectionStories([]);
-      setUserStoryId('');
-      return;
-    }
-    let cancelled = false;
-    setStoriesLoading(true);
-    void (async () => {
-      try {
-        const rows = await api.listProjectUserStories(effectiveProjectId);
-        if (!cancelled) {
-          setSectionStories(rows);
-          setUserStoryId(prev => (prev && rows.some(s => s.id === prev) ? prev : ''));
-        }
-      } catch {
-        if (!cancelled) {
-          setSectionStories([]);
-          setUserStoryId('');
-        }
-      } finally {
-        if (!cancelled) setStoriesLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [open, effectiveProjectId, lockStory]);
+    if (lockStory || !open) return;
+    setUserStoryId(prev => (prev && sectionStories.some(s => s.id === prev) ? prev : ''));
+  }, [open, effectiveProjectId, lockStory, sectionStories]);
 
   const handleGenerateDescription = async () => {
     if (!title.trim()) return toast.error('Enter a title first');
@@ -175,7 +167,6 @@ const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus, lockStory
     setNewSectionName('');
     setSubtaskRows([newSubtaskDraftRow()]);
     setUserStoryId('');
-    setSectionStories([]);
   };
 
   const handleCreateSection = async () => {
@@ -217,10 +208,7 @@ const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus, lockStory
     if (!title.trim() || !effectiveProjectId || !sectionId) {
       return toast.error('Please fill in title, project, and section');
     }
-    const storyId = lockStory?.id || userStoryId;
-    if (!storyId) {
-      return toast.error('Pick a user story');
-    }
+    const storyId = lockStory?.id || userStoryId || undefined;
     const ids = [...assigneeIds];
     const subtasks = collectSubtaskTitles(subtaskRows);
     if (subtasks.ok === false) return toast.error(subtasks.error);
@@ -335,6 +323,14 @@ const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus, lockStory
                   <p className="text-sm font-medium truncate">{lockStory.title}</p>
                 </div>
               </div>
+            ) : lockProjectId ? (
+              <div className="rounded-xl border border-border/60 px-4 py-3 flex items-center gap-2">
+                <FolderOpen className="h-4 w-4 text-muted-foreground shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Project</p>
+                  <p className="text-sm font-medium truncate">{selectedProject ? projectPickerLabel(selectedProject) : 'Project'}</p>
+                </div>
+              </div>
             ) : (
             <div className="space-y-2">
               <Label className="flex items-center gap-1.5">
@@ -421,17 +417,18 @@ const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus, lockStory
             {!lockStory && effectiveProjectId && (
               <div className="rounded-xl border border-border/60 p-4 space-y-3">
                 <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  <BookOpen className="h-3.5 w-3.5" /> User story <span className="text-destructive">*</span>
+                  <BookOpen className="h-3.5 w-3.5" /> User story
                 </div>
                 <Select
-                  value={userStoryId || undefined}
-                  onValueChange={setUserStoryId}
+                  value={userStoryId || '__none__'}
+                  onValueChange={v => setUserStoryId(v === '__none__' ? '' : v)}
                   disabled={storiesLoading}
                 >
                   <SelectTrigger className="w-full">
-                    <SelectValue placeholder={storiesLoading ? 'Loading stories…' : 'Choose user story'} />
+                    <SelectValue placeholder={storiesLoading ? 'Loading stories…' : 'No story (standalone)'} />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="__none__">No story (standalone)</SelectItem>
                     {sectionStories.map(s => (
                       <SelectItem key={s.id} value={s.id}>
                         {s.title}
@@ -439,11 +436,6 @@ const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus, lockStory
                     ))}
                   </SelectContent>
                 </Select>
-                {!storiesLoading && sectionStories.length === 0 && (
-                  <p className="text-[11px] text-muted-foreground/60">
-                    No stories in this project yet — create one first.
-                  </p>
-                )}
               </div>
             )}
 
@@ -515,14 +507,7 @@ const CreateTaskModal = ({ open, onOpenChange, prefill, initialStatus, lockStory
               </div>
               <div className="space-y-2">
                 <Label htmlFor="ct-sprint">Sprint</Label>
-                <input
-                  id="ct-sprint"
-                  value={sprint}
-                  onChange={e => setSprint(e.target.value)}
-                  placeholder="e.g. Sprint 12"
-                  maxLength={120}
-                  className={field}
-                />
+                <SprintSelect id="ct-sprint" value={sprint} onChange={setSprint} projectId={effectiveProjectId} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="ct-estimate">Estimated time <span className="font-normal text-muted-foreground">(optional)</span></Label>

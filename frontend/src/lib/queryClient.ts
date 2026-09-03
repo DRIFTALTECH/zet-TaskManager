@@ -1,5 +1,5 @@
 import { QueryClient } from '@tanstack/react-query';
-import type { Task } from '@/types';
+import type { Task, UserStory } from '@/types';
 
 /** Shared client so Zustand mutations and live-sync can invalidate the same cache. */
 export const queryClient = new QueryClient({
@@ -18,9 +18,16 @@ export const taskKeys = {
   checklists: (id: string) => ['task', id, 'checklists'] as const,
 };
 
+export const storyKeys = {
+  all: ['user-stories'] as const,
+};
+
 export const projectKeys = {
   userStories: (id: string) => ['project', id, 'user-stories'] as const,
 };
+
+/** Stories stay cached until a mutation or live-sync marks them stale. */
+export const STORY_STALE_TIME = Infinity;
 
 export function cacheFullTask(t: Task) {
   queryClient.setQueryData(taskKeys.detail(t.id), t);
@@ -36,5 +43,51 @@ export function invalidateTaskDetails() {
 }
 
 export function invalidateProjectDetails() {
+  void queryClient.invalidateQueries({ queryKey: ['project'] });
+}
+
+export function seedUserStoriesCache(stories: UserStory[], projectIds: string[] = []) {
+  queryClient.setQueryData(storyKeys.all, stories);
+  const byProject = new Map<string, UserStory[]>();
+  for (const id of projectIds) byProject.set(id, []);
+  for (const s of stories) {
+    const list = byProject.get(s.projectId);
+    if (list) list.push(s);
+    else byProject.set(s.projectId, [s]);
+  }
+  for (const [pid, rows] of byProject) {
+    queryClient.setQueryData(projectKeys.userStories(pid), rows);
+  }
+}
+
+export function upsertUserStory(story: UserStory) {
+  queryClient.setQueryData<UserStory[]>(storyKeys.all, old => {
+    const cur = old ?? [];
+    const i = cur.findIndex(s => s.id === story.id);
+    if (i < 0) return [story, ...cur];
+    const next = cur.slice();
+    next[i] = story;
+    return next;
+  });
+  queryClient.setQueryData<UserStory[]>(projectKeys.userStories(story.projectId), old => {
+    const cur = old ?? [];
+    const i = cur.findIndex(s => s.id === story.id);
+    if (i < 0) return [story, ...cur];
+    const next = cur.slice();
+    next[i] = story;
+    return next;
+  });
+}
+
+export function removeUserStory(storyId: string, projectId: string) {
+  queryClient.setQueryData<UserStory[]>(storyKeys.all, old => (old ?? []).filter(s => s.id !== storyId));
+  queryClient.setQueryData<UserStory[]>(
+    projectKeys.userStories(projectId),
+    old => (old ?? []).filter(s => s.id !== storyId),
+  );
+}
+
+export function invalidateUserStories() {
+  void queryClient.invalidateQueries({ queryKey: storyKeys.all });
   void queryClient.invalidateQueries({ queryKey: ['project'] });
 }

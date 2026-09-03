@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from datetime import date, timedelta
 from pathlib import Path
 
 from db_wrapper import get_database
 from db_wrapper.dialect import use_sqlite
+
+log = logging.getLogger("zet")
 
 _BOOTSTRAP_AURORA = (Path(__file__).resolve().parent.parent / "scripts" / "bootstrap_aurora.sql").read_text(
     encoding="utf-8"
@@ -222,13 +225,15 @@ def _add_column_if_missing(db, table: str, column: str, ddl_type: str) -> None:
     if not _table_exists(db, table) or _column_exists(db, table, column):
         return
     # Prefer IF NOT EXISTS when the engine supports it; fall back to plain ADD.
+    sql = f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {ddl_type}"
     try:
-        db.write(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {ddl_type}")
-    except Exception:
+        db.write(sql)
+        return
+    except Exception as e1:
         try:
             db.write(f"ALTER TABLE {table} ADD COLUMN {column} {ddl_type}")
-        except Exception:
-            pass  # race / already added
+        except Exception as e2:
+            log.warning("Could not add %s.%s: %s / %s", table, column, e1, e2)
 
 
 def _ensure_fk(db, table: str, constraint: str, ddl: str) -> None:
@@ -463,6 +468,36 @@ def _migrate_forecast_visibility() -> None:
 def _migrate_temp_task_assignees() -> None:
     db = get_database()
     _add_column_if_missing(db, "temp_tasks", "assignee_ids", "TEXT NOT NULL DEFAULT '[]'")
+    _add_column_if_missing(db, "temp_tasks", "extra_json", "TEXT NOT NULL DEFAULT '{}'")
+
+
+def _migrate_user_story_board_fields() -> None:
+    """Stories carry the same board fields as tasks: sprint, tags, manager approval.
+
+    Aurora app_user is not owner of user_stories, so ADD COLUMN is skipped.
+    user_story_board is a new table (CREATE) used when those columns are missing.
+    """
+    db = get_database()
+    _add_column_if_missing(db, "user_stories", "sprint", "VARCHAR NOT NULL DEFAULT ''")
+    _add_column_if_missing(db, "user_stories", "tags_json", "TEXT NOT NULL DEFAULT '[]'")
+    _add_column_if_missing(
+        db, "user_stories", "approved_by_manager", "BOOLEAN NOT NULL DEFAULT FALSE"
+    )
+    try:
+        _create_table_if_missing(
+            db,
+            "user_story_board",
+            """
+            CREATE TABLE IF NOT EXISTS user_story_board (
+                story_id VARCHAR PRIMARY KEY,
+                sprint VARCHAR NOT NULL DEFAULT '',
+                tags_json TEXT NOT NULL DEFAULT '[]',
+                approved_by_manager BOOLEAN NOT NULL DEFAULT FALSE
+            )
+            """,
+        )
+    except Exception as e:
+        log.warning("Could not create user_story_board: %s", e)
 
 
 def init_db() -> None:
@@ -477,6 +512,7 @@ def init_db() -> None:
     _migrate_skills()
     _migrate_user_stories()
     _migrate_user_story_section_optional()
+    _migrate_user_story_board_fields()
     _migrate_forecast_visibility()
     _migrate_pat_expiry()
     _migrate_temp_task_assignees()

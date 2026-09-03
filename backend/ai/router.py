@@ -120,7 +120,7 @@ def ai_chat_stream(
 @router.post("/generate-description", response_model=GenerateDescriptionResponse)
 def generate_description(
     body: GenerateDescriptionRequest,
-    _user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_current_user_id),
 ):
     """Given a task title (+ optional project/section), return an AI-generated description."""
     _ai_quota(user_id)
@@ -140,7 +140,7 @@ def generate_description(
 @router.post("/summarize-task/{task_id}", response_model=SummarizeTaskResponse)
 def summarize_task(
     task_id: str,
-    _user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_current_user_id),
     db: Db = Depends(get_db),
 ):
     """Summarize the comment thread for a task into a bullet-point TL;DR."""
@@ -161,7 +161,7 @@ def summarize_task(
 @router.post("/parse-timesheet", response_model=TimesheetParseResponse)
 def parse_timesheet(
     body: TimesheetParseRequest,
-    _user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_current_user_id),
 ):
     """Convert a natural language day summary into structured timesheet row proposals."""
     _ai_quota(user_id)
@@ -229,7 +229,7 @@ async def extract_prd(
     user_id: str = Depends(get_current_user_id),
     db: Db = Depends(get_db),
 ):
-    """PRD / pasted spec → user stories + tasks. Preview only; no assignees."""
+    """PRD / pasted spec → detailed user stories with assignees. Preview only; no tasks."""
     _ai_quota(user_id)
     file_bytes = await file.read() if file is not None else None
     filename = file.filename if file is not None else None
@@ -283,7 +283,7 @@ async def parse_source(
 @router.post("/parse-task", response_model=ParseTaskResponse)
 def parse_task(
     body: ParseTaskRequest,
-    _user_id: str = Depends(get_current_user_id),
+    user_id: str = Depends(get_current_user_id),
 ):
     """Convert natural language into structured task objects, resolving users and projects."""
     _ai_quota(user_id)

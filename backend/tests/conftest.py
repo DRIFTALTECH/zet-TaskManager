@@ -165,6 +165,7 @@ _CLEAR_TABLES = (
     "tasks",
     "user_story_attachments",
     "user_story_assignees",
+    "user_story_board",
     "user_stories",
     "sections",
     "project_members",

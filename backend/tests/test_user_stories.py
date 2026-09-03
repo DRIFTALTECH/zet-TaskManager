@@ -31,7 +31,7 @@ def test_user_story_crud_and_progress(client, register):
             sid = s["id"]
             break
 
-    # Task without story is rejected
+    # Standalone task (no story) is first-class
     r = client.post(
         "/tasks",
         headers=token,
@@ -48,7 +48,8 @@ def test_user_story_crud_and_progress(client, register):
             "tags": [],
         },
     )
-    assert r.status_code == 400, r.text
+    assert r.status_code == 200, r.text
+    assert r.json().get("userStoryId") in (None, "")
 
     # Create user story
     r = client.post(
@@ -69,6 +70,8 @@ def test_user_story_crud_and_progress(client, register):
     story = r.json()
     assert story["assigneeIds"] == [emp_id]
     assert story["assigneeId"] == emp_id
+    assert story["status"] == "backlog"
+    assert story["sectionId"] == sid
 
     # Multi-assignee patch
     r = client.patch(
@@ -95,11 +98,44 @@ def test_user_story_crud_and_progress(client, register):
             "priority": "High",
             "tags": [],
             "userStoryId": story["id"],
+            "estimatedHours": 4,
         },
     )
     assert r.status_code == 200, r.text
     parent = r.json()
     assert parent["userStoryId"] == story["id"]
+    assert parent["status"] == "backlog"
+    r = client.get(f"/user-stories/{story['id']}", headers=token)
+    assert r.status_code == 200, r.text
+    assert r.json()["estimatedHours"] == 4
+    assert r.json()["actualHours"] == 0
+
+    r = client.patch(f"/user-stories/{story['id']}", headers=token, json={"status": "in_progress"})
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "in_progress"
+    r = client.patch(
+        f"/user-stories/{story['id']}",
+        headers=token,
+        json={
+            "title": "Edited story",
+            "description": "New desc",
+            "acceptanceCriteria": "Must work",
+            "sectionId": sid,
+            "startDate": "2026-08-01",
+            "dueDate": "2026-08-10",
+            "storyPoints": 3,
+        },
+    )
+    assert r.status_code == 200, r.text
+    edited = r.json()
+    assert edited["title"] == "Edited story"
+    assert edited["description"] == "New desc"
+    assert edited["acceptanceCriteria"] == "Must work"
+    assert edited["sectionId"] == sid
+    assert edited["estimatedHours"] == 4
+    r = client.get(f"/tasks/{parent['id']}", headers=token)
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "backlog"
 
     r = client.post(
         "/tasks",
@@ -242,3 +278,117 @@ def test_user_story_crud_and_progress(client, register):
     r = client.get(f"/user-stories/{story['id']}/attachments", headers=token)
     assert r.status_code == 200
     assert any(a["id"] == att["id"] for a in r.json())
+
+    # Sprint / estimate / tags / approve — same board fields as tasks
+    r = client.patch(
+        f"/user-stories/{story['id']}",
+        headers=token,
+        json={"sprint": "Sprint 12", "estimatedHours": 8, "tags": ["export"]},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["sprint"] == "Sprint 12"
+    assert r.json()["estimatedHours"] == 4
+    assert r.json()["tags"] == ["export"]
+    assert r.json()["approvedByManager"] is False
+
+    r = client.get("/user-stories", headers=token)
+    assert r.status_code == 200, r.text
+    assert any(s["id"] == story["id"] and s["sprint"] == "Sprint 12" for s in r.json())
+
+    r = client.post(f"/user-stories/{story['id']}/approve", headers=token)
+    assert r.status_code == 200, r.text
+    assert r.json()["approvedByManager"] is True
+    assert r.json()["status"] == "completed"
+    r = client.get(f"/tasks/{parent['id']}", headers=token)
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "completed"
+    assert r.json()["approvedByManager"] is True
+    # Standalone task under the same project is untouched
+    r = client.get("/tasks", headers=token)
+    assert r.status_code == 200, r.text
+    legacy = next(t for t in r.json() if t["title"] == "Legacy task")
+    assert legacy["status"] == "backlog"
+
+
+def test_extract_endpoint_removed(client, manager):
+    _user, headers = manager
+    from conftest import make_project
+
+    proj = make_project(client, headers, name="ZET")
+    r = client.post(
+        f"/projects/{proj['id']}/user-stories/extract",
+        data={"text": "A PRD"},
+        headers=headers,
+    )
+    assert r.status_code == 404
+
+
+def test_generate_tasks_uses_chain_b(client, manager, monkeypatch):
+    _user, headers = manager
+    from conftest import make_project, make_user_story
+    from ai.schemas import PrdExtractedSubtask, PrdExtractedTask, PrdTaskBundle
+
+    proj = make_project(client, headers, name="ZET")
+    sec = client.post(f"/projects/{proj['id']}/sections", json={"name": "Platform"}, headers=headers)
+    assert sec.status_code == 200, sec.text
+    sid = sec.json()["sections"][0]["id"]
+    story = make_user_story(client, headers, proj["id"], sid, title="Login")
+
+    def fake_expand(**kwargs):
+        assert kwargs["title"] == "Login"
+        return PrdTaskBundle(
+            tasks=[
+                PrdExtractedTask(
+                    title="Auth API",
+                    description="POST /auth/login",
+                    priority="High",
+                    assignee_id=_user["id"],
+                    assignee_name=_user["name"],
+                    subtasks=[PrdExtractedSubtask(title="Write tests", description="")],
+                )
+            ]
+        )
+
+    monkeypatch.setattr("ai.chains.expand_story_tasks", fake_expand)
+    r = client.post(f"/user-stories/{story['id']}/generate-tasks", headers=headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["storyId"] == story["id"]
+    assert len(body["tasks"]) == 1
+    assert body["tasks"][0]["title"] == "Auth API"
+    assert body["tasks"][0]["assigneeIds"] == [_user["id"]]
+    assert body["tasks"][0]["subtasks"][0]["title"] == "Write tests"
+
+
+def test_sprint_persists_via_sidecar_when_board_cols_missing(client, manager, monkeypatch):
+    """Aurora app_user cannot ALTER user_stories — sprint must still survive GET after PATCH."""
+    monkeypatch.setattr("crud.user_stories._has_board_cols", False)
+    monkeypatch.setattr("crud.user_stories._story_has_board_cols", lambda _db: False)
+
+    _user, headers = manager
+    from conftest import make_project, make_user_story
+
+    proj = make_project(client, headers, name="Sidecar sprint")
+    sec = client.post(f"/projects/{proj['id']}/sections", json={"name": "S1"}, headers=headers)
+    assert sec.status_code == 200, sec.text
+    sid = sec.json()["sections"][0]["id"]
+    story = make_user_story(client, headers, proj["id"], sid, title="Needs sprint")
+
+    r = client.patch(
+        f"/user-stories/{story['id']}",
+        headers=headers,
+        json={"sprint": "Sprint 12", "tags": ["board"]},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["sprint"] == "Sprint 12"
+    assert r.json()["tags"] == ["board"]
+
+    r = client.get("/user-stories", headers=headers)
+    assert r.status_code == 200, r.text
+    listed = next(s for s in r.json() if s["id"] == story["id"])
+    assert listed["sprint"] == "Sprint 12"
+    assert listed["tags"] == ["board"]
+
+    r = client.get(f"/user-stories/{story['id']}", headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["sprint"] == "Sprint 12"

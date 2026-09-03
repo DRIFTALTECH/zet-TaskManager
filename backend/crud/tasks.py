@@ -364,6 +364,22 @@ def list_for_user_story(db: Db, user_story_id: str) -> list[Task]:
     )
 
 
+def complete_for_user_story(db: Db, user_story_id: str, completed_at: str) -> None:
+    """Mark every task under the story completed. Other story status changes do not touch tasks."""
+    db.write(
+        """
+        UPDATE tasks
+        SET status = 'completed',
+            approved_by_manager = %s,
+            completed_at = %s
+        WHERE user_story_id = %s
+          AND LOWER(TRIM(status)) <> 'completed'
+        """,
+        (True, completed_at, user_story_id),
+    )
+    realtime.bump("tasks")
+
+
 def list_children(db: Db, parent_task_id: str) -> list[Task]:
     return rows_to_models(
         Task,

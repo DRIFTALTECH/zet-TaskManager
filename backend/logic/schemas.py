@@ -325,9 +325,13 @@ class UserStoryOut(BaseModel):
     assigneeIds: list[str] = Field(default_factory=list)
     reporterId: str
     estimatedHours: float | None = None
+    actualHours: float = 0.0
     storyPoints: float | None = None
     startDate: str | None = None
     dueDate: str | None = None
+    sprint: str = ""
+    tags: list[str] = Field(default_factory=list)
+    approvedByManager: bool = False
     createdAt: str
     updatedAt: str
     progressPercent: float = 0.0
@@ -351,6 +355,8 @@ class UserStoryCreate(BaseModel):
     storyPoints: float | None = None
     startDate: str | None = None
     dueDate: str | None = None
+    sprint: str = ""
+    tags: list[str] = Field(default_factory=list)
 
 
 class UserStoryPatch(BaseModel):
@@ -366,6 +372,8 @@ class UserStoryPatch(BaseModel):
     storyPoints: float | None = None
     startDate: str | None = None
     dueDate: str | None = None
+    sprint: str | None = None
+    tags: list[str] | None = None
 
 
 class UserStoryGenerateBody(BaseModel):
@@ -415,15 +423,15 @@ class ExtractedStoryPreview(BaseModel):
     sectionId: str | None = None
     projectName: str | None = None
     sectionName: str | None = None
+    estimatedHours: float | None = None
+    storyPoints: float | None = None
+    startDate: str | None = None
+    dueDate: str | None = None
+    sprint: str = ""
+    tags: list[str] = Field(default_factory=list)
 
 
 class ExtractStoriesPreviewOut(BaseModel):
-    stories: list[ExtractedStoryPreview] = Field(default_factory=list)
-
-
-class BulkCreateStoriesBody(BaseModel):
-    projectId: str
-    sectionId: str | None = None
     stories: list[ExtractedStoryPreview] = Field(default_factory=list)
 
 
@@ -435,6 +443,12 @@ class TempTaskPatch(BaseModel):
     sectionId: str | None = None
     priority: str | None = None
     assigneeIds: list[str] | None = None
+    estimatedHours: float | None = None
+    storyPoints: float | None = None
+    startDate: str | None = None
+    dueDate: str | None = None
+    sprint: str | None = None
+    tags: list[str] | None = None
 
 
 class TempTaskCreateBody(BaseModel):
@@ -464,6 +478,12 @@ class PrdDraftStoryOut(BaseModel):
     sectionId: str | None = None
     position: int = 0
     assigneeIds: list[str] = Field(default_factory=list)
+    estimatedHours: float | None = None
+    storyPoints: float | None = None
+    startDate: str | None = None
+    dueDate: str | None = None
+    sprint: str = ""
+    tags: list[str] = Field(default_factory=list)
     tasks: list[PrdDraftTaskOut] = Field(default_factory=list)
 
 
@@ -476,6 +496,7 @@ class PrdDraftOut(BaseModel):
 class PrdCommitOut(BaseModel):
     storiesCreated: int
     tasksCreated: int
+    storyIds: list[str] = Field(default_factory=list)
 
 
 class PrdCommitBody(BaseModel):

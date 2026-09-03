@@ -24,10 +24,8 @@ from ai.schemas import (
     MeetingIngestResponse,
     MomParseResult,
     ParseTaskResponse,
-    PrdExtractedStory,
     PrdExtractResponse,
     PrdOutlineResponse,
-    PrdOutlineStory,
     PrdTaskBundle,
     StrictMomParseResult,
     StrictTimesheetParseResponse,
@@ -134,7 +132,7 @@ _PRD_LLM_TIMEOUT = 90.0
 
 
 def extract_prd(text: str, projects=None) -> PrdExtractResponse:
-    """PRD / spec → user stories with tasks assigned to project members."""
+    """PRD / spec → detailed user stories assigned to project members (no tasks)."""
     result = service.complete_structured(
         prompts.EXTRACT_PRD_PROMPT,
         {
@@ -148,7 +146,7 @@ def extract_prd(text: str, projects=None) -> PrdExtractResponse:
 
 
 def outline_prd(text: str, projects=None) -> PrdOutlineResponse:
-    """Fast pass: story shells only."""
+    """PRD → detailed user stories with owners (no tasks)."""
     return service.complete_structured(
         prompts.OUTLINE_PRD_PROMPT,
         {
@@ -160,19 +158,22 @@ def outline_prd(text: str, projects=None) -> PrdOutlineResponse:
     )
 
 
-def expand_prd_story(
-    text: str,
-    story: PrdOutlineStory | PrdExtractedStory,
+def expand_story_tasks(
+    *,
+    title: str,
+    description: str = "",
+    acceptance_criteria: str = "",
+    extra_context: str = "",
     projects=None,
 ) -> PrdTaskBundle:
-    """Second pass: tasks for one story."""
+    """Chain B: one user story → engineering tasks with assignees."""
     return service.complete_structured(
-        prompts.EXPAND_PRD_STORY_PROMPT,
+        prompts.EXPAND_STORY_TASKS_PROMPT,
         {
-            "text": text[:16000],
-            "title": story.title,
-            "description": story.description or "",
-            "acceptance_criteria": getattr(story, "acceptance_criteria", None) or "",
+            "title": title,
+            "description": description or "",
+            "acceptance_criteria": acceptance_criteria or "",
+            "extra_context": (extra_context or "(none)")[:16000],
             "projects": _projects_str(projects or []),
         },
         PrdTaskBundle,

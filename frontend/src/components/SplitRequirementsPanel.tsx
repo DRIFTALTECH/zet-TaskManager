@@ -1,18 +1,18 @@
 /**
- * Project-level panel: drop a PRD → AI stages stories/tasks in temp_tasks
- * (same table as /prd) → edit → Save to ZET.
+ * Project-level panel: drop a PRD → AI stages user stories (same as /prd)
+ * → review/assign → Save story only (no tasks).
  */
 import { useCallback, useEffect, useState } from 'react';
 import { FileUp, Loader2, Sparkles, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/stores/appStore';
-import type { PrdDraft, PrdDraftStory, UserStory } from '@/types';
+import type { PrdDraft, UserStory } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { PrdStudio } from '@/components/prd/PrdStudio';
-import { coercePrdDraft } from '@/components/PrdDraftTable';
-import { mergePrdFiles, PRD_FILE_ACCEPT } from '@/lib/prdSession';
+import { mergePrdFiles, PRD_FILE_ACCEPT, coercePrdDraft } from '@/lib/prdSession';
+import { invalidateUserStories } from '@/lib/queryClient';
 
 type Props = {
   projectId: string;
@@ -37,7 +37,6 @@ export default function SplitRequirementsPanel({
   const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState<PrdDraft>(emptyDraft());
   const [dragOver, setDragOver] = useState(false);
-  const [pendingStoryIds, setPendingStoryIds] = useState<Set<string>>(new Set());
 
   const loadDraft = useCallback(async () => {
     try {
@@ -57,7 +56,6 @@ export default function SplitRequirementsPanel({
       return;
     }
     setLoading(true);
-    setPendingStoryIds(new Set());
     setDraft(emptyDraft());
     try {
       const fd = new FormData();
@@ -67,27 +65,12 @@ export default function SplitRequirementsPanel({
       let finished: PrdDraft | null = null;
       await api.analyzePrdStream(fd, ev => {
         if (ev.type === 'story') {
-          setPendingStoryIds(prev => new Set(prev).add(ev.story.id));
           setDraft(prev => ({
             ...prev,
             stories: [...prev.stories.filter(s => s.id !== ev.story.id), ev.story],
           }));
         }
-        if (ev.type === 'tasks') {
-          setPendingStoryIds(prev => {
-            const next = new Set(prev);
-            next.delete(ev.storyId);
-            return next;
-          });
-          setDraft(prev => ({
-            ...prev,
-            stories: prev.stories.map((s: PrdDraftStory) =>
-              s.id === ev.storyId ? { ...s, tasks: ev.tasks } : s,
-            ),
-          }));
-        }
         if (ev.type === 'done') {
-          setPendingStoryIds(new Set());
           finished = coercePrdDraft(ev.draft);
         }
         if (ev.type === 'error') throw new Error(ev.message);
@@ -103,10 +86,10 @@ export default function SplitRequirementsPanel({
     }
   };
 
-  const commit = async (storyIds: string[], taskIds: string[]) => {
+  const commit = async (storyIds: string[]) => {
     setSaving(true);
     try {
-      const res = await api.commitPrdDraft(storyIds, taskIds);
+      const res = await api.commitPrdDraft(storyIds, []);
       const leftover = coercePrdDraft(await api.getPrdDraft());
       const mine = leftover.stories.length > 0 && leftover.stories.every(s => !s.projectId || s.projectId === projectId);
       setDraft(mine ? leftover : emptyDraft());
@@ -115,11 +98,13 @@ export default function SplitRequirementsPanel({
         setFiles([]);
       }
       await syncTasks();
+      invalidateUserStories();
       window.dispatchEvent(new Event('zet:stories-changed'));
       onCreated?.([]);
       toast.success(
-        `Saved ${res.storiesCreated} stor${res.storiesCreated === 1 ? 'y' : 'ies'} and ${res.tasksCreated} task${res.tasksCreated === 1 ? '' : 's'}`,
+        `Saved ${res.storiesCreated} user stor${res.storiesCreated === 1 ? 'y' : 'ies'}`,
       );
+      return { storyIds: res.storyIds ?? [] };
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not save story');
       throw e;
@@ -137,8 +122,8 @@ export default function SplitRequirementsPanel({
         <h3 className="text-sm font-bold text-foreground">Split document into user stories</h3>
       </div>
       <p className="text-xs text-muted-foreground/60 mb-4">
-        Upload one or more PDFs (or DOCX/TXT) or paste text. AI divides them into user stories,
-        each with tasks and subtasks.
+        Upload a PRD or paste text. Same as /prd: stories first, then open a story to
+        edit/save and generate tasks.
       </p>
 
       <div
@@ -197,8 +182,9 @@ export default function SplitRequirementsPanel({
                   accept={PRD_FILE_ACCEPT}
                   multiple
                   onChange={e => {
-                    setFiles(prev => mergePrdFiles(prev, e.target.files));
+                    const picked = Array.from(e.target.files ?? []);
                     e.target.value = '';
+                    setFiles(prev => mergePrdFiles(prev, picked));
                   }}
                 />
               </label>
@@ -214,8 +200,9 @@ export default function SplitRequirementsPanel({
               accept={PRD_FILE_ACCEPT}
               multiple
               onChange={e => {
-                setFiles(prev => mergePrdFiles(prev, e.target.files));
+                const picked = Array.from(e.target.files ?? []);
                 e.target.value = '';
+                setFiles(prev => mergePrdFiles(prev, picked));
               }}
             />
           </label>
@@ -227,7 +214,7 @@ export default function SplitRequirementsPanel({
           onClick={() => void runAnalyze()}
         >
           {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Sparkles className="h-4 w-4 mr-2" />}
-          Split into stories + tasks
+          Split into stories
         </Button>
       </div>
 
@@ -237,7 +224,6 @@ export default function SplitRequirementsPanel({
           projects={projects}
           saving={saving || loading}
           analyzing={loading}
-          pendingStoryIds={pendingStoryIds}
           lockProjectId={projectId}
           onChange={setDraft}
           onCommit={commit}

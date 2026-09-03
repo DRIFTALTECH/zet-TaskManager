@@ -24,6 +24,8 @@ def _ext(filename: str | None) -> str:
 
 def _document_text(data: bytes, filename: str) -> str:
     ext = _ext(filename)
+    if ext == "doc":
+        raise ValueError("Old .doc files aren't supported. Save as .docx or PDF and try again.")
     if ext == "pdf":
         from pypdf import PdfReader
 
@@ -109,7 +111,10 @@ def resolve_source(
     # ponytail: one outline over concatenated docs, not N extract chains
     named = bool(pasted and docs) or len(docs) > 1
     for data, name in docs:
-        body = _file_text(data, name)
+        try:
+            body = _file_text(data, name)
+        except ValueError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
         if not body:
             continue
         chunks.append(f"===== {name} =====\n{body}" if named else body)

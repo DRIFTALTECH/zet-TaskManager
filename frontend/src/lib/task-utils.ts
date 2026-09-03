@@ -23,6 +23,11 @@ export function isTaskConfirmed(task: Pick<Task, 'status' | 'approvedByManager'>
   return task.status === 'completed' || task.approvedByManager;
 }
 
+/** Stories leave the active board after manager confirmation, same as tasks. */
+export function isStoryConfirmed(story: Pick<UserStory, 'status'> & { approvedByManager?: boolean }): boolean {
+  return story.status === 'completed' || !!story.approvedByManager;
+}
+
 /** Sentinel for Dashboard / board “Person” filter — match tasks with no assignees. */
 export const UNASSIGNED_FILTER_ID = '__unassigned__';
 
@@ -42,6 +47,11 @@ export function isTaskUnassigned(task: Task): boolean {
   return taskAssigneeIds(task).length === 0;
 }
 
+/** Task is a board/list sibling of stories — not nested under a known story. */
+export function isStandaloneTask(task: Pick<Task, 'userStoryId'>, storyIds: Set<string>): boolean {
+  return !task.userStoryId || !storyIds.has(task.userStoryId);
+}
+
 /** Story assignees — mirrors taskAssigneeIds. */
 export function storyAssigneeIds(story: UserStory): string[] {
   if (story.assigneeIds && story.assigneeIds.length > 0) return story.assigneeIds;
@@ -55,11 +65,15 @@ export function isTaskAssignedTo(task: Task, userId: string): boolean {
 export const NO_SPRINT_FILTER_ID = '__no_sprint__';
 
 /** Sprint filter: empty set = no restriction. Supports NO_SPRINT_FILTER_ID for blank sprint. */
-export function taskMatchesSprintFilter(task: Task, selected: Set<string>): boolean {
+export function matchesSprintFilter(sprint: string | null | undefined, selected: Set<string>): boolean {
   if (selected.size === 0) return true;
-  const sprint = (task.sprint ?? '').trim();
-  if (!sprint) return selected.has(NO_SPRINT_FILTER_ID);
-  return selected.has(sprint);
+  const value = (sprint ?? '').trim();
+  if (!value) return selected.has(NO_SPRINT_FILTER_ID);
+  return selected.has(value);
+}
+
+export function taskMatchesSprintFilter(task: Pick<Task, 'sprint'>, selected: Set<string>): boolean {
+  return matchesSprintFilter(task.sprint, selected);
 }
 
 export function taskMatchesAssigneeFilter(task: Task, selectedUserIds: Set<string>): boolean {
@@ -82,4 +96,26 @@ export function normalizePriority(priority: string | undefined): Task['priority'
   const titled = priority.charAt(0).toUpperCase() + priority.slice(1).toLowerCase();
   if (PRIORITIES.has(titled)) return titled as Task['priority'];
   return 'Medium';
+}
+
+/** Sum child-task estimates and time tracked onto the story. */
+export function rollupStoryHours(
+  tasks: Pick<Task, 'userStoryId' | 'estimatedHours' | 'timeTracked'>[],
+  storyId: string,
+): { estimatedHours: number | null; actualHours: number } {
+  let estimated = 0;
+  let hasEst = false;
+  let actualSecs = 0;
+  for (const t of tasks) {
+    if (t.userStoryId !== storyId) continue;
+    if (t.estimatedHours != null && t.estimatedHours > 0) {
+      estimated += t.estimatedHours;
+      hasEst = true;
+    }
+    actualSecs += t.timeTracked || 0;
+  }
+  return {
+    estimatedHours: hasEst ? estimated : null,
+    actualHours: actualSecs / 3600,
+  };
 }

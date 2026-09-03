@@ -8,7 +8,7 @@ from database.models import TempTask
 def get_by_id(db: Db, row_id: str) -> TempTask | None:
     return row_to_model(
         TempTask,
-        fetch_one(db, "SELECT * FROM temp_tasks WHERE id = %s", (row_id,)),
+        fetch_one(db, "SELECT * FROM temp_tasks WHERE id = %s", (row_id,), primary=True),
     )
 
 
@@ -23,6 +23,7 @@ def list_for_user(db: Db, user_id: str) -> list[TempTask]:
             ORDER BY kind ASC, position ASC, created_at ASC
             """,
             (user_id,),
+            primary=True,
         ),
     )
 
@@ -38,6 +39,7 @@ def list_for_import(db: Db, import_id: str) -> list[TempTask]:
             ORDER BY kind ASC, position ASC, created_at ASC
             """,
             (import_id,),
+            primary=True,
         ),
     )
 
@@ -61,17 +63,18 @@ def create(
     created_at: str,
     updated_at: str,
     assignee_ids: str = "[]",
-) -> TempTask:
+    extra_json: str = "{}",
+) -> None:
     db.write(
         """
         INSERT INTO temp_tasks (
             id, import_id, user_id, kind, parent_id, title, description,
             acceptance_criteria, project_id, section_id, priority, position,
-            source_text, assignee_ids, created_at, updated_at
+            source_text, assignee_ids, extra_json, created_at, updated_at
         ) VALUES (
             %s, %s, %s, %s, %s, %s, %s,
             %s, %s, %s, %s, %s,
-            %s, %s, %s, %s
+            %s, %s, %s, %s, %s
         )
         """,
         (
@@ -89,11 +92,12 @@ def create(
             position,
             source_text,
             assignee_ids,
+            extra_json,
             created_at,
             updated_at,
         ),
     )
-    return get_by_id(db, row_id)  # type: ignore[return-value]
+    # ponytail: caller already has the fields; skip extra SELECT
 
 
 def update(db: Db, row: TempTask) -> TempTask:
@@ -102,7 +106,7 @@ def update(db: Db, row: TempTask) -> TempTask:
         UPDATE temp_tasks SET
             title = %s, description = %s, acceptance_criteria = %s,
             project_id = %s, section_id = %s, priority = %s, position = %s,
-            parent_id = %s, assignee_ids = %s, updated_at = %s
+            parent_id = %s, assignee_ids = %s, extra_json = %s, updated_at = %s
         WHERE id = %s
         """,
         (
@@ -115,6 +119,7 @@ def update(db: Db, row: TempTask) -> TempTask:
             row.position,
             row.parent_id,
             getattr(row, "assignee_ids", None) or "[]",
+            getattr(row, "extra_json", None) or "{}",
             row.updated_at,
             row.id,
         ),

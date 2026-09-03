@@ -110,10 +110,15 @@ export interface UserStory {
   /** Multi-assignee (mirrors task.assigneeIds); assigneeId is primary/first. */
   assigneeIds?: string[];
   reporterId: string;
+  /** Rolled up from linked tasks — not stored on the story. */
   estimatedHours?: number | null;
+  actualHours?: number | null;
   storyPoints?: number | null;
   startDate?: string | null;
   dueDate?: string | null;
+  sprint?: string;
+  tags?: string[];
+  approvedByManager?: boolean;
   createdAt: string;
   updatedAt: string;
   progressPercent: number;
@@ -137,36 +142,13 @@ export interface GeneratedTaskPreview {
   subtasks: GeneratedSubtaskPreview[];
   /** When false, task is created under the story but left unassigned. */
   assign?: boolean;
+  assigneeIds?: string[];
+  sectionId?: string | null;
 }
 
 export interface UserStoryGeneratePreview {
   storyId: string;
   tasks: GeneratedTaskPreview[];
-}
-
-export interface ExtractedStoryPreview {
-  key: string;
-  title: string;
-  description?: string;
-  acceptanceCriteria?: string;
-  priority?: string;
-  assigneeIds?: string[];
-  tasks?: GeneratedTaskPreview[];
-  projectId?: string | null;
-  sectionId?: string | null;
-  projectName?: string | null;
-  sectionName?: string | null;
-}
-
-export interface PrdDraftTask {
-  id: string;
-  title: string;
-  description?: string;
-  priority?: string;
-  position?: number;
-  projectId?: string | null;
-  sectionId?: string | null;
-  assigneeIds?: string[];
 }
 
 export interface PrdDraftStory {
@@ -179,7 +161,12 @@ export interface PrdDraftStory {
   sectionId?: string | null;
   position?: number;
   assigneeIds?: string[];
-  tasks: PrdDraftTask[];
+  estimatedHours?: number | null;
+  storyPoints?: number | null;
+  startDate?: string | null;
+  dueDate?: string | null;
+  sprint?: string;
+  tags?: string[];
 }
 
 export interface PrdDraft {
@@ -198,7 +185,6 @@ export type PrdStreamEvent =
       totalStories?: number;
     }
   | { type: 'story'; percent: number; story: PrdDraftStory }
-  | { type: 'tasks'; percent: number; storyId: string; tasks: PrdDraftTask[] }
   | { type: 'done'; percent: number; label?: string; draft: PrdDraft }
   | { type: 'error'; message: string };
 

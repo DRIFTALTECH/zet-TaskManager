@@ -1,5 +1,5 @@
 /**
- * PRD studio: outline stories, then parallel per-story task generation.
+ * PRD studio: outline detailed user stories, review/assign, then save.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
@@ -13,8 +13,8 @@ import type { PrdDraft, PrdDraftStory, PrdStreamEvent } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { PrdStudio } from '@/components/prd/PrdStudio';
-import { coercePrdDraft } from '@/components/PrdDraftTable';
-import { prdRun, mergePrdFiles, PRD_FILE_ACCEPT } from '@/lib/prdSession';
+import { prdRun, mergePrdFiles, PRD_FILE_ACCEPT, coercePrdDraft, isPrdFile, resetPrdRun } from '@/lib/prdSession';
+import { invalidateUserStories } from '@/lib/queryClient';
 
 function emptyDraft(): PrdDraft {
   return { importId: null, sourceText: '', stories: [] };
@@ -44,13 +44,28 @@ export default function PrdImportPage() {
   const [percent, setPercent] = useState(0);
   const [stageLabel, setStageLabel] = useState('');
   const [counts, setCounts] = useState({ done: 0, total: 0 });
-  const [pendingStoryIds, setPendingStoryIds] = useState<Set<string>>(new Set());
   const abortRef = useRef<AbortController | null>(null);
+  const analyzeGen = useRef(0);
+
+  const addFiles = (incoming: FileList | File[] | null | undefined) => {
+    const picked = Array.from(incoming ?? []);
+    const rejected = picked.filter(f => !isPrdFile(f.name));
+    if (rejected.length) {
+      toast.error(
+        `Can't use ${rejected.map(f => f.name).join(', ')}. Add a PDF, Word (.docx), TXT, MD, or CSV.`,
+      );
+    }
+    setFiles(prev => mergePrdFiles(prev, picked));
+  };
 
   const loadDraft = useCallback(async () => {
+    const gen = analyzeGen.current;
     try {
-      setDraft(coercePrdDraft(await api.getPrdDraft()));
+      const next = coercePrdDraft(await api.getPrdDraft());
+      if (analyzeGen.current !== gen || prdRun.analyzing) return;
+      setDraft(next);
     } catch {
+      if (analyzeGen.current !== gen || prdRun.analyzing) return;
       setDraft(emptyDraft());
     } finally {
       setLoaded(true);
@@ -58,6 +73,7 @@ export default function PrdImportPage() {
   }, []);
 
   useEffect(() => {
+    if (prdRun.analyzing && (!prdRun.ac || prdRun.ac.signal.aborted)) resetPrdRun();
     void loadDraft();
     setAnalyzing(prdRun.analyzing);
     setPercent(prdRun.percent);
@@ -100,27 +116,8 @@ export default function PrdImportPage() {
     if (ev.type === 'story') {
       prdRun.percent = ev.percent;
       setPercent(ev.percent);
-      setPendingStoryIds(prev => new Set(prev).add(ev.story.id));
       setDraft(prev => {
         const next = { ...prev, stories: upsertStory(prev.stories, ev.story) };
-        prdRun.draft = next;
-        return next;
-      });
-      return;
-    }
-    if (ev.type === 'tasks') {
-      prdRun.percent = ev.percent;
-      setPercent(ev.percent);
-      setPendingStoryIds(prev => {
-        const next = new Set(prev);
-        next.delete(ev.storyId);
-        return next;
-      });
-      setDraft(prev => {
-        const next = {
-          ...prev,
-          stories: prev.stories.map(s => (s.id === ev.storyId ? { ...s, tasks: ev.tasks } : s)),
-        };
         prdRun.draft = next;
         return next;
       });
@@ -132,7 +129,6 @@ export default function PrdImportPage() {
       prdRun.draft = coercePrdDraft(ev.draft);
       setPercent(100);
       setStageLabel(ev.label || 'Draft ready');
-      setPendingStoryIds(new Set());
       setDraft(coercePrdDraft(ev.draft));
       return;
     }
@@ -149,6 +145,7 @@ export default function PrdImportPage() {
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
+    analyzeGen.current += 1;
     prdRun.ac = ac;
     prdRun.analyzing = true;
     prdRun.percent = 2;
@@ -159,7 +156,6 @@ export default function PrdImportPage() {
     setPercent(2);
     setStageLabel('Reading the PRD');
     setCounts({ done: 0, total: 0 });
-    setPendingStoryIds(new Set());
     setDraft(d => ({ ...emptyDraft(), sourceText: d.sourceText }));
     try {
       const fd = new FormData();
@@ -174,9 +170,9 @@ export default function PrdImportPage() {
         },
         ac.signal,
       );
-      const stories = (finished ?? draft).stories;
+      const stories = (finished ?? prdRun.draft ?? emptyDraft()).stories;
       if (!stories.length) toast.message('No user stories found in that PRD');
-      else toast.success(`${stories.length} stor${stories.length === 1 ? 'y' : 'ies'} · tasks written in parallel`);
+      else toast.success(`${stories.length} user stor${stories.length === 1 ? 'y' : 'ies'} ready to review`);
     } catch (e) {
       if ((e as { name?: string }).name === 'AbortError') return;
       toast.error(e instanceof Error ? e.message : 'Analyze failed');
@@ -187,10 +183,10 @@ export default function PrdImportPage() {
     }
   };
 
-  const commit = async (storyIds: string[], taskIds: string[]) => {
+  const commit = async (storyIds: string[]) => {
     setSaving(true);
     try {
-      const res = await api.commitPrdDraft(storyIds, taskIds);
+      const res = await api.commitPrdDraft(storyIds, []);
       const leftover = coercePrdDraft(await api.getPrdDraft());
       setDraft(leftover);
       if (leftover.stories.length === 0) {
@@ -200,9 +196,11 @@ export default function PrdImportPage() {
         setStageLabel('');
       }
       await syncTasks();
+      invalidateUserStories();
       toast.success(
-        `Saved ${res.storiesCreated} stor${res.storiesCreated === 1 ? 'y' : 'ies'} and ${res.tasksCreated} task${res.tasksCreated === 1 ? '' : 's'}`,
+        `Saved ${res.storiesCreated} user stor${res.storiesCreated === 1 ? 'y' : 'ies'}`,
       );
+      return { storyIds: res.storyIds ?? [] };
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not save story');
       throw e;
@@ -226,7 +224,8 @@ export default function PrdImportPage() {
         </p>
         <h1 className="text-3xl font-semibold tracking-tight">PRD studio</h1>
         <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-          Analyze a PRD, open a story to review its tasks, then save that story. Other stories stay until you save or delete them.
+          Analyze a PRD into detailed user stories. Open a story to read and edit it, save it,
+          then generate tasks when you are ready.
         </p>
       </header>
 
@@ -239,7 +238,7 @@ export default function PrdImportPage() {
         onDrop={e => {
           e.preventDefault();
           setDragOver(false);
-          setFiles(prev => mergePrdFiles(prev, e.dataTransfer.files));
+          addFiles(e.dataTransfer.files);
         }}
         className={`relative overflow-hidden rounded-2xl border bg-card/60 p-5 shadow-sm transition-colors ${
           dragOver ? 'border-primary/50 bg-primary/5' : 'border-border/50'
@@ -252,12 +251,11 @@ export default function PrdImportPage() {
           onDrop={e => {
             e.preventDefault();
             setDragOver(false);
-            setFiles(prev => mergePrdFiles(prev, e.dataTransfer.files));
+            addFiles(e.dataTransfer.files);
           }}
           rows={6}
           placeholder="Paste the PRD, RFC, or ticket dump — or drop PDFs here…"
           className="resize-y border-border/40 bg-background/80 font-mono text-[13px] leading-relaxed"
-          disabled={analyzing}
         />
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-border/60 bg-background/70 px-3 py-2 text-xs font-semibold hover:bg-muted/50">
@@ -268,9 +266,8 @@ export default function PrdImportPage() {
               className="hidden"
               accept={PRD_FILE_ACCEPT}
               multiple
-              disabled={analyzing}
               onChange={e => {
-                setFiles(prev => mergePrdFiles(prev, e.target.files));
+                addFiles(e.target.files);
                 e.target.value = '';
               }}
             />
@@ -291,7 +288,16 @@ export default function PrdImportPage() {
           ))}
           <div className="ml-auto flex gap-2">
             {analyzing && (
-              <Button variant="outline" size="sm" onClick={() => { abortRef.current?.abort(); prdRun.ac?.abort(); }}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  abortRef.current?.abort();
+                  prdRun.ac?.abort();
+                  resetPrdRun();
+                  setAnalyzing(false);
+                }}
+              >
                 Cancel
               </Button>
             )}
@@ -315,7 +321,7 @@ export default function PrdImportPage() {
             <div className="flex items-end justify-between gap-4">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
-                  {counts.total > 0 && counts.done === 0 ? 'Stories' : counts.total > 0 ? 'Tasks' : 'Pipeline'}
+                  {counts.total > 0 ? 'Stories' : 'Pipeline'}
                 </p>
                 <p className="mt-1 text-sm font-medium">{stageLabel || 'Working'}</p>
                 {counts.total > 0 && (
@@ -356,7 +362,6 @@ export default function PrdImportPage() {
           projects={projects}
           saving={saving || analyzing}
           analyzing={analyzing}
-          pendingStoryIds={pendingStoryIds}
           onChange={setDraft}
           onCommit={commit}
         />

@@ -22,6 +22,7 @@ import { projectPickerLabel } from '@/lib/project-utils';
 import UserAvatar from '@/components/UserAvatar';
 import { AdjustMinDurationSection } from '@/components/AdjustMinDurationSection';
 import { SubtaskManager } from '@/components/SubtaskSection';
+import { SprintSelect } from '@/components/SprintSelect';
 import { matchAgentBrand, AgentBrandBadge } from '@/lib/agent-brand';
 import { dueBucketDateTextClass, getDueBucket } from '@/lib/due-date-utils';
 import { api } from '@/lib/api';
@@ -1289,13 +1290,7 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange }: Props) => {
               <section>
                 <SectionLabel icon={Layers} label="Sprint" accent="text-violet-400/70" />
                 {canEdit ? (
-                  <input
-                    value={draftSprint}
-                    onChange={e => setDraftSprint(e.target.value)}
-                    placeholder="e.g. Sprint 12"
-                    maxLength={120}
-                    className="w-full text-sm font-semibold bg-muted/40 border border-border/50 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 transition-all"
-                  />
+                  <SprintSelect value={draftSprint} onChange={setDraftSprint} projectId={draftProjectId || task.projectId} />
                 ) : (
                   <div className="text-sm text-foreground">{task.sprint?.trim() || 'No sprint'}</div>
                 )}

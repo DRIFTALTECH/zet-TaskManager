@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { BookOpen, Check, Filter, FolderOpen, Layers, Loader2, Plus, Trash2, Users, X } from 'lucide-react';
+import { BookOpen, Check, Filter, FolderOpen, Layers, Loader2, Plus, Sparkles, Trash2, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/stores/appStore';
 import { clearPrdPicks, loadPrdPicks, savePrdPicks } from '@/lib/prdSession';
-import type { PrdDraft, User } from '@/types';
+import type { PrdDraft, User, UserStoryGeneratePreview } from '@/types';
 import { cn } from '@/lib/utils';
 import AssigneeMultiSelect from '@/components/AssigneeMultiSelect';
+import { GenerateTasksPreviewDialog } from '@/components/GenerateTasksPreviewDialog';
+import { SprintSelect } from '@/components/SprintSelect';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -36,7 +38,6 @@ export function PrdStudio({
   projects,
   saving,
   analyzing = false,
-  pendingStoryIds,
   lockProjectId,
   onChange,
   onCommit,
@@ -45,35 +46,29 @@ export function PrdStudio({
   projects: ProjectOpt[];
   saving: boolean;
   analyzing?: boolean;
+  /** @deprecated ignored — PRD studio is story-only */
   pendingStoryIds?: Set<string>;
   lockProjectId?: string;
   onChange: (next: PrdDraft) => void;
-  onCommit: (storyIds: string[], taskIds: string[]) => void | Promise<void>;
+  onCommit: (storyIds: string[]) => Promise<{ storyIds?: string[] } | void> | void;
 }) {
   const users = useAppStore(s => s.users);
   const stories = draft.stories;
   const [storyOn, setStoryOn] = useState<Record<string, boolean>>(() => loadPrdPicks(draft.importId).stories);
-  const [taskOn, setTaskOn] = useState<Record<string, boolean | undefined>>(() => loadPrdPicks(draft.importId).tasks);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [storyOpen, setStoryOpen] = useState(false);
   const [storyFilter, setStoryFilter] = useState('all');
+  const [generating, setGenerating] = useState(false);
+  const [taskPreview, setTaskPreview] = useState<{ storyId: string; data: UserStoryGeneratePreview } | null>(null);
 
   useEffect(() => {
-    const saved = loadPrdPicks(draft.importId);
-    setStoryOn(saved.stories);
-    setTaskOn(saved.tasks);
+    setStoryOn(loadPrdPicks(draft.importId).stories);
   }, [draft.importId]);
 
   useEffect(() => {
     setStoryOn(prev => {
       const next = { ...prev };
       for (const s of stories) if (!(s.id in next)) next[s.id] = false;
-      return next;
-    });
-    setTaskOn(prev => {
-      const next = { ...prev };
-      for (const s of stories) for (const t of s.tasks) if (!(t.id in next)) next[t.id] = undefined;
       return next;
     });
     setActiveId(cur => (cur && stories.some(s => s.id === cur) ? cur : stories[0]?.id ?? null));
@@ -83,8 +78,8 @@ export function PrdStudio({
   }, [stories]);
 
   useEffect(() => {
-    savePrdPicks(draft.importId, { stories: storyOn, tasks: taskOn });
-  }, [storyOn, taskOn, draft.importId]);
+    savePrdPicks(draft.importId, { stories: storyOn });
+  }, [storyOn, draft.importId]);
 
   const visibleStories = useMemo(() => {
     if (storyFilter === 'accepted') return stories.filter(s => storyOn[s.id]);
@@ -93,21 +88,13 @@ export function PrdStudio({
     return stories;
   }, [stories, storyOn, storyFilter]);
   const active = stories.find(s => s.id === activeId) ?? null;
-  const openTask = active?.tasks.find(t => t.id === openTaskId) ?? null;
+  const storyIds = useMemo(() => stories.filter(s => storyOn[s.id]).map(s => s.id), [stories, storyOn]);
+  const busy = saving || analyzing;
 
   const openStory = (id: string) => {
     setActiveId(id);
-    setOpenTaskId(null);
     setStoryOpen(true);
   };
-  const storyIds = useMemo(() => stories.filter(s => storyOn[s.id]).map(s => s.id), [stories, storyOn]);
-  const taskIds = useMemo(
-    () => stories.flatMap(s => s.tasks.filter(t => taskOn[t.id] === true).map(t => t.id)),
-    [stories, taskOn],
-  );
-  const pending = pendingStoryIds ?? new Set<string>();
-  const writing = Boolean(active && pending.has(active.id) && active.tasks.length === 0);
-  const busy = saving || analyzing;
 
   const patch = async (id: string, body: Parameters<typeof api.patchPrdItem>[1]) => {
     try {
@@ -122,9 +109,7 @@ export function PrdStudio({
       onChange(await api.discardPrdDraft());
       clearPrdPicks(draft.importId);
       setStoryOn({});
-      setTaskOn({});
       setActiveId(null);
-      setOpenTaskId(null);
       setStoryOpen(false);
       toast.message('Draft discarded');
     } catch (e) {
@@ -132,21 +117,32 @@ export function PrdStudio({
     }
   };
 
-  const acceptTask = (storyId: string, taskId: string) => {
-    setTaskOn(c => ({ ...c, [taskId]: true }));
-    setStoryOn(c => ({ ...c, [storyId]: true }));
-  };
-
   const saveStory = async (storyId: string) => {
     const story = stories.find(s => s.id === storyId);
-    if (!story) return;
-    const ids = story.tasks.filter(t => taskOn[t.id] === true).map(t => t.id);
+    if (!story) return null;
     try {
-      await onCommit([story.id], ids);
+      const res = await onCommit([story.id]);
+      setStoryOn(c => ({ ...c, [storyId]: true }));
       setStoryOpen(false);
-      setOpenTaskId(null);
+      return res?.storyIds?.[0] ?? null;
     } catch {
-      /* page already toasts */
+      return null;
+    }
+  };
+
+  const generateTasks = async (storyId: string) => {
+    setGenerating(true);
+    try {
+      const data = await api.generatePrdStoryTasksPreview(storyId);
+      if (!data.tasks.length) {
+        toast.message('No tasks suggested for this story');
+        return;
+      }
+      setTaskPreview({ storyId, data });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Generate failed');
+    } finally {
+      setGenerating(false);
     }
   };
 
@@ -171,7 +167,7 @@ export function PrdStudio({
         <p className="text-sm font-semibold">
           {stories.length} user stor{stories.length === 1 ? 'y' : 'ies'} staged
           <span className="ml-2 text-xs font-normal text-muted-foreground">
-            {storyIds.length} stor{storyIds.length === 1 ? 'y' : 'ies'} · {taskIds.length} task{taskIds.length === 1 ? '' : 's'} accepted
+            {storyIds.length} accepted
           </span>
         </p>
         <div className="flex flex-wrap items-center gap-2">
@@ -232,9 +228,7 @@ export function PrdStudio({
             {visibleStories.map(story => {
               const on = activeId === story.id;
               const accepted = Boolean(storyOn[story.id]);
-              const pendingTasks = pending.has(story.id) && story.tasks.length === 0;
               const place = loc(story.projectId, story.sectionId);
-              const nAcc = story.tasks.filter(t => taskOn[t.id] === true).length;
               return (
                 <li key={story.id}>
                   <article
@@ -268,20 +262,15 @@ export function PrdStudio({
                       </button>
                     </div>
                     {story.description ? (
-                      <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">{story.description}</p>
+                      <p className="mt-2 line-clamp-3 text-xs text-muted-foreground">{story.description}</p>
                     ) : null}
                     <div className="mt-auto space-y-1.5 pt-3">
                       <MetaLine icon={FolderOpen} text={place.project} />
                       <MetaLine icon={Layers} text={place.section} />
                       <AssigneeLine ids={story.assigneeIds ?? []} users={users} />
-                      <div className="flex items-center justify-between gap-2 pt-1">
-                        <span className={cn('rounded-md border px-1.5 py-0.5 text-[10px] font-semibold', PRI[story.priority || 'Medium'])}>
-                          {story.priority || 'Medium'}
-                        </span>
-                        <span className="text-[11px] text-muted-foreground">
-                          {pendingTasks ? 'writing tasks' : `${nAcc}/${story.tasks.length} accepted`}
-                        </span>
-                      </div>
+                      <span className={cn('inline-flex rounded-md border px-1.5 py-0.5 text-[10px] font-semibold', PRI[story.priority || 'Medium'])}>
+                        {story.priority || 'Medium'}
+                      </span>
                     </div>
                   </article>
                 </li>
@@ -317,128 +306,30 @@ export function PrdStudio({
               >
                 <Trash2 className="h-4 w-4" /> Delete
               </Button>
-              <Button type="button" disabled={busy} onClick={() => void saveStory(active.id)}>
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                Save story
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy || generating}
+                  onClick={() => void generateTasks(active.id)}
+                >
+                  {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  Generate tasks
+                </Button>
+                <Button type="button" disabled={busy} onClick={() => void saveStory(active.id)}>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                  Save story
+                </Button>
+              </div>
             </DialogFooter>
           }
-        >
-          <section className="space-y-3 border-t border-emerald-500/20 pt-4">
-            <div className="flex items-center justify-between gap-2">
-              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
-                <Check className="h-3.5 w-3.5" /> Proposed tasks
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={busy || writing}
-                onClick={() => void api.addPrdTask(active.id).then(onChange)}
-              >
-                <Plus className="h-3.5 w-3.5" /> Task
-              </Button>
-            </div>
-            {writing ? (
-              <p className="py-8 text-sm text-muted-foreground">Writing tasks…</p>
-            ) : active.tasks.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No tasks yet. Save the story on its own, or add tasks.</p>
-            ) : (
-              <ul className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {active.tasks.map(task => {
-                  const pick = taskOn[task.id];
-                  const place = loc(task.projectId || active.projectId, task.sectionId || active.sectionId);
-                  return (
-                    <li key={task.id}>
-                      <article
-                        className={cn(
-                          'flex h-full cursor-pointer flex-col rounded-xl border bg-card/80 p-3',
-                          pick === true && 'border-emerald-500/50 ring-2 ring-emerald-500/30',
-                          pick === false && 'opacity-55',
-                        )}
-                        onClick={() => setOpenTaskId(task.id)}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <p className="text-sm font-semibold leading-snug">{task.title || 'Untitled task'}</p>
-                          <div className="flex shrink-0 gap-1" onClick={e => e.stopPropagation()}>
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant={pick === true ? 'default' : 'outline'}
-                              className="h-8 w-8"
-                              disabled={busy}
-                              aria-label="Accept task"
-                              onClick={() => acceptTask(active.id, task.id)}
-                            >
-                              <Check className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant={pick === false ? 'destructive' : 'outline'}
-                              className="h-8 w-8"
-                              disabled={busy}
-                              aria-label="Delete task"
-                              onClick={() => void api.deletePrdItem(task.id).then(onChange)}
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                        </div>
-                        {task.description ? (
-                          <p className="mt-2 line-clamp-2 text-xs text-muted-foreground">{task.description}</p>
-                        ) : null}
-                        <div className="mt-auto space-y-1.5 pt-3">
-                          <MetaLine icon={FolderOpen} text={place.project} />
-                          <MetaLine icon={Layers} text={place.section} />
-                          <AssigneeLine ids={task.assigneeIds ?? []} users={users} />
-                          <span className={cn('inline-flex rounded-md border px-1.5 py-0.5 text-[10px] font-semibold', PRI[task.priority || 'Medium'])}>
-                            {task.priority || 'Medium'}
-                            {pick === true ? ' · selected' : ''}
-                          </span>
-                        </div>
-                      </article>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
-        </PlaceDialog>
+        />
       )}
-      {active && openTask && (
-        <PlaceDialog
-          title="Task details"
-          open
-          onOpenChange={o => { if (!o) setOpenTaskId(null); }}
-          item={{
-            ...openTask,
-            projectId: openTask.projectId || active.projectId,
-            sectionId: openTask.sectionId || active.sectionId,
-            acceptanceCriteria: undefined,
-          }}
-          lockProject={Boolean(lockProjectId || active.projectId)}
-          projects={projects}
-          members={membersOf(openTask.projectId || active.projectId)}
-          busy={busy}
-          onPatch={patch}
-          footer={
-            <DialogFooter className="gap-2 sm:justify-between">
-              <Button
-                type="button"
-                variant="ghost"
-                disabled={busy}
-                onClick={() => {
-                  setOpenTaskId(null);
-                  void api.deletePrdItem(openTask.id).then(onChange);
-                }}
-              >
-                <Trash2 className="h-4 w-4" /> Delete
-              </Button>
-              <Button type="button" disabled={busy} onClick={() => acceptTask(active.id, openTask.id)}>
-                <Check className="h-4 w-4" /> Select
-              </Button>
-            </DialogFooter>
-          }
+      {taskPreview && (
+        <GenerateTasksPreviewDialog
+          preview={taskPreview.data}
+          previewOnly
+          onClose={() => setTaskPreview(null)}
         />
       )}
     </section>
@@ -484,7 +375,6 @@ function PlaceDialog({
   extra,
   wide,
   footer,
-  children,
 }: {
   title: string;
   open: boolean;
@@ -498,6 +388,12 @@ function PlaceDialog({
     sectionId?: string | null;
     assigneeIds?: string[];
     acceptanceCriteria?: string;
+    estimatedHours?: number | null;
+    storyPoints?: number | null;
+    startDate?: string | null;
+    dueDate?: string | null;
+    sprint?: string;
+    tags?: string[];
   };
   lockProject: boolean;
   projects: ProjectOpt[];
@@ -507,7 +403,6 @@ function PlaceDialog({
   extra?: boolean;
   wide?: boolean;
   footer?: ReactNode;
-  children?: ReactNode;
 }) {
   const project = projects.find(p => p.id === item.projectId);
   const sections = project?.sections ?? [];
@@ -531,7 +426,7 @@ function PlaceDialog({
                 <Label>Description</Label>
                 <Textarea
                   defaultValue={item.description || ''}
-                  rows={wide ? 6 : 5}
+                  rows={wide ? 10 : 5}
                   disabled={busy}
                   onBlur={e => void onPatch(item.id, { description: e.target.value })}
                 />
@@ -541,7 +436,7 @@ function PlaceDialog({
                   <Label>Acceptance</Label>
                   <Textarea
                     defaultValue={item.acceptanceCriteria || ''}
-                    rows={4}
+                    rows={6}
                     disabled={busy}
                     onBlur={e => void onPatch(item.id, { acceptanceCriteria: e.target.value })}
                   />
@@ -598,6 +493,59 @@ function PlaceDialog({
                   </SelectContent>
                 </Select>
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Sprint</Label>
+                  <SprintSelect
+                    value={item.sprint || ''}
+                    onChange={v => void onPatch(item.id, { sprint: v })}
+                    projectId={item.projectId || undefined}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Story points</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    defaultValue={item.storyPoints ?? ''}
+                    disabled={busy}
+                    onBlur={e => {
+                      const n = e.target.value.trim() ? Number(e.target.value) : null;
+                      void onPatch(item.id, { storyPoints: Number.isFinite(n as number) ? n : null });
+                    }}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Start</Label>
+                  <Input
+                    type="date"
+                    defaultValue={item.startDate ?? ''}
+                    disabled={busy}
+                    onBlur={e => void onPatch(item.id, { startDate: e.target.value || null })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Due</Label>
+                  <Input
+                    type="date"
+                    defaultValue={item.dueDate ?? ''}
+                    disabled={busy}
+                    onBlur={e => void onPatch(item.id, { dueDate: e.target.value || null })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Tags</Label>
+                  <Input
+                    defaultValue={(item.tags ?? []).join(', ')}
+                    disabled={busy}
+                    placeholder="comma separated"
+                    onBlur={e => void onPatch(item.id, {
+                      tags: e.target.value.split(',').map(t => t.trim()).filter(Boolean),
+                    })}
+                  />
+                </div>
+              </div>
               <div className="space-y-3 rounded-xl border border-border/60 p-4">
                 <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   <Users className="h-3.5 w-3.5" /> Assigned to
@@ -614,7 +562,6 @@ function PlaceDialog({
               </div>
             </div>
           </div>
-          {children}
         </div>
         {footer}
       </DialogContent>

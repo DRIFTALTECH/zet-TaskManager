@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { User, Project, Task, TaskStatus, KanbanColumn, Role, Client, Skill } from '@/types';
 import { api, isAuthError, isPendingApproval, TOKEN_KEY } from '@/lib/api';
 import { defaultSelectedProjectIdForUser } from '@/lib/project-utils';
-import { cacheFullTask, dropFullTask } from '@/lib/queryClient';
+import { cacheFullTask, dropFullTask, queryClient, seedUserStoriesCache } from '@/lib/queryClient';
 
 /** Map server timer rows → { taskId: epochMs } for the running-timer UI. */
 function timersToMap(rows: { taskId: string; startedAt: string }[]): Record<string, number> {
@@ -96,7 +96,7 @@ interface AppState {
       assigneeIds: string[];
       assignedBy: string;
       createdBy: string;
-      userStoryId: string;
+      userStoryId?: string | null;
       estimatedHours?: number | null;
     },
   ) => Promise<Task>;
@@ -164,14 +164,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const me = await api.getMe();
       const isManager = me.role === 'manager' || me.role === 'superadmin';
-      const [users, projects, tasks, kanbanColumns, activeTimerRows, clients] = await Promise.all([
+      const [users, projects, tasks, kanbanColumns, activeTimerRows, clients, stories] = await Promise.all([
         api.getUsers(),
         api.getProjects(),
         api.getTasks(),
         api.getKanbanColumns(),
         api.getActiveTimers().catch(() => []),
         isManager ? api.getClients().catch(() => [] as Client[]) : Promise.resolve([] as Client[]),
+        api.listUserStories().catch(() => []),
       ]);
+      seedUserStoriesCache(stories, projects.map(p => p.id));
       set({
         hydrated: true,
         bootstrapError: null,
@@ -219,13 +221,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const { access_token, user } = await api.login(email, password, rememberMe);
       localStorage.setItem(TOKEN_KEY, access_token);
-      const [users, projects, tasks, kanbanColumns, activeTimerRows] = await Promise.all([
+      const [users, projects, tasks, kanbanColumns, activeTimerRows, stories] = await Promise.all([
         api.getUsers(),
         api.getProjects(),
         api.getTasks(),
         api.getKanbanColumns(),
         api.getActiveTimers().catch(() => []),
+        api.listUserStories().catch(() => []),
       ]);
+      seedUserStoriesCache(stories, projects.map(p => p.id));
       set({
         currentUser: user,
         users,
@@ -255,12 +259,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (isPendingApproval(res)) return { pending: res.message };
     const { access_token, user } = res;
     localStorage.setItem(TOKEN_KEY, access_token);
-    const [users, projects, tasks, kanbanColumns] = await Promise.all([
+    const [users, projects, tasks, kanbanColumns, stories] = await Promise.all([
       api.getUsers(),
       api.getProjects(),
       api.getTasks(),
       api.getKanbanColumns(),
+      api.listUserStories().catch(() => []),
     ]);
+    seedUserStoriesCache(stories, projects.map(p => p.id));
     set({
       currentUser: user,
       users,
@@ -275,6 +281,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   logout: () => {
     localStorage.removeItem(TOKEN_KEY);
+    queryClient.clear();
     set({
       currentUser: null,
       users: [],

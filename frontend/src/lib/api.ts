@@ -352,7 +352,7 @@ export const api = {
     priority: string;
     status?: string;
     tags: string[];
-    userStoryId: string;
+    userStoryId?: string | null;
     parentTaskId?: string | null;
     estimatedHours?: number | null;
   }): Promise<Task> {
@@ -389,6 +389,10 @@ export const api = {
   },
 
   // ── User stories (additive hierarchy) ─────────────────────────────────────
+  async listUserStories(): Promise<import('@/types').UserStory[]> {
+    return request('/user-stories');
+  },
+
   async listProjectUserStories(projectId: string): Promise<import('@/types').UserStory[]> {
     return request(`/projects/${projectId}/user-stories`);
   },
@@ -411,6 +415,8 @@ export const api = {
     storyPoints?: number | null;
     startDate?: string | null;
     dueDate?: string | null;
+    sprint?: string;
+    tags?: string[];
   }): Promise<import('@/types').UserStory> {
     return request('/user-stories', { method: 'POST', body: JSON.stringify(body) });
   },
@@ -434,9 +440,15 @@ export const api = {
       storyPoints: number | null;
       startDate: string | null;
       dueDate: string | null;
+      sprint: string;
+      tags: string[];
     }>,
   ): Promise<import('@/types').UserStory> {
     return request(`/user-stories/${storyId}`, { method: 'PATCH', body: JSON.stringify(patch) });
+  },
+
+  async approveUserStory(storyId: string): Promise<import('@/types').UserStory> {
+    return request(`/user-stories/${storyId}/approve`, { method: 'POST' });
   },
 
   async deleteUserStory(storyId: string): Promise<void> {
@@ -470,24 +482,6 @@ export const api = {
     });
   },
 
-  async extractUserStories(
-    projectId: string,
-    opts: { text?: string; file?: File },
-  ): Promise<{ stories: import('@/types').ExtractedStoryPreview[] }> {
-    const form = new FormData();
-    if (opts.text) form.append('text', opts.text);
-    if (opts.file) form.append('file', opts.file);
-    return request(`/projects/${projectId}/user-stories/extract`, { method: 'POST', body: form });
-  },
-
-  async bulkCreateUserStories(body: {
-    projectId: string;
-    sectionId?: string | null;
-    stories: import('@/types').ExtractedStoryPreview[];
-  }): Promise<import('@/types').UserStory[]> {
-    return request('/user-stories/bulk', { method: 'POST', body: JSON.stringify(body) });
-  },
-
   async getUserStoryAttachments(storyId: string): Promise<import('@/types').UserStoryAttachment[]> {
     return request(`/user-stories/${storyId}/attachments`);
   },
@@ -503,6 +497,20 @@ export const api = {
 
   async deleteUserStoryAttachment(storyId: string, attachmentId: string): Promise<void> {
     await request(`/user-stories/${storyId}/attachments/${attachmentId}`, { method: 'DELETE' });
+  },
+
+  async downloadUserStoryAttachment(storyId: string, attachmentId: string, filename: string): Promise<void> {
+    const res = await fetch(`${baseUrl()}/user-stories/${storyId}/attachments/${attachmentId}/download`, {
+      headers: headers(false),
+    });
+    if (!res.ok) throw new Error('Download failed');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
   },
 
   async startTask(taskId: string): Promise<Task> {
@@ -848,12 +856,6 @@ export const api = {
     return request('/ai/extract-tasks', { method: 'POST', body: form });
   },
 
-  async aiExtractPrd(
-    form: FormData,
-  ): Promise<{ sourceText: string; stories: import('@/types').ExtractedStoryPreview[] }> {
-    return request('/ai/extract-prd', { method: 'POST', body: form });
-  },
-
   async getPrdDraft(): Promise<import('@/types').PrdDraft> {
     return request('/prd-imports/draft');
   },
@@ -883,20 +885,32 @@ export const api = {
     const reader = res.body.getReader();
     const dec = new TextDecoder();
     let buf = '';
+    const flush = (chunk: string) => {
+      const line = chunk.split('\n').find(l => l.startsWith('data:'));
+      if (!line) return;
+      const raw = line.replace(/^data:\s?/, '').trim();
+      if (!raw) return;
+      onEvent(JSON.parse(raw) as import('@/types').PrdStreamEvent);
+    };
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       buf += dec.decode(value, { stream: true });
       const chunks = buf.split('\n\n');
       buf = chunks.pop() ?? '';
-      for (const chunk of chunks) {
-        const line = chunk.split('\n').find(l => l.startsWith('data:'));
-        if (!line) continue;
-        const raw = line.replace(/^data:\s?/, '').trim();
-        if (!raw) continue;
-        onEvent(JSON.parse(raw) as import('@/types').PrdStreamEvent);
-      }
+      for (const chunk of chunks) flush(chunk);
     }
+    buf += dec.decode();
+    if (buf.trim()) flush(buf);
+  },
+
+  async generatePrdStoryTasksPreview(
+    id: string,
+  ): Promise<import('@/types').UserStoryGeneratePreview> {
+    return request(`/prd-imports/items/${id}/generate-tasks`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
   },
 
   async patchPrdItem(
@@ -909,6 +923,12 @@ export const api = {
       sectionId?: string | null;
       priority?: string;
       assigneeIds?: string[];
+      estimatedHours?: number | null;
+      storyPoints?: number | null;
+      startDate?: string | null;
+      dueDate?: string | null;
+      sprint?: string;
+      tags?: string[];
     },
   ): Promise<import('@/types').PrdDraft> {
     return request(`/prd-imports/items/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
@@ -916,13 +936,6 @@ export const api = {
 
   async addPrdStory(title?: string): Promise<import('@/types').PrdDraft> {
     return request('/prd-imports/stories', { method: 'POST', body: JSON.stringify({ title: title || 'Untitled story' }) });
-  },
-
-  async addPrdTask(parentId: string, title?: string): Promise<import('@/types').PrdDraft> {
-    return request('/prd-imports/tasks', {
-      method: 'POST',
-      body: JSON.stringify({ parentId, title: title || 'Untitled task' }),
-    });
   },
 
   async deletePrdItem(id: string): Promise<import('@/types').PrdDraft> {
@@ -936,7 +949,7 @@ export const api = {
   async commitPrdDraft(
     storyIds?: string[],
     taskIds?: string[] | null,
-  ): Promise<{ storiesCreated: number; tasksCreated: number }> {
+  ): Promise<{ storiesCreated: number; tasksCreated: number; storyIds: string[] }> {
     return request('/prd-imports/commit', {
       method: 'POST',
       body: JSON.stringify({

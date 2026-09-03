@@ -9,7 +9,14 @@ from fastapi.responses import StreamingResponse
 import ratelimit
 from database.database import Db, get_db
 from logic import prd_import_logic
-from logic.schemas import PrdCommitBody, PrdCommitOut, PrdDraftOut, TempTaskCreateBody, TempTaskPatch
+from logic.schemas import (
+    PrdCommitBody,
+    PrdCommitOut,
+    PrdDraftOut,
+    TempTaskCreateBody,
+    TempTaskPatch,
+    UserStoryGeneratePreviewOut,
+)
 from offloop import offloop
 from routes.deps import get_current_user_id
 
@@ -102,6 +109,20 @@ async def analyze_stream(
     )
 
 
+@router.post(
+    "/prd-imports/items/{row_id}/generate-tasks",
+    response_model=UserStoryGeneratePreviewOut,
+)
+def generate_item_tasks(
+    row_id: str,
+    user_id: str = Depends(get_current_user_id),
+    db: Db = Depends(get_db),
+):
+    """AI preview only — does not save the staged story or create live tasks."""
+    ratelimit.check("ai", user_id, limit=AI_CALLS_PER_USER, window_seconds=3600)
+    return prd_import_logic.preview_generate_tasks(db, user_id, row_id)
+
+
 @router.patch("/prd-imports/items/{row_id}", response_model=PrdDraftOut)
 def patch_item(
     row_id: str,
@@ -119,15 +140,6 @@ def add_story(
     db: Db = Depends(get_db),
 ):
     return prd_import_logic.add_story(db, user_id, body)
-
-
-@router.post("/prd-imports/tasks", response_model=PrdDraftOut)
-def add_task(
-    body: TempTaskCreateBody,
-    user_id: str = Depends(get_current_user_id),
-    db: Db = Depends(get_db),
-):
-    return prd_import_logic.add_task(db, user_id, body)
 
 
 @router.delete("/prd-imports/items/{row_id}", response_model=PrdDraftOut)

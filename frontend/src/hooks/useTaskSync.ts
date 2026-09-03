@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { api, getStoredToken } from '@/lib/api';
 import { useAppStore } from '@/stores/appStore';
 import { getApiUrl } from '@/lib/env';
-import { invalidateTaskDetails, invalidateProjectDetails } from '@/lib/queryClient';
+import { invalidateTaskDetails, invalidateProjectDetails, invalidateUserStories } from '@/lib/queryClient';
 
 const POLL_MS = 4000; // polling fallback cadence when WebSocket is unavailable
 
@@ -49,6 +49,7 @@ export function useLiveSync() {
       const first = last.tasks === -1;
       if (!first && v.tasks !== last.tasks) {
         invalidateTaskDetails();
+        invalidateUserStories();
         await store.syncTasks();
       }
       if (!first && (v.projects !== last.projects || v.users !== last.users)) {

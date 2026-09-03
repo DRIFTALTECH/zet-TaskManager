@@ -1,9 +1,9 @@
-"""PRD import chain: analyze → stage in temp_tasks → edit → commit to real stories/tasks."""
+"""PRD import chain: analyze → stage stories in temp_tasks → edit → commit stories only."""
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Iterator
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
@@ -14,26 +14,24 @@ from database.database import Db
 from database.init_db import new_id
 from database.models import TempTask
 from logic import project_logic
-from ai.schemas import PrdExtractedStory, PrdExtractedTask, PrdOutlineStory
+from ai.schemas import PrdExtractedStory, PrdOutlineStory
 from ai import chains
-from logic.prd_extract_logic import _to_preview, ensure_task_assignees, members_of
+from logic.prd_extract_logic import _to_preview
 from logic.task_extraction_logic import _refs, resolve_source
 from logic.schemas import (
-    GeneratedTaskPreview,
     PrdCommitOut,
-    PrdCommitBody,
     PrdDraftOut,
     PrdDraftStoryOut,
-    PrdDraftTaskOut,
     TempTaskCreateBody,
     TempTaskPatch,
-    UserStoryConfirmGenerateBody,
     UserStoryCreate,
+    UserStoryGeneratePreviewOut,
 )
 from logic import user_story_logic
 
+log = logging.getLogger("zet.prd")
+
 _KIND_STORY = "user_story"
-_KIND_TASK = "task"
 
 
 def _now() -> str:
@@ -55,48 +53,64 @@ def _ids_of(row) -> list[str]:
         return []
 
 
+def _extra_of(row) -> dict:
+    raw = getattr(row, "extra_json", None) or ""
+    if not raw:
+        return {}
+    try:
+        v = json.loads(raw)
+        return v if isinstance(v, dict) else {}
+    except Exception:
+        return {}
+
+
+def _extra_dump(story) -> str:
+    tags = [str(t).strip() for t in (getattr(story, "tags", None) or []) if str(t).strip()]
+    return json.dumps(
+        {
+            "estimatedHours": getattr(story, "estimatedHours", None),
+            "storyPoints": getattr(story, "storyPoints", None),
+            "startDate": getattr(story, "startDate", None) or None,
+            "dueDate": getattr(story, "dueDate", None) or None,
+            "sprint": (getattr(story, "sprint", None) or "") or "",
+            "tags": tags,
+        }
+    )
+
+
+def _story_out(s: TempTask) -> PrdDraftStoryOut:
+    extra = _extra_of(s)
+    tags = extra.get("tags") or []
+    if not isinstance(tags, list):
+        tags = []
+    return PrdDraftStoryOut(
+        id=s.id,
+        title=s.title,
+        description=s.description or "",
+        acceptanceCriteria=s.acceptance_criteria or "",
+        priority=s.priority or "Medium",
+        projectId=s.project_id,
+        sectionId=s.section_id,
+        position=s.position,
+        assigneeIds=_ids_of(s),
+        estimatedHours=extra.get("estimatedHours"),
+        storyPoints=extra.get("storyPoints"),
+        startDate=extra.get("startDate") or None,
+        dueDate=extra.get("dueDate") or None,
+        sprint=extra.get("sprint") or "",
+        tags=[str(t).strip() for t in tags if str(t).strip()],
+        tasks=[],
+    )
+
+
 def _to_draft(rows: list[TempTask]) -> PrdDraftOut:
     if not rows:
         return PrdDraftOut()
     stories = [r for r in rows if r.kind == _KIND_STORY]
-    tasks = [r for r in rows if r.kind == _KIND_TASK]
-    by_parent: dict[str, list[TempTask]] = {}
-    for t in tasks:
-        if t.parent_id:
-            by_parent.setdefault(t.parent_id, []).append(t)
-    out_stories: list[PrdDraftStoryOut] = []
-    for s in stories:
-        kids = sorted(by_parent.get(s.id, []), key=lambda r: (r.position, r.created_at))
-        out_stories.append(
-            PrdDraftStoryOut(
-                id=s.id,
-                title=s.title,
-                description=s.description or "",
-                acceptanceCriteria=s.acceptance_criteria or "",
-                priority=s.priority or "Medium",
-                projectId=s.project_id,
-                sectionId=s.section_id,
-                position=s.position,
-                assigneeIds=_ids_of(s),
-                tasks=[
-                    PrdDraftTaskOut(
-                        id=t.id,
-                        title=t.title,
-                        description=t.description or "",
-                        priority=t.priority or "Medium",
-                        position=t.position,
-                        projectId=t.project_id,
-                        sectionId=t.section_id,
-                        assigneeIds=_ids_of(t),
-                    )
-                    for t in kids
-                ],
-            )
-        )
     return PrdDraftOut(
         importId=rows[0].import_id,
         sourceText=rows[0].source_text or "",
-        stories=out_stories,
+        stories=[_story_out(s) for s in stories],
     )
 
 
@@ -131,179 +145,29 @@ def _progress(percent: int, stage: str, label: str, **extra) -> dict:
     return ev
 
 
-def _stage_preview(
-    db: Db,
-    *,
-    import_id: str,
-    user_id: str,
-    source: str,
-    lock_pid: str | None,
-    now: str,
-    index: int,
-    story,
-) -> PrdDraftStoryOut:
-    sid = new_id("ts")
-    pid = lock_pid or story.projectId
-    temp_crud.create(
-        db,
-        row_id=sid,
-        import_id=import_id,
-        user_id=user_id,
-        kind=_KIND_STORY,
-        parent_id=None,
-        title=story.title,
-        description=story.description or "",
-        acceptance_criteria=story.acceptanceCriteria or "",
-        project_id=pid,
-        section_id=None,
-        priority=story.priority or "Medium",
-        position=index,
-        source_text=source,
-        created_at=now,
-        updated_at=now,
-    )
-    tasks_out: list[PrdDraftTaskOut] = []
-    story_aids: list[str] = []
-    for ti, task in enumerate(story.tasks or []):
-        tid = new_id("tt")
-        aids = [i for i in (getattr(task, "assigneeIds", None) or []) if i]
-        for uid in aids:
-            if uid not in story_aids:
-                story_aids.append(uid)
-        temp_crud.create(
-            db,
-            row_id=tid,
-            import_id=import_id,
-            user_id=user_id,
-            kind=_KIND_TASK,
-            parent_id=sid,
-            title=task.title,
-            description=task.description or "",
-            acceptance_criteria="",
-            project_id=pid,
-            section_id=None,
-            priority=task.priority or "Medium",
-            position=ti,
-            source_text=source,
-            created_at=now,
-            updated_at=now,
-            assignee_ids=json.dumps(aids),
-        )
-        tasks_out.append(
-            PrdDraftTaskOut(
-                id=tid,
-                title=task.title,
-                description=task.description or "",
-                priority=task.priority or "Medium",
-                position=ti,
-                projectId=pid,
-                assigneeIds=aids,
-            )
-        )
-    parent = temp_crud.get_by_id(db, sid)
-    if parent and story_aids:
-        parent.assignee_ids = json.dumps(story_aids)
-        parent.updated_at = now
-        temp_crud.update(db, parent)
-    db.commit()
+def _draft_story(sid: str, story, lock_pid: str | None, index: int) -> PrdDraftStoryOut:
+    tags = [str(t).strip() for t in (getattr(story, "tags", None) or []) if str(t).strip()]
     return PrdDraftStoryOut(
         id=sid,
         title=story.title,
         description=story.description or "",
-        acceptanceCriteria=story.acceptanceCriteria or "",
+        acceptanceCriteria=getattr(story, "acceptanceCriteria", None) or "",
         priority=story.priority or "Medium",
-        projectId=pid,
-        sectionId=None,
+        projectId=lock_pid or story.projectId,
+        sectionId=getattr(story, "sectionId", None),
         position=index,
-        assigneeIds=story_aids,
-        tasks=tasks_out,
+        assigneeIds=[i for i in (getattr(story, "assigneeIds", None) or []) if i],
+        estimatedHours=getattr(story, "estimatedHours", None),
+        storyPoints=getattr(story, "storyPoints", None),
+        startDate=getattr(story, "startDate", None) or None,
+        dueDate=getattr(story, "dueDate", None) or None,
+        sprint=getattr(story, "sprint", None) or "",
+        tags=tags,
+        tasks=[],
     )
 
 
-def _default_tasks(title: str) -> list[PrdExtractedTask]:
-    label = (title or "this story").strip() or "this story"
-    return [
-        PrdExtractedTask(
-            title=f"Implement {label}",
-            description=f"Build the core work for {label}.",
-            priority="Medium",
-        )
-    ]
-
-
-def _attach_tasks(
-    db: Db,
-    *,
-    story_id: str,
-    import_id: str,
-    user_id: str,
-    source: str,
-    project_id: str | None,
-    now: str,
-    tasks: list[PrdExtractedTask],
-    members: list,
-) -> list[PrdDraftTaskOut]:
-    outs: list[PrdDraftTaskOut] = []
-    assigned = ensure_task_assignees(tasks, members)
-    story_aids: list[str] = []
-    for ti, (task, ids) in enumerate(zip(tasks, assigned)):
-        title = (task.title or "").strip()
-        if not title:
-            continue
-        tid = new_id("tt")
-        for uid in ids:
-            if uid not in story_aids:
-                story_aids.append(uid)
-        temp_crud.create(
-            db,
-            row_id=tid,
-            import_id=import_id,
-            user_id=user_id,
-            kind=_KIND_TASK,
-            parent_id=story_id,
-            title=title,
-            description=task.description or "",
-            acceptance_criteria="",
-            project_id=project_id,
-            section_id=None,
-            priority=(task.priority or "Medium").strip() or "Medium",
-            position=ti,
-            source_text=source,
-            created_at=now,
-            updated_at=now,
-            assignee_ids=json.dumps(ids),
-        )
-        outs.append(
-            PrdDraftTaskOut(
-                id=tid,
-                title=title,
-                description=task.description or "",
-                priority=(task.priority or "Medium").strip() or "Medium",
-                position=ti,
-                projectId=project_id,
-                assigneeIds=ids,
-            )
-        )
-    parent = temp_crud.get_by_id(db, story_id)
-    if parent and story_aids:
-        parent.assignee_ids = json.dumps(story_aids)
-        parent.updated_at = now
-        temp_crud.update(db, parent)
-    db.commit()
-    return outs
-
-
-def _expand_story_tasks(source: str, shell: PrdOutlineStory, projects) -> list[PrdExtractedTask]:
-    """Same expand prompt for every story — one LLM call per story."""
-    try:
-        bundle = chains.expand_prd_story(source, shell, projects)
-        tasks = list(bundle.tasks or [])
-    except Exception:
-        tasks = []
-    return tasks or _default_tasks(shell.title)
-
-
-def _shell_preview(shell: PrdOutlineStory, projects):
+def _shell_preview(shell: PrdOutlineStory, projects, *, round_robin_index: int = 0):
     raw = PrdExtractedStory(
         title=shell.title,
         description=shell.description,
@@ -311,9 +175,19 @@ def _shell_preview(shell: PrdOutlineStory, projects):
         priority=shell.priority or "Medium",
         project_id=shell.project_id,
         project_name=shell.project_name,
+        section_id=getattr(shell, "section_id", None),
+        section_name=getattr(shell, "section_name", None),
+        assignee_id=getattr(shell, "assignee_id", None),
+        assignee_name=getattr(shell, "assignee_name", None),
+        estimated_hours=getattr(shell, "estimated_hours", None),
+        story_points=getattr(shell, "story_points", None),
+        start_date=getattr(shell, "start_date", None),
+        due_date=getattr(shell, "due_date", None),
+        sprint=getattr(shell, "sprint", None),
+        tags=list(getattr(shell, "tags", None) or []),
         tasks=[],
     )
-    return _to_preview(raw, projects)
+    return _to_preview(raw, projects, round_robin_index=round_robin_index)
 
 
 def analyze_stream(
@@ -326,7 +200,7 @@ def analyze_stream(
     files: list[tuple[bytes, str]] | None = None,
     project_id: str | None = None,
 ) -> Iterator[dict]:
-    """Phase 1: outline stories. Phase 2: N parallel expand calls (same prompt)."""
+    """Outline detailed user stories and stage them — no task expansion."""
     _gate(db, user_id)
     lock_pid = (project_id or "").strip() or None
     if lock_pid:
@@ -343,17 +217,21 @@ def analyze_stream(
         )
     _users, projects = _refs(db, user_id)
 
-    yield _progress(12, "outline", "Finding user stories")
+    yield _progress(18, "outline", "Finding user stories")
     outlined: list[PrdOutlineStory] = []
+    outline_err: Exception | None = None
     try:
         outlined = list(chains.outline_prd(source[:80000], projects).stories or [])
-    except Exception:
+    except Exception as exc:
+        log.exception("PRD outline failed")
+        outline_err = exc
         outlined = []
 
     if not outlined:
-        yield _progress(18, "outline", "Retrying story outline")
+        yield _progress(28, "outline", "Retrying story outline")
         try:
             raw = chains.extract_prd(source[:80000], projects)
+            outline_err = None
             for es in raw.stories or []:
                 outlined.append(
                     PrdOutlineStory(
@@ -363,12 +241,29 @@ def analyze_stream(
                         priority=es.priority,
                         project_id=es.project_id,
                         project_name=es.project_name,
+                        assignee_id=getattr(es, "assignee_id", None),
+                        assignee_name=getattr(es, "assignee_name", None),
+                        section_id=getattr(es, "section_id", None),
+                        section_name=getattr(es, "section_name", None),
+                        estimated_hours=getattr(es, "estimated_hours", None),
+                        story_points=getattr(es, "story_points", None),
+                        start_date=getattr(es, "start_date", None),
+                        due_date=getattr(es, "due_date", None),
+                        sprint=getattr(es, "sprint", None),
+                        tags=list(getattr(es, "tags", None) or []),
                     )
                 )
-        except Exception:
+        except Exception as exc:
+            log.exception("PRD extract retry failed")
+            outline_err = outline_err or exc
             outlined = []
 
     if not outlined:
+        if outline_err:
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                f"AI story generation failed: {outline_err}",
+            )
         temp_crud.delete_for_user(db, user_id)
         db.commit()
         yield {
@@ -379,94 +274,72 @@ def analyze_stream(
         }
         return
 
-    total = len(outlined)
-    yield _progress(
-        24,
-        "outline",
-        f"Found {total} user stor{'y' if total == 1 else 'ies'}",
-        totalStories=total,
-    )
+    staged: list[PrdDraftStoryOut] = []
+    pending: list[tuple[str, object]] = []
+    for i, shell in enumerate(outlined):
+        preview = _shell_preview(shell, projects, round_robin_index=i)
+        if preview is None:
+            continue
+        sid = new_id("ts")
+        out = _draft_story(sid, preview, lock_pid, len(staged))
+        staged.append(out)
+        pending.append((sid, preview))
+
+    if not staged:
+        temp_crud.delete_for_user(db, user_id)
+        db.commit()
+        yield {
+            "type": "done",
+            "percent": 100,
+            "label": "No user stories in that PRD",
+            "draft": PrdDraftOut(sourceText=source, stories=[]).model_dump(),
+        }
+        return
+
+    total = len(staged)
+    yield _progress(80, "save", f"Saving {total} stor{'y' if total == 1 else 'ies'}", totalStories=total, doneStories=0)
 
     temp_crud.delete_for_user(db, user_id)
     import_id = new_id("pi")
     now = _now()
-    jobs: list[tuple[str, PrdOutlineStory]] = []
-    for i, shell in enumerate(outlined):
-        preview = _shell_preview(shell, projects)
-        if preview is None:
-            continue
-        staged = _stage_preview(
+    for i, (sid, preview) in enumerate(pending):
+        temp_crud.create(
             db,
+            row_id=sid,
             import_id=import_id,
             user_id=user_id,
-            source=source,
-            lock_pid=lock_pid,
-            now=now,
-            index=len(jobs),
-            story=preview,
+            kind=_KIND_STORY,
+            parent_id=None,
+            title=preview.title,
+            description=preview.description or "",
+            acceptance_criteria=preview.acceptanceCriteria or "",
+            project_id=lock_pid or preview.projectId,
+            section_id=getattr(preview, "sectionId", None),
+            priority=preview.priority or "Medium",
+            position=i,
+            source_text=source,
+            created_at=now,
+            updated_at=now,
+            assignee_ids=json.dumps([a for a in (preview.assigneeIds or []) if a]),
+            extra_json=_extra_dump(preview),
         )
-        jobs.append((staged.id, shell))
-        percent = 24 + int(((i + 1) / total) * 8)
-        yield _progress(
-            percent,
-            "outline",
-            f"Story {i + 1} of {total}",
-            doneStories=0,
-            totalStories=total,
-        )
-        yield {"type": "story", "percent": percent, "story": staged.model_dump()}
+    db.commit()
 
-    if not jobs:
-        draft = _to_draft(temp_crud.list_for_user(db, user_id))
-        yield {"type": "done", "percent": 100, "label": "No user stories in that PRD", "draft": draft.model_dump()}
-        return
-
-    n = len(jobs)
-    yield _progress(34, "expand", f"Writing tasks for {n} stor{'y' if n == 1 else 'ies'} in parallel", doneStories=0, totalStories=n)
-
-    def _work(item: tuple[str, PrdOutlineStory]) -> tuple[str, list[PrdExtractedTask]]:
-        sid, shell = item
-        return sid, _expand_story_tasks(source, shell, projects)
-
-    done_n = 0
-    workers = min(8, n)
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {pool.submit(_work, job): job for job in jobs}
-        for fut in as_completed(futures):
-            sid, tasks = fut.result()
-            parent = temp_crud.get_by_id(db, sid)
-            pid = (parent.project_id if parent else None) or lock_pid
-            outs = _attach_tasks(
-                db,
-                story_id=sid,
-                import_id=import_id,
-                user_id=user_id,
-                source=source,
-                project_id=pid,
-                now=_now(),
-                tasks=tasks,
-                members=members_of(projects, pid),
-            )
-            done_n += 1
-            percent = 34 + int((done_n / n) * 62)
-            label = parent.title if parent else "story"
-            yield _progress(
-                percent,
-                "expand",
-                f"Tasks ready · {label}",
-                doneStories=done_n,
-                totalStories=n,
-            )
-            yield {
-                "type": "tasks",
-                "percent": percent,
-                "storyId": sid,
-                "tasks": [t.model_dump() for t in outs],
-            }
-
-    yield _progress(98, "save", "Draft ready")
-    draft = _to_draft(temp_crud.list_for_user(db, user_id))
-    yield {"type": "done", "percent": 100, "label": "Draft ready", "draft": draft.model_dump()}
+    for out in staged:
+        yield {"type": "story", "percent": 95, "story": out.model_dump()}
+    yield _progress(
+        100,
+        "outline",
+        f"Found {total} user stor{'y' if total == 1 else 'ies'}",
+        totalStories=total,
+        doneStories=total,
+    )
+    yield {
+        "type": "done",
+        "percent": 100,
+        "label": "Draft ready",
+        "draft": PrdDraftOut(importId=import_id, sourceText=source, stories=staged).model_dump(),
+    }
 
 
 def _owned(db: Db, user_id: str, row_id: str) -> TempTask:
@@ -474,6 +347,25 @@ def _owned(db: Db, user_id: str, row_id: str) -> TempTask:
     if not row or row.user_id != user_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Staged item not found")
     return row
+
+
+def preview_generate_tasks(db: Db, user_id: str, row_id: str) -> UserStoryGeneratePreviewOut:
+    """AI preview from a staged PRD story — does not commit the story or create tasks."""
+    _gate(db, user_id)
+    row = _owned(db, user_id, row_id)
+    if row.kind != _KIND_STORY:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Only staged stories can generate tasks")
+    return user_story_logic.preview_generate_from_fields(
+        db,
+        user_id,
+        story_id=row.id,
+        title=row.title,
+        description=row.description or "",
+        acceptance_criteria=row.acceptance_criteria or "",
+        project_id=row.project_id,
+        section_id=row.section_id,
+        priority=row.priority,
+    )
 
 
 def patch_row(db: Db, user_id: str, row_id: str, body: TempTaskPatch) -> PrdDraftOut:
@@ -505,15 +397,22 @@ def patch_row(db: Db, user_id: str, row_id: str, body: TempTaskPatch) -> PrdDraf
             if bad:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, "assigneeIds must be project members")
         row.assignee_ids = json.dumps(ids)
+    extra = _extra_of(row)
+    if body.estimatedHours is not None:
+        extra["estimatedHours"] = body.estimatedHours
+    if body.storyPoints is not None:
+        extra["storyPoints"] = body.storyPoints
+    if body.startDate is not None:
+        extra["startDate"] = body.startDate or None
+    if body.dueDate is not None:
+        extra["dueDate"] = body.dueDate or None
+    if body.sprint is not None:
+        extra["sprint"] = (body.sprint or "").strip()[:120]
+    if body.tags is not None:
+        extra["tags"] = [str(t).strip() for t in body.tags if str(t).strip()]
+    row.extra_json = json.dumps(extra)
     row.updated_at = _now()
     temp_crud.update(db, row)
-    if row.kind == _KIND_STORY:
-        for child in temp_crud.list_for_import(db, row.import_id):
-            if child.kind == _KIND_TASK and child.parent_id == row.id:
-                child.project_id = row.project_id
-                child.section_id = row.section_id
-                child.updated_at = row.updated_at
-                temp_crud.update(db, child)
     db.commit()
     return _to_draft(temp_crud.list_for_user(db, user_id))
 
@@ -549,38 +448,6 @@ def add_story(db: Db, user_id: str, body: TempTaskCreateBody) -> PrdDraftOut:
     return _to_draft(temp_crud.list_for_user(db, user_id))
 
 
-def add_task(db: Db, user_id: str, body: TempTaskCreateBody) -> PrdDraftOut:
-    _gate(db, user_id)
-    parent_id = (body.parentId or "").strip()
-    if not parent_id:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "parentId is required")
-    parent = _owned(db, user_id, parent_id)
-    if parent.kind != _KIND_STORY:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Tasks must belong to a user story")
-    kids = [r for r in temp_crud.list_for_import(db, parent.import_id) if r.parent_id == parent.id]
-    now = _now()
-    temp_crud.create(
-        db,
-        row_id=new_id("tt"),
-        import_id=parent.import_id,
-        user_id=user_id,
-        kind=_KIND_TASK,
-        parent_id=parent.id,
-        title=(body.title or "Untitled task").strip() or "Untitled task",
-        description=body.description or "",
-        acceptance_criteria="",
-        project_id=parent.project_id,
-        section_id=parent.section_id,
-        priority="Medium",
-        position=len(kids),
-        source_text=parent.source_text or "",
-        created_at=now,
-        updated_at=now,
-    )
-    db.commit()
-    return _to_draft(temp_crud.list_for_user(db, user_id))
-
-
 def delete_row(db: Db, user_id: str, row_id: str) -> PrdDraftOut:
     _gate(db, user_id)
     row = _owned(db, user_id, row_id)
@@ -604,7 +471,8 @@ def commit(
     story_ids: list[str] | None = None,
     task_ids: list[str] | None = None,
 ) -> PrdCommitOut:
-    """Create selected stories. Only ticked tasks are created; a story can have none."""
+    """Create selected user stories only. task_ids is ignored (story-only flow)."""
+    del task_ids  # story-only: never create tasks from PRD commit
     _gate(db, user_id)
     draft = _to_draft(temp_crud.list_for_user(db, user_id))
     if not draft.stories:
@@ -614,11 +482,10 @@ def commit(
     stories = [s for s in draft.stories if s.id in wanted] if wanted else list(draft.stories)
     if wanted and not stories:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No selected stories to save")
-    allow_tasks = None if task_ids is None else {t.strip() for t in task_ids if t and t.strip()}
 
     stories_created = 0
-    tasks_created = 0
-    committed_ids: list[str] = []
+    committed_draft_ids: list[str] = []
+    created_ids: list[str] = []
     for story in stories:
         title = (story.title or "").strip()
         if not title:
@@ -628,51 +495,34 @@ def commit(
                 status.HTTP_400_BAD_REQUEST,
                 f'Choose a project for "{title}"',
             )
-        tasks = [t for t in story.tasks if (t.title or "").strip()]
-        if allow_tasks is not None:
-            tasks = [t for t in tasks if t.id in allow_tasks]
         created = user_story_logic.create_story(
             db,
             user_id,
             UserStoryCreate(
                 projectId=story.projectId,
+                sectionId=story.sectionId,
                 title=title,
                 description=story.description or "",
                 acceptanceCriteria=story.acceptanceCriteria or "",
                 priority=story.priority or "Medium",
                 assigneeIds=list(story.assigneeIds or []),
+                estimatedHours=story.estimatedHours,
+                storyPoints=story.storyPoints,
+                startDate=story.startDate,
+                dueDate=story.dueDate,
+                sprint=story.sprint or "",
+                tags=list(story.tags or []),
             ),
         )
-        if tasks:
-            previews = [
-                GeneratedTaskPreview(
-                    key=t.id,
-                    title=t.title.strip(),
-                    description=t.description or "",
-                    priority=t.priority or "Medium",
-                    assign=bool(t.assigneeIds),
-                    assigneeIds=list(t.assigneeIds or []),
-                    sectionId=t.sectionId,
-                    subtasks=[],
-                )
-                for t in tasks
-            ]
-            outs = user_story_logic.confirm_generate_tasks(
-                db,
-                user_id,
-                created.id,
-                UserStoryConfirmGenerateBody(replaceGenerated=False, tasks=previews),
-            )
-            tasks_created += len(outs)
         stories_created += 1
-        committed_ids.append(story.id)
+        committed_draft_ids.append(story.id)
+        created_ids.append(created.id)
 
     if wanted:
-        # Only the saved story leaves the draft. Other stories and their tasks stay.
-        for sid in committed_ids:
+        for sid in committed_draft_ids:
             temp_crud.delete_children(db, sid)
             temp_crud.delete(db, sid)
     else:
         temp_crud.delete_for_user(db, user_id)
     db.commit()
-    return PrdCommitOut(storiesCreated=stories_created, tasksCreated=tasks_created)
+    return PrdCommitOut(storiesCreated=stories_created, tasksCreated=0, storyIds=created_ids)

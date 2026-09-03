@@ -4,8 +4,6 @@ from fastapi.responses import FileResponse
 from database.database import Db, get_db
 from logic import attachment_logic, user_story_logic
 from logic.schemas import (
-    BulkCreateStoriesBody,
-    ExtractStoriesPreviewOut,
     TaskOut,
     UserStoryAttachmentOut,
     UserStoryConfirmGenerateBody,
@@ -19,6 +17,14 @@ from offloop import offloop
 from upload_guard import read_limited
 
 router = APIRouter()
+
+
+@router.get("/user-stories", response_model=list[UserStoryOut])
+def list_visible_stories(
+    user_id: str = Depends(get_current_user_id),
+    db: Db = Depends(get_db),
+):
+    return user_story_logic.list_visible(db, user_id)
 
 
 @router.get("/projects/{project_id}/user-stories", response_model=list[UserStoryOut])
@@ -48,36 +54,6 @@ def create_user_story(
     return user_story_logic.create_story(db, user_id, body)
 
 
-@router.post(
-    "/projects/{project_id}/user-stories/extract",
-    response_model=ExtractStoriesPreviewOut,
-)
-async def extract_user_stories(
-    project_id: str,
-    text: str | None = Form(None),
-    file: UploadFile | None = File(None),
-    user_id: str = Depends(get_current_user_id),
-    db: Db = Depends(get_db),
-):
-    """Upload a requirement doc (or paste text) → AI preview of multiple stories (not saved)."""
-    source = (text or "").strip()
-    if file is not None:
-        from logic.task_extraction_logic import _document_text
-
-        raw = await file.read()
-        source = _document_text(raw, file.filename or "requirements.txt") or source
-    return await offloop(user_story_logic.extract_stories_preview, db, user_id, project_id, source)
-
-
-@router.post("/user-stories/bulk", response_model=list[UserStoryOut])
-def bulk_create_user_stories(
-    body: BulkCreateStoriesBody,
-    user_id: str = Depends(get_current_user_id),
-    db: Db = Depends(get_db),
-):
-    return user_story_logic.bulk_create_stories(db, user_id, body)
-
-
 @router.get("/user-stories/{story_id}", response_model=UserStoryOut)
 def get_user_story(
     story_id: str,
@@ -95,6 +71,15 @@ def patch_user_story(
     db: Db = Depends(get_db),
 ):
     return user_story_logic.patch_story(db, user_id, story_id, body)
+
+
+@router.post("/user-stories/{story_id}/approve", response_model=UserStoryOut)
+def approve_user_story(
+    story_id: str,
+    user_id: str = Depends(get_current_user_id),
+    db: Db = Depends(get_db),
+):
+    return user_story_logic.approve_story(db, user_id, story_id)
 
 
 @router.delete("/user-stories/{story_id}")

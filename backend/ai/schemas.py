@@ -148,6 +148,11 @@ class ParseTaskResponse(BaseModel):
 
 # ── PRD extract: user stories + tasks ─────────────────────────────────────────
 
+class PrdExtractedSubtask(BaseModel):
+    title: str = Field(..., description="Short subtask title")
+    description: str | None = Field(None, description="What to build for this subtask")
+
+
 class PrdExtractedTask(BaseModel):
     """One task under a user story. Assignee must be a member of the matched project."""
     title: str = Field(..., description="Short, actionable task title")
@@ -157,18 +162,30 @@ class PrdExtractedTask(BaseModel):
         None, description="User ID from the project's Members list — never invent an ID"
     )
     assignee_name: str | None = Field(None, description="Display name of that member")
+    subtasks: list[PrdExtractedSubtask] = Field(default_factory=list)
 
 
 class PrdExtractedStory(BaseModel):
-    """One user story extracted from a PRD. Tasks belong to this story."""
+    """One user story extracted from a PRD (stories only — no nested tasks)."""
     title: str = Field(..., description="Short story label, 3–8 words")
-    description: str | None = Field(None, description="Story description")
+    description: str | None = Field(None, description="Detailed story requirements")
     acceptance_criteria: str | None = Field(None, description="Acceptance criteria as one string, or null")
     priority: str | None = Field(None, description="One of: Urgent, High, Medium, Low")
     project_id: str | None = Field(None, description="Matched project ID from the provided list, or null")
     project_name: str | None = Field(None, description="Matched project name for display, or null")
     section_id: str | None = Field(None, description="Matched section ID within that project, or null")
     section_name: str | None = Field(None, description="Matched section name for display, or null")
+    assignee_id: str | None = Field(
+        None, description="User ID from the project's Members list — never invent an ID"
+    )
+    assignee_name: str | None = Field(None, description="Display name of that member")
+    estimated_hours: float | None = Field(None, description="Effort estimate in hours when implied")
+    story_points: float | None = Field(None, description="Story points when implied")
+    start_date: str | None = Field(None, description="YYYY-MM-DD when implied")
+    due_date: str | None = Field(None, description="YYYY-MM-DD when implied")
+    sprint: str | None = Field(None, description="Sprint label when implied")
+    tags: list[str] = Field(default_factory=list, description="Short tags when implied")
+    # Legacy field; PRD studio ignores nested tasks.
     tasks: list[PrdExtractedTask] = Field(default_factory=list)
 
     @field_validator("acceptance_criteria", "description", mode="before")
@@ -182,18 +199,31 @@ class PrdExtractResponse(BaseModel):
 
 
 class PrdOutlineStory(BaseModel):
-    """Story shell from the fast outline pass — tasks are filled later."""
+    """Detailed user story from the PRD outline pass (no tasks)."""
     title: str = Field(..., description="Short story label, 3–8 words")
-    description: str | None = Field(None, description="Story description")
+    description: str | None = Field(None, description="Detailed story requirements")
     acceptance_criteria: str | None = Field(None, description="Acceptance criteria as one string, or null")
     priority: str | None = Field(None, description="One of: Urgent, High, Medium, Low")
     project_id: str | None = Field(None, description="Matched project ID from the provided list, or null")
     project_name: str | None = Field(None, description="Matched project name for display, or null")
+    assignee_id: str | None = Field(
+        None, description="User ID from the project's Members list — never invent an ID"
+    )
+    assignee_name: str | None = Field(None, description="Display name of that member")
+    section_id: str | None = Field(None, description="Matched section ID within that project, or null")
+    section_name: str | None = Field(None, description="Matched section name for display, or null")
+    estimated_hours: float | None = Field(None, description="Effort estimate in hours when implied")
+    story_points: float | None = Field(None, description="Story points when implied")
+    start_date: str | None = Field(None, description="YYYY-MM-DD when implied")
+    due_date: str | None = Field(None, description="YYYY-MM-DD when implied")
+    sprint: str | None = Field(None, description="Sprint label when implied")
+    tags: list[str] = Field(default_factory=list, description="Short tags when implied")
 
     @field_validator("acceptance_criteria", "description", mode="before")
     @classmethod
     def _text(cls, v: Any) -> Any:
         return _coerce_text(v)
+
 
 
 class PrdOutlineResponse(BaseModel):

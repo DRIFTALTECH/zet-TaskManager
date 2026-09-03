@@ -2,26 +2,44 @@ import type { PrdDraft } from '@/types';
 
 export type PrdPicks = {
   stories: Record<string, boolean>;
-  tasks: Record<string, boolean | undefined>;
 };
 
 const picksKey = (importId: string) => `zet-prd-picks:${importId}`;
 
 export function loadPrdPicks(importId: string | null | undefined): PrdPicks {
-  if (!importId) return { stories: {}, tasks: {} };
+  if (!importId) return { stories: {} };
   try {
     const raw = localStorage.getItem(picksKey(importId));
-    if (!raw) return { stories: {}, tasks: {} };
+    if (!raw) return { stories: {} };
     const v = JSON.parse(raw) as PrdPicks;
-    return { stories: v.stories ?? {}, tasks: v.tasks ?? {} };
+    return { stories: v.stories ?? {} };
   } catch {
-    return { stories: {}, tasks: {} };
+    return { stories: {} };
   }
 }
 
 export function savePrdPicks(importId: string | null | undefined, picks: PrdPicks) {
   if (!importId) return;
   localStorage.setItem(picksKey(importId), JSON.stringify(picks));
+}
+
+export function coercePrdDraft(d: PrdDraft | null | undefined): PrdDraft {
+  const stories = Array.isArray(d?.stories) ? d.stories : [];
+  return {
+    importId: d?.importId ?? null,
+    sourceText: d?.sourceText ?? '',
+    stories: stories.map(s => ({
+      ...s,
+      title: s.title ?? '',
+      assigneeIds: s.assigneeIds ?? [],
+      estimatedHours: s.estimatedHours ?? null,
+      storyPoints: s.storyPoints ?? null,
+      startDate: s.startDate ?? null,
+      dueDate: s.dueDate ?? null,
+      sprint: s.sprint ?? '',
+      tags: Array.isArray(s.tags) ? s.tags : [],
+    })),
+  };
 }
 
 export function clearPrdPicks(importId: string | null | undefined) {
@@ -32,6 +50,10 @@ export function clearPrdPicks(importId: string | null | undefined) {
 const PRD_FILE_RE = /\.(pdf|docx|txt|md|csv)$/i;
 export const PRD_FILE_ACCEPT = '.pdf,.docx,.txt,.md,.csv';
 export const PRD_FILE_CAP = 8;
+
+export function isPrdFile(name: string): boolean {
+  return PRD_FILE_RE.test(name);
+}
 
 export function mergePrdFiles(prev: File[], incoming: FileList | File[] | null | undefined): File[] {
   const next = [...prev];

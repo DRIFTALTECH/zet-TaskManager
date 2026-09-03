@@ -21,10 +21,10 @@ def rows_to_models(model_cls: type[T], rows: list[dict[str, Any]]) -> list[T]:
     return [row_to_model(model_cls, r) for r in rows]  # type: ignore[misc]
 
 
-def fetch_one(db: Db, sql: str, params: tuple | dict | None = None) -> dict[str, Any] | None:
-    rows = db.read(sql, params)
+def fetch_one(db: Db, sql: str, params: tuple | dict | None = None, *, primary: bool = False) -> dict[str, Any] | None:
+    rows = db.read(sql, params, primary=primary)
     return rows[0] if rows else None
 
 
-def fetch_all(db: Db, sql: str, params: tuple | dict | None = None) -> list[dict[str, Any]]:
-    return db.read(sql, params)
+def fetch_all(db: Db, sql: str, params: tuple | dict | None = None, *, primary: bool = False) -> list[dict[str, Any]]:
+    return db.read(sql, params, primary=primary)

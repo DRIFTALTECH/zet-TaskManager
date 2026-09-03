@@ -55,4 +55,13 @@ describe('visibleNavItems', () => {
   it('gives a superadmin everything', () => {
     expect(visibleNavItems('superadmin').map(i => i.path)).toContain('/superadmin');
   });
+
+  it('keeps workspace items in primary and the rest under management', () => {
+    expect(visibleNavItems('superadmin', 'primary').map(i => i.path)).toEqual([
+      '/', '/timesheet', '/calendar', '/meeting-notes', '/prd', '/ai',
+    ]);
+    expect(visibleNavItems('superadmin', 'management').map(i => i.path)).toEqual([
+      '/overview', '/manage', '/users', '/reports', '/users/forecast', '/superadmin',
+    ]);
+  });
 });

@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAppStore } from '@/stores/appStore';
 import { useLocation, Link } from 'react-router-dom';
-import { Menu, Settings, LogOut } from 'lucide-react';
+import { Menu, Settings, LogOut, Briefcase, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { ZetLogo } from '@/components/brand/ZetLogo';
@@ -11,9 +11,18 @@ import { isNavItemActive, visibleNavItems } from '@/components/nav-items';
 /** Hamburger + slide-in nav drawer. Rendered in the navbar, visible only under md. */
 const MobileNav = () => {
   const [open, setOpen] = useState(false);
+  const [mgmtOpen, setMgmtOpen] = useState(false);
   const currentUser = useAppStore(s => s.currentUser);
   const logout = useAppStore(s => s.logout);
   const location = useLocation();
+
+  const primary = visibleNavItems(currentUser?.role, 'primary');
+  const management = visibleNavItems(currentUser?.role, 'management');
+  const mgmtActive = management.some(item => isNavItemActive(item, location.pathname));
+
+  useEffect(() => {
+    if (mgmtActive) setMgmtOpen(true);
+  }, [mgmtActive]);
 
   if (!currentUser) return null;
 
@@ -41,7 +50,7 @@ const MobileNav = () => {
           <p className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/60">
             Workspace
           </p>
-          {visibleNavItems(currentUser.role).map(item => {
+          {primary.map(item => {
             const active = isNavItemActive(item, location.pathname);
             return (
               <Link
@@ -59,6 +68,38 @@ const MobileNav = () => {
               </Link>
             );
           })}
+
+          {management.length > 0 && (
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={() => setMgmtOpen(o => !o)}
+                className="flex w-full items-center gap-3 px-3 py-3 rounded-xl text-sm font-medium text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+              >
+                <Briefcase className="h-[18px] w-[18px] shrink-0" />
+                <span className="flex-1 text-left">Management</span>
+                <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${mgmtOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {mgmtOpen && management.map(item => {
+                const active = isNavItemActive(item, location.pathname);
+                return (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    onClick={() => setOpen(false)}
+                    className={`flex items-center gap-3 pl-8 pr-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                      active
+                        ? 'bg-brand-gradient glow-brand text-sidebar-primary-foreground'
+                        : 'text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground'
+                    }`}
+                  >
+                    <item.icon className="h-[18px] w-[18px] shrink-0" />
+                    <span className="whitespace-nowrap">{item.labelNode ?? item.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
         </nav>
 
         <div className="border-t border-sidebar-border/70 p-3 shrink-0">

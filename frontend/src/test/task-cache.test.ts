@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { cacheFullTask, dropFullTask, invalidateTaskDetails, queryClient, taskKeys } from '@/lib/queryClient';
-import type { Task } from '@/types';
+import { cacheFullTask, dropFullTask, invalidateTaskDetails, queryClient, taskKeys, seedUserStoriesCache, upsertUserStory, storyKeys, projectKeys } from '@/lib/queryClient';
+import type { Task, UserStory } from '@/types';
 
 const task = (id: string, description: string): Task => ({
   id,
@@ -50,5 +50,42 @@ describe('task detail cache', () => {
     invalidateTaskDetails();
     expect(queryClient.getQueryState(taskKeys.feedback('t1'))?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(taskKeys.attachments('t1'))?.isInvalidated).toBe(true);
+  });
+});
+
+const story = (id: string, projectId: string, title: string): UserStory => ({
+  id,
+  projectId,
+  title,
+  description: '',
+  acceptanceCriteria: '',
+  priority: 'Medium',
+  status: 'backlog',
+  reporterId: 'u1',
+  createdAt: '2026-01-01',
+  updatedAt: '2026-01-01',
+  progressPercent: 0,
+  taskCount: 0,
+  completedTaskCount: 0,
+  subtaskCount: 0,
+  completedSubtaskCount: 0,
+  sprint: 'Sprint 1',
+  approvedByManager: false,
+  tags: [],
+});
+
+describe('user story cache', () => {
+  beforeEach(() => {
+    queryClient.clear();
+  });
+
+  it('seeds all + per-project keys and upserts without dropping siblings', () => {
+    seedUserStoriesCache([story('us1', 'p1', 'A'), story('us2', 'p2', 'B')], ['p1', 'p2', 'p3']);
+    expect(queryClient.getQueryData(storyKeys.all)).toHaveLength(2);
+    expect(queryClient.getQueryData(projectKeys.userStories('p1'))).toHaveLength(1);
+    expect(queryClient.getQueryData(projectKeys.userStories('p3'))).toEqual([]);
+    upsertUserStory(story('us3', 'p1', 'C'));
+    expect(queryClient.getQueryData<UserStory[]>(storyKeys.all)?.map(s => s.id)).toEqual(['us3', 'us1', 'us2']);
+    expect(queryClient.getQueryData<UserStory[]>(projectKeys.userStories('p1'))?.map(s => s.id)).toEqual(['us3', 'us1']);
   });
 });

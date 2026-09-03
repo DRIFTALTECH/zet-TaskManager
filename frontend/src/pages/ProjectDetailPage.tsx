@@ -16,7 +16,7 @@ import {
   Cell, PieChart, Pie, AreaChart, Area, CartesianGrid,
 } from 'recharts';
 import {
-  ArrowLeft, Plus, Users, LayoutGrid, ListTodo, Clock, FolderOpen,
+  ArrowLeft, Plus, Users, LayoutGrid, ListTodo, List, Columns, Clock, FolderOpen,
   UserPlus, X, Trash2, ChevronLeft, ChevronRight,
   RotateCcw, Check, BarChart2, PieChart as PieIcon, TrendingUp, Search,
   Camera, Image as ImageIcon, Link2, CalendarRange, Building2,
@@ -40,6 +40,10 @@ import { getLocalDateString } from '@/lib/utils';
 import ChangeClientDialog from '@/components/ChangeClientDialog';
 import UserStoriesPanel from '@/components/UserStoriesPanel';
 import SplitRequirementsPanel from '@/components/SplitRequirementsPanel';
+import { AddWorkMenu } from '@/components/AddWorkMenu';
+import CreateTaskModal from '@/components/CreateTaskModal';
+import { CreateUserStoryDialog } from '@/components/CreateUserStoryDialog';
+import { upsertUserStory } from '@/lib/queryClient';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import {
   projectAccent, formatHM, hoursDecimal,
@@ -118,6 +122,10 @@ const ProjectDetailPage = () => {
     : null;
 
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [workView, setWorkView] = useState<'list' | 'board'>('list');
+  const [createTaskOpen, setCreateTaskOpen] = useState(false);
+  const [createStoryOpen, setCreateStoryOpen] = useState(false);
+  const [createTaskStatus, setCreateTaskStatus] = useState<string | undefined>();
   const [addSectionOpen, setAddSectionOpen] = useState(false);
   const [sectionName, setSectionName] = useState('');
   const [memberSearch, setMemberSearch] = useState('');
@@ -873,7 +881,7 @@ const ProjectDetailPage = () => {
           )}
         </section>
 
-        {/* ── Split requirements → stories + tasks ─────────────────────── */}
+        {/* ── Split requirements → user stories (same /prd chain) ──────── */}
         <ErrorBoundary area="Requirements">
           <SplitRequirementsPanel
             projectId={project.id}
@@ -933,9 +941,34 @@ const ProjectDetailPage = () => {
         {/* ── Tasks board ───────────────────────────────────────────────── */}
         <section className="rounded-2xl border border-border/35 bg-card/40 p-6">
           <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <ListTodo className={`h-4 w-4 ${accent.text}`} />
               <h3 className="text-sm font-bold text-foreground">Tasks <span className="ml-1 text-xs font-normal text-muted-foreground/60">({projectTasks.length})</span></h3>
+              <div className="inline-flex h-8 rounded-lg border border-border/70 bg-card/70 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setWorkView('list')}
+                  className={`inline-flex items-center gap-1.5 rounded-md px-2.5 text-xs font-medium ${workView === 'list' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                  <List className="h-3.5 w-3.5" /> Tasks List
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWorkView('board')}
+                  className={`inline-flex items-center gap-1.5 rounded-md px-2.5 text-xs font-medium ${workView === 'board' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                >
+                  <Columns className="h-3.5 w-3.5" /> Progress Board
+                </button>
+              </div>
+              <AddWorkMenu
+                onTask={() => { setCreateTaskStatus(undefined); setCreateTaskOpen(true); }}
+                onStory={() => setCreateStoryOpen(true)}
+                trigger={
+                  <button type="button" className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-xl border border-border/60 hover:bg-muted/50 font-semibold">
+                    <Plus className="h-3.5 w-3.5" /> Add
+                  </button>
+                }
+              />
             </div>
             {/* Status filter chips */}
             <div className="flex flex-wrap items-center gap-1.5">
@@ -946,7 +979,42 @@ const ProjectDetailPage = () => {
             </div>
           </div>
 
-          {projectTasks.length === 0 ? (
+          {workView === 'board' ? (
+            <div className="flex gap-3 overflow-x-auto pb-2">
+              {kanbanColumns.map(col => {
+                const colTasks = projectTasks.filter(t => t.status === col.id);
+                return (
+                  <div key={col.id} className="min-w-[220px] w-[220px] shrink-0 rounded-xl border border-border/30 bg-muted/20 p-2">
+                    <div className="flex items-center justify-between mb-2 px-1">
+                      <span className="text-xs font-semibold">{col.label}</span>
+                      <span className="text-[10px] text-muted-foreground">{colTasks.length}</span>
+                    </div>
+                    <AddWorkMenu
+                      onTask={() => { setCreateTaskStatus(col.id); setCreateTaskOpen(true); }}
+                      onStory={() => setCreateStoryOpen(true)}
+                      trigger={
+                        <button type="button" className="mb-2 w-full text-[11px] py-1 rounded-lg border border-dashed border-border/50 text-muted-foreground hover:text-foreground">
+                          <Plus className="h-3 w-3 inline mr-1" /> Add
+                        </button>
+                      }
+                    />
+                    <div className="space-y-1.5">
+                      {colTasks.map(task => (
+                        <button
+                          key={task.id}
+                          type="button"
+                          onClick={() => setSelectedTask(task)}
+                          className="w-full text-left rounded-lg border border-border/30 bg-card px-2.5 py-2 hover:border-border/60"
+                        >
+                          <p className="text-xs font-medium line-clamp-2">{task.title}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : projectTasks.length === 0 ? (
             <div className="py-10 text-center text-sm text-muted-foreground/40 italic border border-dashed border-border/30 rounded-xl">No tasks in this project</div>
           ) : visibleTasks.length === 0 ? (
             <div className="py-10 text-center text-sm text-muted-foreground/40 italic">No tasks with this status</div>
@@ -1125,6 +1193,21 @@ const ProjectDetailPage = () => {
       </Dialog>
 
       <TaskDetailModal task={selectedTask} open={!!selectedTask} onOpenChange={o => !o && setSelectedTask(null)} />
+      <CreateTaskModal
+        open={createTaskOpen}
+        initialStatus={createTaskStatus}
+        lockProjectId={project.id}
+        onOpenChange={o => { setCreateTaskOpen(o); if (!o) setCreateTaskStatus(undefined); }}
+      />
+      <CreateUserStoryDialog
+        open={createStoryOpen}
+        projectId={project.id}
+        onOpenChange={setCreateStoryOpen}
+        onCreated={s => {
+          upsertUserStory(s);
+          setCreateStoryOpen(false);
+        }}
+      />
 
       <AlertDialog open={deleteOpen} onOpenChange={o => !o && !deletingProject && setDeleteOpen(false)}>
         <AlertDialogContent className="rounded-2xl">

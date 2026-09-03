@@ -5,13 +5,9 @@ import json
 import logging
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from fastapi import HTTPException, status
-from pydantic import BaseModel, Field, field_validator
-
-from ai.schemas import _coerce_text
-
 from crud import projects as projects_crud
 from crud import sections as sections_crud
 from crud import task_assignees as assignees_crud
@@ -21,11 +17,8 @@ from crud import user_story_assignees as story_assignees_crud
 from database.database import Db
 from database.init_db import new_id
 from database.models import Task, UserStory
-from logic import project_logic, task_logic
+from logic import project_logic, task_logic, user_logic
 from logic.schemas import (
-    BulkCreateStoriesBody,
-    ExtractedStoryPreview,
-    ExtractStoriesPreviewOut,
     GeneratedSubtaskPreview,
     GeneratedTaskPreview,
     UserStoryConfirmGenerateBody,
@@ -62,8 +55,27 @@ def _fmt_float(v: float | None) -> str | None:
     return str(v)
 
 
+def _parse_tags(raw: str | None) -> list[str]:
+    try:
+        tags = json.loads(raw or "[]")
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(tags, list):
+        return []
+    return [str(t).strip() for t in tags if str(t).strip()]
+
+
+def _fmt_tags(tags: list[str] | None) -> str:
+    cleaned = [x.strip() for x in (tags or []) if (x or "").strip()]
+    return json.dumps(cleaned[:40])
+
+
 def _is_done(status: str) -> bool:
     return (status or "").strip().lower() in _DONE
+
+
+def _complete_linked_tasks(db: Db, story_id: str) -> None:
+    tasks_crud.complete_for_user_story(db, story_id, date.today().isoformat())
 
 
 def _unique_ordered(ids: list[str] | None) -> list[str]:
@@ -99,7 +111,7 @@ def _set_story_assignees(db: Db, story: UserStory, ids: list[str]) -> None:
     story.assignee_id = ids[0] if ids else None
 
 
-def _progress_for_story(db: Db, story_id: str) -> tuple[float, int, int, int, int]:
+def _progress_for_story(db: Db, story_id: str) -> tuple[float, int, int, int, int, float | None, float]:
     rows = tasks_crud.list_for_user_story(db, story_id)
     tops = [t for t in rows if not getattr(t, "parent_task_id", None)]
     subs = [t for t in rows if getattr(t, "parent_task_id", None)]
@@ -107,7 +119,16 @@ def _progress_for_story(db: Db, story_id: str) -> tuple[float, int, int, int, in
     sc, sdone = len(subs), sum(1 for t in subs if _is_done(t.status))
     total = tc + sc
     pct = round(100.0 * (tdone + sdone) / total, 1) if total else 0.0
-    return pct, tc, tdone, sc, sdone
+    est_sum = 0.0
+    has_est = False
+    actual = 0.0
+    for t in rows:
+        eh = _parse_float(getattr(t, "estimated_hours", None))
+        if eh is not None and eh > 0:
+            est_sum += eh
+            has_est = True
+        actual += max(0, int(getattr(t, "time_tracked", 0) or 0)) / 3600.0
+    return pct, tc, tdone, sc, sdone, (round(est_sum, 2) if has_est else None), round(actual, 2)
 
 
 def _first_section_id(db: Db, project_id: str) -> str:
@@ -118,7 +139,7 @@ def _first_section_id(db: Db, project_id: str) -> str:
 
 
 def _to_out(db: Db, s: UserStory) -> UserStoryOut:
-    pct, tc, tdone, sc, sdone = _progress_for_story(db, s.id)
+    pct, tc, tdone, sc, sdone, est_h, actual_h = _progress_for_story(db, s.id)
     aids = story_assignees_crud.list_user_ids_ordered(db, s.id)
     if not aids and s.assignee_id:
         aids = [s.assignee_id]
@@ -134,10 +155,14 @@ def _to_out(db: Db, s: UserStory) -> UserStoryOut:
         assigneeId=aids[0] if aids else s.assignee_id,
         assigneeIds=aids,
         reporterId=s.reporter_id,
-        estimatedHours=_parse_float(s.estimated_hours),
+        estimatedHours=est_h,
+        actualHours=actual_h,
         storyPoints=_parse_float(s.story_points),
         startDate=s.start_date,
         dueDate=s.due_date,
+        sprint=getattr(s, "sprint", None) or "",
+        tags=_parse_tags(getattr(s, "tags_json", None)),
+        approvedByManager=bool(getattr(s, "approved_by_manager", False)),
         createdAt=s.created_at,
         updatedAt=s.updated_at,
         progressPercent=pct,
@@ -151,6 +176,16 @@ def _to_out(db: Db, s: UserStory) -> UserStoryOut:
 def list_for_project(db: Db, user_id: str, project_id: str) -> list[UserStoryOut]:
     project_logic.ensure_project_member(db, project_id, user_id)
     return [_to_out(db, s) for s in stories_crud.list_for_project(db, project_id)]
+
+
+def list_visible(db: Db, user_id: str) -> list[UserStoryOut]:
+    actor = user_logic.get_user_or_404(db, user_id)
+    rows = (
+        stories_crud.list_all(db)
+        if actor.role == "superadmin"
+        else stories_crud.list_for_member_projects(db, user_id)
+    )
+    return [_to_out(db, s) for s in rows]
 
 
 def list_for_section(db: Db, user_id: str, section_id: str) -> list[UserStoryOut]:
@@ -174,13 +209,20 @@ def create_story(db: Db, user_id: str, body: UserStoryCreate) -> UserStoryOut:
     aids = _resolve_assignee_ids(
         db, body.projectId, assignee_ids=body.assigneeIds, assignee_id=body.assigneeId
     )
+    section_id = None
+    wanted = (body.sectionId or "").strip() or None
+    if wanted:
+        sec = sections_crud.get_by_id(db, wanted)
+        if not sec or sec.project_id != body.projectId:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "sectionId must belong to this project")
+        section_id = wanted
     now = datetime.now(timezone.utc).isoformat()
     sid = new_id("us")
     s = stories_crud.create(
         db,
         story_id=sid,
         project_id=body.projectId,
-        section_id=None,
+        section_id=section_id,
         title=body.title.strip(),
         description=body.description or "",
         acceptance_criteria=body.acceptanceCriteria or "",
@@ -188,12 +230,15 @@ def create_story(db: Db, user_id: str, body: UserStoryCreate) -> UserStoryOut:
         status=body.status or "backlog",
         assignee_id=aids[0] if aids else None,
         reporter_id=user_id,
-        estimated_hours=_fmt_float(body.estimatedHours),
+        estimated_hours=None,
         story_points=_fmt_float(body.storyPoints),
         start_date=body.startDate,
         due_date=body.dueDate,
         created_at=now,
         updated_at=now,
+        sprint=(body.sprint or "").strip()[:120],
+        tags_json=_fmt_tags(body.tags),
+        approved_by_manager=False,
     )
     _set_story_assignees(db, s, aids)
     if aids:
@@ -215,8 +260,17 @@ def patch_story(db: Db, user_id: str, story_id: str, body: UserStoryPatch) -> Us
         s.acceptance_criteria = body.acceptanceCriteria
     if body.priority is not None:
         s.priority = body.priority
+    if body.sectionId is not None:
+        sid = (body.sectionId or "").strip() or None
+        if sid:
+            sec = sections_crud.get_by_id(db, sid)
+            if not sec or sec.project_id != s.project_id:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Section is not in this project")
+        s.section_id = sid
     if body.status is not None:
         s.status = body.status
+        if _is_done(body.status):
+            _complete_linked_tasks(db, story_id)
     if body.assigneeIds is not None:
         aids = _resolve_assignee_ids(
             db, s.project_id, assignee_ids=body.assigneeIds, assignee_id=None
@@ -226,14 +280,16 @@ def patch_story(db: Db, user_id: str, story_id: str, body: UserStoryPatch) -> Us
         aid = body.assigneeId or None
         aids = _resolve_assignee_ids(db, s.project_id, assignee_ids=None, assignee_id=aid) if aid else []
         _set_story_assignees(db, s, aids)
-    if body.estimatedHours is not None:
-        s.estimated_hours = _fmt_float(body.estimatedHours)
     if body.storyPoints is not None:
         s.story_points = _fmt_float(body.storyPoints)
     if body.startDate is not None:
         s.start_date = body.startDate or None
     if body.dueDate is not None:
         s.due_date = body.dueDate or None
+    if body.sprint is not None:
+        s.sprint = (body.sprint or "").strip()[:120]
+    if body.tags is not None:
+        s.tags_json = _fmt_tags(body.tags)
     s.updated_at = datetime.now(timezone.utc).isoformat()
     stories_crud.update(db, s)
     db.commit()
@@ -249,6 +305,23 @@ def delete_story(db: Db, user_id: str, story_id: str) -> None:
     db.commit()
 
 
+def approve_story(db: Db, user_id: str, story_id: str) -> UserStoryOut:
+    project_logic.ensure_manager(db, user_id)
+    s = stories_crud.get_by_id(db, story_id)
+    if not s:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User story not found")
+    project_logic.ensure_project_member(db, s.project_id, user_id)
+    if (s.status or "").strip().lower() == "completed" or bool(getattr(s, "approved_by_manager", False)):
+        return _to_out(db, s)
+    s.status = "completed"
+    s.approved_by_manager = True
+    s.updated_at = datetime.now(timezone.utc).isoformat()
+    stories_crud.update(db, s)
+    _complete_linked_tasks(db, story_id)
+    db.commit()
+    return _to_out(db, s)
+
+
 def list_story_tasks(db: Db, user_id: str, story_id: str):
     s = stories_crud.get_by_id(db, story_id)
     if not s:
@@ -256,40 +329,6 @@ def list_story_tasks(db: Db, user_id: str, story_id: str):
     project_logic.ensure_project_member(db, s.project_id, user_id)
     rows = tasks_crud.list_for_user_story(db, story_id)
     return [task_logic.to_task_out(db, t, user_id) for t in rows]
-
-
-class _GenSubtask(BaseModel):
-    title: str = Field(..., min_length=1, max_length=200)
-    description: str = ""
-
-
-class _GenTask(BaseModel):
-    title: str = Field(..., min_length=1, max_length=200)
-    description: str = ""
-    priority: str = "Medium"
-    subtasks: list[_GenSubtask] = Field(default_factory=list)
-
-
-class _GenPlan(BaseModel):
-    tasks: list[_GenTask] = Field(default_factory=list)
-
-
-class _ExtractStory(BaseModel):
-    title: str = Field(..., min_length=1, max_length=120)
-    description: str = ""
-    acceptance_criteria: str = ""
-    priority: str = "Medium"
-    tasks: list[_GenTask] = Field(default_factory=list)
-
-    @field_validator("acceptance_criteria", "description", mode="before")
-    @classmethod
-    def _text(cls, v):
-        coerced = _coerce_text(v)
-        return coerced or ""
-
-
-class _ExtractPlan(BaseModel):
-    stories: list[_ExtractStory] = Field(default_factory=list)
 
 
 def _task_tags(t: Task) -> list[str]:
@@ -326,35 +365,45 @@ def _story_context_text(db: Db, s: UserStory) -> str:
     return "\n\n".join(parts)
 
 
-def preview_generate_tasks(db: Db, user_id: str, story_id: str) -> UserStoryGeneratePreviewOut:
-    """AI plan only — does not persist tasks. Client confirms via confirm_generate_tasks."""
-    s = stories_crud.get_by_id(db, story_id)
-    if not s:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "User story not found")
-    project_logic.ensure_project_member(db, s.project_id, user_id)
+def preview_generate_from_fields(
+    db: Db,
+    user_id: str,
+    *,
+    story_id: str,
+    title: str,
+    description: str = "",
+    acceptance_criteria: str = "",
+    project_id: str | None = None,
+    section_id: str | None = None,
+    priority: str | None = None,
+    extra_context: str = "",
+    existing_titles: set[str] | None = None,
+) -> UserStoryGeneratePreviewOut:
+    """AI plan from story fields — does not persist a user story or tasks."""
+    from ai import chains
+    from logic.prd_extract_logic import members_of, snap_assignee_ids
+    from logic.task_extraction_logic import _refs
 
-    from ai import service as ai_service
-    from langchain_core.prompts import ChatPromptTemplate
+    if project_id:
+        project_logic.ensure_project_member(db, project_id, user_id)
 
-    prompt = ChatPromptTemplate.from_messages(
+    _users, projects = _refs(db, user_id)
+    scoped = [p for p in projects if p.id == project_id] or projects
+    members = members_of(scoped, project_id) if project_id else []
+    ctx = extra_context or "\n\n".join(
         [
-            (
-                "system",
-                "You are a delivery planner. Break the user story into concrete engineering "
-                "tasks with nested subtasks when the story implies them. Prefer 3–8 tasks. "
-                "Be specific and actionable. Do not invent unrelated work. "
-                "IMPORTANT: put child work under tasks[].subtasks — never as sibling tasks. "
-                "When text says '(sub task -> X)' or '(subtask: X)', the parent is the "
-                "surrounding task and X must be a subtask of that task.",
-            ),
-            ("human", "{context}"),
+            f"Title: {title}",
+            f"Description:\n{description or '(none)'}",
+            f"Acceptance criteria:\n{acceptance_criteria or '(none)'}",
         ]
     )
     try:
-        plan = ai_service.complete_structured(
-            prompt,
-            {"context": _story_context_text(db, s)},
-            _GenPlan,
+        bundle = chains.expand_story_tasks(
+            title=title,
+            description=description or "",
+            acceptance_criteria=acceptance_criteria or "",
+            extra_context=ctx,
+            projects=scoped,
         )
     except Exception as exc:
         log.exception("User story generate preview failed")
@@ -363,41 +412,87 @@ def preview_generate_tasks(db: Db, user_id: str, story_id: str) -> UserStoryGene
             f"AI task generation failed: {exc}",
         ) from exc
 
-    if not isinstance(plan, _GenPlan):
-        plan = _GenPlan.model_validate(plan)
+    skip = existing_titles or set()
+    previews: list[GeneratedTaskPreview] = []
+    for gt in bundle.tasks or []:
+        task_title, inline = _split_inline_subtask((gt.title or "").strip())
+        if not task_title or task_title.lower() in skip:
+            continue
+        tkey = f"t-{uuid.uuid4().hex[:10]}"
+        seen: set[str] = set()
+        subs: list[GeneratedSubtaskPreview] = []
+        for gs in getattr(gt, "subtasks", None) or []:
+            st, nested = _split_inline_subtask((getattr(gs, "title", None) or "").strip())
+            if st and st.lower() not in seen:
+                seen.add(st.lower())
+                subs.append(
+                    GeneratedSubtaskPreview(
+                        key=f"s-{uuid.uuid4().hex[:10]}",
+                        title=st,
+                        description=(getattr(gs, "description", None) or "").strip(),
+                    )
+                )
+            if nested and nested.lower() not in seen:
+                seen.add(nested.lower())
+                subs.append(
+                    GeneratedSubtaskPreview(
+                        key=f"s-{uuid.uuid4().hex[:10]}",
+                        title=nested,
+                        description="",
+                    )
+                )
+        if inline and inline.lower() not in seen:
+            subs.append(
+                GeneratedSubtaskPreview(
+                    key=f"s-{uuid.uuid4().hex[:10]}",
+                    title=inline,
+                    description="",
+                )
+            )
+        ids = snap_assignee_ids(
+            getattr(gt, "assignee_id", None),
+            getattr(gt, "assignee_name", None),
+            members,
+        )
+        previews.append(
+            GeneratedTaskPreview(
+                key=tkey,
+                title=task_title,
+                description=(gt.description or "").strip(),
+                priority=gt.priority or priority or "Medium",
+                subtasks=subs,
+                assign=bool(ids),
+                assigneeIds=ids,
+                sectionId=section_id or None,
+            )
+        )
+    return UserStoryGeneratePreviewOut(storyId=story_id, tasks=previews)
 
+
+def preview_generate_tasks(db: Db, user_id: str, story_id: str) -> UserStoryGeneratePreviewOut:
+    """AI plan only — Chain B. Does not persist tasks until confirm_generate_tasks."""
+    s = stories_crud.get_by_id(db, story_id)
+    if not s:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User story not found")
     existing = tasks_crud.list_for_user_story(db, story_id)
     existing_titles = {
         (t.title or "").strip().lower()
         for t in existing
         if not getattr(t, "parent_task_id", None)
     }
-
-    previews: list[GeneratedTaskPreview] = []
-    for gt in plan.tasks:
-        title = (gt.title or "").strip()
-        if not title or title.lower() in existing_titles:
-            continue
-        tkey = f"t-{uuid.uuid4().hex[:10]}"
-        subs = [
-            GeneratedSubtaskPreview(
-                key=f"s-{uuid.uuid4().hex[:10]}",
-                title=(gs.title or "").strip(),
-                description=(gs.description or "").strip(),
-            )
-            for gs in (gt.subtasks or [])
-            if (gs.title or "").strip()
-        ]
-        previews.append(
-            GeneratedTaskPreview(
-                key=tkey,
-                title=title,
-                description=(gt.description or "").strip(),
-                priority=gt.priority or s.priority or "Medium",
-                subtasks=subs,
-            )
-        )
-    return UserStoryGeneratePreviewOut(storyId=story_id, tasks=previews)
+    return preview_generate_from_fields(
+        db,
+        user_id,
+        story_id=story_id,
+        title=s.title,
+        description=s.description or "",
+        acceptance_criteria=s.acceptance_criteria or "",
+        project_id=s.project_id,
+        section_id=getattr(s, "section_id", None),
+        priority=s.priority,
+        extra_context=_story_context_text(db, s),
+        existing_titles=existing_titles,
+    )
 
 
 def confirm_generate_tasks(
@@ -563,167 +658,3 @@ def _split_inline_subtask(title: str) -> tuple[str, str | None]:
     return parent, child
 
 
-def _normalize_gen_task(gt: _GenTask) -> tuple[str, list[_GenSubtask]]:
-    """Ensure nested subtasks exist even when the model inlined them in the title."""
-    title, inline = _split_inline_subtask((gt.title or "").strip())
-    subs: list[_GenSubtask] = []
-    seen: set[str] = set()
-    for gs in gt.subtasks or []:
-        st = (gs.title or "").strip()
-        if not st:
-            continue
-        st2, nested = _split_inline_subtask(st)
-        # Subtasks cannot nest further — keep the cleaned title only.
-        key = st2.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        subs.append(_GenSubtask(title=st2, description=(gs.description or "").strip()))
-        if nested:
-            nk = nested.lower()
-            if nk not in seen:
-                seen.add(nk)
-                subs.append(_GenSubtask(title=nested, description=""))
-    if inline:
-        ik = inline.lower()
-        if ik not in seen:
-            subs.append(_GenSubtask(title=inline, description=""))
-    return title, subs
-
-
-def _preview_tasks_from_gen(tasks: list[_GenTask] | None) -> list[GeneratedTaskPreview]:
-    previews: list[GeneratedTaskPreview] = []
-    for gt in tasks or []:
-        title, norm_subs = _normalize_gen_task(gt)
-        if not title:
-            continue
-        subs: list[GeneratedSubtaskPreview] = []
-        for gs in norm_subs:
-            st = (gs.title or "").strip()
-            if not st:
-                continue
-            subs.append(
-                GeneratedSubtaskPreview(
-                    key=f"st-{uuid.uuid4().hex[:10]}",
-                    title=st,
-                    description=(gs.description or "").strip(),
-                )
-            )
-        previews.append(
-            GeneratedTaskPreview(
-                key=f"tk-{uuid.uuid4().hex[:10]}",
-                title=title,
-                description=(gt.description or "").strip(),
-                priority=gt.priority or "Medium",
-                subtasks=subs,
-            )
-        )
-    return previews
-
-
-def extract_stories_preview(
-    db: Db, user_id: str, project_id: str, source_text: str
-) -> ExtractStoriesPreviewOut:
-    """AI extracts multiple user stories (with tasks/subtasks) from a requirements document — no persist."""
-    project_logic.ensure_project_member(db, project_id, user_id)
-    text = (source_text or "").strip()
-    if not text:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No requirement text to analyze")
-
-    from ai import service as ai_service
-    from langchain_core.prompts import ChatPromptTemplate
-
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                "You split a large requirements document into distinct user stories. "
-                "Each story should be independently deliverable. Prefer 2–12 stories. "
-                "TITLE RULES (critical): story title must be a short label of 3–8 words "
-                "(max ~60 characters). Prefer the document's own heading when present "
-                "(e.g. 'User story analytics' → title 'analytics'). "
-                "Never paste sentences, paragraphs, or comma-separated task lists into "
-                "the title — put that detail in description / acceptance_criteria / tasks. "
-                "Fill acceptance_criteria when the document implies them. "
-                "For EVERY story, break it into concrete engineering tasks (2–8). "
-                "Nested work MUST go in tasks[].subtasks (not as separate top-level tasks). "
-                "If the document writes '(sub task -> X)', '(subtask -> X)', or "
-                "'(sub task: X)', treat X as a subtask of the parent task named before "
-                "the parenthesis. Example: "
-                "'add clockify sync (sub task -> get api key)' → task "
-                "'add clockify sync' with subtask 'get api key'. "
-                "Be specific and actionable; do not invent unrelated work. "
-                "Reply with a single JSON object only (no markdown fences).",
-            ),
-            ("human", "Requirements document:\n\n{text}"),
-        ]
-    )
-    try:
-        plan = ai_service.complete_structured(
-            prompt, {"text": text[:80000]}, _ExtractPlan
-        )
-    except Exception as exc:
-        log.exception("Extract user stories failed")
-        raise HTTPException(
-            status.HTTP_502_BAD_GATEWAY,
-            f"AI story extraction failed: {exc}",
-        ) from exc
-
-    if not isinstance(plan, _ExtractPlan):
-        plan = _ExtractPlan.model_validate(plan)
-
-    stories: list[ExtractedStoryPreview] = []
-    for es in plan.stories or []:
-        title, description = _normalize_story_title(
-            es.title or "", (es.description or "").strip()
-        )
-        if not title:
-            continue
-        stories.append(
-            ExtractedStoryPreview(
-                key=f"us-{uuid.uuid4().hex[:10]}",
-                title=title,
-                description=description,
-                acceptanceCriteria=(es.acceptance_criteria or "").strip(),
-                priority=es.priority or "Medium",
-                assigneeIds=[],
-                tasks=_preview_tasks_from_gen(es.tasks),
-            )
-        )
-    return ExtractStoriesPreviewOut(stories=stories)
-
-
-def bulk_create_stories(
-    db: Db, user_id: str, body: BulkCreateStoriesBody
-) -> list[UserStoryOut]:
-    """Create reviewed stories from an extract preview, including nested tasks/subtasks."""
-    project_logic.ensure_project_member(db, body.projectId, user_id)
-    created: list[UserStoryOut] = []
-    for es in body.stories or []:
-        title, description = _normalize_story_title(
-            es.title or "", es.description or ""
-        )
-        if not title:
-            continue
-        story_out = create_story(
-            db,
-            user_id,
-            UserStoryCreate(
-                projectId=body.projectId,
-                title=title,
-                description=description,
-                acceptanceCriteria=es.acceptanceCriteria or "",
-                priority=es.priority or "Medium",
-                assigneeIds=es.assigneeIds or None,
-            ),
-        )
-        if es.tasks:
-            confirm_generate_tasks(
-                db,
-                user_id,
-                story_out.id,
-                UserStoryConfirmGenerateBody(replaceGenerated=False, tasks=es.tasks),
-            )
-            story_out = get_story(db, user_id, story_out.id)
-        created.append(story_out)
-    return created

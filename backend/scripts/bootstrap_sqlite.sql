@@ -68,6 +68,13 @@ CREATE TABLE IF NOT EXISTS user_stories (
     updated_at VARCHAR NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS user_story_board (
+    story_id VARCHAR PRIMARY KEY,
+    sprint VARCHAR NOT NULL DEFAULT '',
+    tags_json TEXT NOT NULL DEFAULT '[]',
+    approved_by_manager BOOLEAN NOT NULL DEFAULT FALSE
+);
+
 CREATE TABLE IF NOT EXISTS user_story_assignees (
     user_story_id VARCHAR NOT NULL REFERENCES user_stories (id) ON DELETE CASCADE,
     user_id VARCHAR NOT NULL REFERENCES users (id) ON DELETE CASCADE,
@@ -321,6 +328,7 @@ CREATE TABLE IF NOT EXISTS temp_tasks (
     position INTEGER NOT NULL DEFAULT 0,
     source_text TEXT NOT NULL DEFAULT '',
     assignee_ids TEXT NOT NULL DEFAULT '[]',
+    extra_json TEXT NOT NULL DEFAULT '{}',
     created_at VARCHAR NOT NULL,
     updated_at VARCHAR NOT NULL
 );

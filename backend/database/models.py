@@ -116,6 +116,9 @@ class UserStory(Base):
     story_points = Column(String, nullable=True)
     start_date = Column(String, nullable=True)
     due_date = Column(String, nullable=True)
+    sprint = Column(String, nullable=False, default="")
+    tags_json = Column(Text, nullable=False, default="[]")
+    approved_by_manager = Column(Boolean, nullable=False, default=False)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
 
@@ -193,6 +196,7 @@ class TempTask(Base):
     position = Column(Integer, nullable=False, default=0)
     source_text = Column(Text, nullable=False, default="")
     assignee_ids = Column(Text, nullable=False, default="[]")
+    extra_json = Column(Text, nullable=False, default="{}")
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
 

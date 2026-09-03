@@ -7,7 +7,6 @@ import {
   BookOpen,
   ChevronDown,
   ChevronRight,
-  FileUp,
   Loader2,
   Paperclip,
   Plus,
@@ -16,13 +15,12 @@ import {
   Upload,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { projectKeys, STORY_STALE_TIME, upsertUserStory, removeUserStory } from '@/lib/queryClient';
 import { useAppStore } from '@/stores/appStore';
 import { storyAssigneeIds, taskAssigneeIds } from '@/lib/task-utils';
 import type {
-  ExtractedStoryPreview,
-  GeneratedTaskPreview,
-  Priority,
   Task,
   User,
   UserStory,
@@ -30,20 +28,13 @@ import type {
   UserStoryGeneratePreview,
 } from '@/types';
 import AssigneeMultiSelect from '@/components/AssigneeMultiSelect';
+import { AddWorkMenu } from '@/components/AddWorkMenu';
+import CreateTaskModal from '@/components/CreateTaskModal';
+import { CreateUserStoryDialog } from '@/components/CreateUserStoryDialog';
+import { GenerateTasksPreviewDialog } from '@/components/GenerateTasksPreviewDialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-
-const PRIORITIES: Priority[] = ['Low', 'Medium', 'High', 'Urgent'];
 
 function progressLabel(s: UserStory) {
   const total = s.taskCount + s.subtaskCount;
@@ -66,12 +57,16 @@ export default function UserStoriesPanel({
   projectId: string;
   members: User[];
 }) {
-  const currentUser = useAppStore(s => s.currentUser);
   const syncTasks = useAppStore(s => s.syncTasks);
-  const [stories, setStories] = useState<UserStory[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: stories = [], isLoading: loading } = useQuery({
+    queryKey: projectKeys.userStories(projectId),
+    queryFn: () => api.listProjectUserStories(projectId),
+    staleTime: STORY_STALE_TIME,
+    refetchOnMount: false,
+  });
   const [createOpen, setCreateOpen] = useState(false);
-  const [extractOpen, setExtractOpen] = useState(false);
+  const [taskOpen, setTaskOpen] = useState(false);
+  const [lockStory, setLockStory] = useState<UserStory | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [storyTasks, setStoryTasks] = useState<Record<string, Task[]>>({});
   const [collapsedParents, setCollapsedParents] = useState<Set<string>>(new Set());
@@ -82,25 +77,6 @@ export default function UserStoriesPanel({
     data: UserStoryGeneratePreview;
   } | null>(null);
   const [assignStory, setAssignStory] = useState<UserStory | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const rows = await api.listProjectUserStories(projectId);
-      setStories(rows);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Failed to load user stories');
-    } finally {
-      setLoading(false);
-    }
-  }, [projectId]);
-
-  useEffect(() => {
-    void load();
-    const onStories = () => { void load(); };
-    window.addEventListener('zet:stories-changed', onStories);
-    return () => window.removeEventListener('zet:stories-changed', onStories);
-  }, [load]);
 
   const loadTasks = async (storyId: string) => {
     try {
@@ -141,7 +117,7 @@ export default function UserStoriesPanel({
     try {
       await api.deleteUserStory(storyId);
       toast.success('User story deleted');
-      setStories(prev => prev.filter(s => s.id !== storyId));
+      removeUserStory(storyId, projectId);
       if (expanded === storyId) setExpanded(null);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Delete failed');
@@ -190,24 +166,15 @@ export default function UserStoriesPanel({
           <span className="font-normal text-muted-foreground/60">({stories.length})</span>
         </div>
         <div className="flex gap-1.5">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-7 text-[11px]"
-            onClick={() => setExtractOpen(true)}
-          >
-            <FileUp className="h-3 w-3 mr-1" /> From requirements
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-7 text-[11px]"
-            onClick={() => setCreateOpen(true)}
-          >
-            <Plus className="h-3 w-3 mr-1" /> Add story
-          </Button>
+          <AddWorkMenu
+            onTask={() => { setLockStory(null); setTaskOpen(true); }}
+            onStory={() => setCreateOpen(true)}
+            trigger={
+              <Button type="button" size="sm" variant="outline" className="h-7 text-[11px]">
+                <Plus className="h-3 w-3 mr-1" /> Add
+              </Button>
+            }
+          />
         </div>
       </div>
 
@@ -292,6 +259,15 @@ export default function UserStoriesPanel({
                     <StoryAttachments storyId={story.id} />
 
                     <div className="flex flex-wrap gap-1.5">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 text-[11px]"
+                        onClick={() => { setLockStory(story); setTaskOpen(true); }}
+                      >
+                        <Plus className="h-3 w-3 mr-1" /> Add task
+                      </Button>
                       <Button
                         type="button"
                         size="sm"
@@ -431,28 +407,23 @@ export default function UserStoriesPanel({
         open={createOpen}
         onOpenChange={setCreateOpen}
         projectId={projectId}
-        members={members}
-        currentUserId={currentUser?.id || ''}
         onCreated={story => {
-          setStories(prev => [story, ...prev]);
+          upsertUserStory(story);
           setCreateOpen(false);
         }}
       />
-
-      <ExtractStoriesDialog
-        open={extractOpen}
-        onOpenChange={setExtractOpen}
-        projectId={projectId}
-        members={members}
-        onCreated={created => {
-          setStories(prev => [...created, ...prev]);
-          setExtractOpen(false);
-          void syncTasks();
+      <CreateTaskModal
+        open={taskOpen}
+        lockStory={lockStory}
+        lockProjectId={lockStory ? null : projectId}
+        onOpenChange={o => {
+          setTaskOpen(o);
+          if (!o) setLockStory(null);
         }}
       />
 
       {preview && (
-        <GeneratePreviewDialog
+        <GenerateTasksPreviewDialog
           preview={preview.data}
           replaceGenerated={preview.replaceGenerated}
           onClose={() => setPreview(null)}
@@ -468,7 +439,7 @@ export default function UserStoriesPanel({
                   : 'Nothing selected to create',
               );
               setPreview(null);
-              await load();
+              upsertUserStory(await api.getUserStory(preview.storyId));
               await loadTasks(preview.storyId);
               await syncTasks();
             } catch (e) {
@@ -484,7 +455,7 @@ export default function UserStoriesPanel({
           members={members}
           onClose={() => setAssignStory(null)}
           onSaved={updated => {
-            setStories(prev => prev.map(s => (s.id === updated.id ? updated : s)));
+            upsertUserStory(updated);
             setAssignStory(null);
           }}
         />
@@ -601,141 +572,6 @@ function StoryAttachments({ storyId }: { storyId: string }) {
   );
 }
 
-function GeneratePreviewDialog({
-  preview,
-  replaceGenerated,
-  onClose,
-  onConfirmed,
-}: {
-  preview: UserStoryGeneratePreview;
-  replaceGenerated: boolean;
-  onClose: () => void;
-  onConfirmed: (tasks: GeneratedTaskPreview[]) => Promise<void>;
-}) {
-  // Task checkbox = create. Created tasks stay unassigned until the story is assigned.
-  const tasks = Array.isArray(preview.tasks) ? preview.tasks : [];
-  const [includeTasks, setIncludeTasks] = useState<Set<string>>(
-    () => new Set(tasks.map(t => t.key)),
-  );
-  const [includeSubs, setIncludeSubs] = useState<Set<string>>(() => {
-    const s = new Set<string>();
-    for (const t of tasks) for (const st of t.subtasks ?? []) s.add(st.key);
-    return s;
-  });
-  const [saving, setSaving] = useState(false);
-
-  const allTaskKeys = tasks.map(t => t.key);
-  const allSubKeys = tasks.flatMap(t => (t.subtasks ?? []).map(s => s.key));
-
-  const selectAll = () => {
-    setIncludeTasks(new Set(allTaskKeys));
-    setIncludeSubs(new Set(allSubKeys));
-  };
-  const deselectAll = () => {
-    setIncludeTasks(new Set());
-  };
-
-  const confirm = async () => {
-    const selected: GeneratedTaskPreview[] = tasks
-      .filter(t => includeTasks.has(t.key))
-      .map(t => ({
-        ...t,
-        assign: false,
-        subtasks: (t.subtasks ?? []).filter(st => includeSubs.has(st.key)),
-      }));
-    if (!selected.length) {
-      toast.error('Select at least one task to create');
-      return;
-    }
-    setSaving(true);
-    try {
-      await onConfirmed(selected);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Dialog open onOpenChange={o => !o && onClose()}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Review generated tasks</DialogTitle>
-        </DialogHeader>
-        <p className="text-xs text-muted-foreground">
-          Check tasks to create under this user story. They stay unassigned until you assign the
-          story (or check Assign after the story has assignees).
-          {replaceGenerated ? ' AI-generated tasks will be replaced on confirm.' : ''}
-        </p>
-        <div className="flex gap-2">
-          <Button type="button" size="sm" variant="outline" className="h-7 text-[11px]" onClick={selectAll}>
-            Include all
-          </Button>
-          <Button type="button" size="sm" variant="outline" className="h-7 text-[11px]" onClick={deselectAll}>
-            Include none
-          </Button>
-        </div>
-        <div className="space-y-2">
-          {tasks.map(t => (
-            <div key={t.key} className="rounded-md border border-border/40 p-2 space-y-1.5">
-              <label className="flex items-start gap-2 cursor-pointer">
-                <Checkbox
-                  checked={includeTasks.has(t.key)}
-                  onCheckedChange={() => {
-                    setIncludeTasks(prev => {
-                      const n = new Set(prev);
-                      if (n.has(t.key)) n.delete(t.key);
-                      else n.add(t.key);
-                      return n;
-                    });
-                  }}
-                />
-                <div className="min-w-0">
-                  <div className="text-sm font-medium">{t.title}</div>
-                  {t.description && (
-                    <div className="text-[11px] text-muted-foreground/70 mt-0.5">{t.description}</div>
-                  )}
-                  <div className="text-[10px] text-muted-foreground/50 mt-0.5">
-                    {includeTasks.has(t.key) ? 'Will be created · unassigned' : 'Skipped'}
-                  </div>
-                </div>
-              </label>
-              {(t.subtasks ?? []).length > 0 && (
-                <div className="ml-6 space-y-1 border-l border-border/30 pl-2">
-                  {(t.subtasks ?? []).map(st => (
-                    <label key={st.key} className="flex items-start gap-2 cursor-pointer">
-                      <Checkbox
-                        checked={includeSubs.has(st.key)}
-                        onCheckedChange={() => {
-                          setIncludeSubs(prev => {
-                            const n = new Set(prev);
-                            if (n.has(st.key)) n.delete(st.key);
-                            else n.add(st.key);
-                            return n;
-                          });
-                        }}
-                      />
-                      <span className="text-[12px]">{st.title}</span>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-        <div className="flex gap-2 justify-end">
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="button" disabled={saving} onClick={() => void confirm()}>
-            {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-            Create tasks
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 function AssignStoryDialog({
   story,
   members,
@@ -774,456 +610,6 @@ function AssignStoryDialog({
           {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
           Save assignees
         </Button>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function CreateUserStoryDialog({
-  open,
-  onOpenChange,
-  projectId,
-  members,
-  currentUserId,
-  onCreated,
-}: {
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
-  projectId: string;
-  members: User[];
-  currentUserId: string;
-  onCreated: (s: UserStory) => void;
-}) {
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [acceptance, setAcceptance] = useState('');
-  const [priority, setPriority] = useState<Priority>('Medium');
-  const [assigneeIds, setAssigneeIds] = useState<Set<string>>(new Set());
-  const [dueDate, setDueDate] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
-  const [dragOver, setDragOver] = useState(false);
-
-  useEffect(() => {
-    if (open) {
-      setTitle('');
-      setDescription('');
-      setAcceptance('');
-      setPriority('Medium');
-      setAssigneeIds(new Set(currentUserId ? [currentUserId] : []));
-      setDueDate('');
-      setPendingFiles([]);
-    }
-  }, [open, currentUserId]);
-
-  const submit = async () => {
-    if (!title.trim()) {
-      toast.error('Title is required');
-      return;
-    }
-    setSaving(true);
-    try {
-      const story = await api.createUserStory({
-        projectId,
-        title: title.trim(),
-        description,
-        acceptanceCriteria: acceptance,
-        priority,
-        assigneeIds: [...assigneeIds],
-        dueDate: dueDate || null,
-      });
-      for (const file of pendingFiles) {
-        try {
-          await api.uploadUserStoryAttachment(story.id, file);
-        } catch {
-          toast.error(`Could not upload ${file.name}`);
-        }
-      }
-      toast.success('User story created');
-      onCreated(story);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Create failed');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>New user story</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-3">
-          <div>
-            <label className="text-xs font-medium text-muted-foreground">Title</label>
-            <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="As a user, I want…" />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-muted-foreground">
-              Description (markdown / pasted specs OK)
-            </label>
-            <Textarea
-              value={description}
-              onChange={e => setDescription(e.target.value)}
-              rows={6}
-              placeholder="Paste requirements, meeting notes, client specs…"
-              className="font-mono text-xs"
-            />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 block">
-              Attachments (drag & drop or browse)
-            </label>
-            <div
-              onDragOver={e => {
-                e.preventDefault();
-                setDragOver(true);
-              }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={e => {
-                e.preventDefault();
-                setDragOver(false);
-                const files = Array.from(e.dataTransfer.files || []);
-                if (files.length) setPendingFiles(prev => [...prev, ...files]);
-              }}
-              className={`rounded-md border border-dashed px-3 py-3 text-center text-[11px] ${
-                dragOver ? 'border-primary bg-primary/5' : 'border-border/40 text-muted-foreground/50'
-              }`}
-            >
-              Drop files here
-              <label className="ml-2 text-primary cursor-pointer underline">
-                browse
-                <input
-                  type="file"
-                  className="sr-only"
-                  multiple
-                  onChange={e => {
-                    const files = Array.from(e.target.files || []);
-                    if (files.length) setPendingFiles(prev => [...prev, ...files]);
-                    e.target.value = '';
-                  }}
-                />
-              </label>
-            </div>
-            {pendingFiles.length > 0 && (
-              <ul className="mt-1 text-[11px] space-y-0.5">
-                {pendingFiles.map((f, i) => (
-                  <li key={`${f.name}-${i}`} className="flex justify-between gap-2">
-                    <span className="truncate">{f.name}</span>
-                    <button
-                      type="button"
-                      className="text-red-600 dark:text-red-400"
-                      onClick={() => setPendingFiles(prev => prev.filter((_, j) => j !== i))}
-                    >
-                      remove
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <div>
-            <label className="text-xs font-medium text-muted-foreground">Acceptance criteria</label>
-            <Textarea
-              value={acceptance}
-              onChange={e => setAcceptance(e.target.value)}
-              rows={3}
-              placeholder="Given / When / Then…"
-              className="font-mono text-xs"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-xs font-medium text-muted-foreground">Priority</label>
-              <Select value={priority} onValueChange={v => setPriority(v as Priority)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PRIORITIES.map(p => (
-                    <SelectItem key={p} value={p}>
-                      {p}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground">Due date</label>
-              <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
-            </div>
-          </div>
-          <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 block">Assignees</label>
-            <AssigneeMultiSelect members={members} selectedIds={assigneeIds} onChange={setAssigneeIds} />
-          </div>
-          <Button type="button" className="w-full" disabled={saving} onClick={() => void submit()}>
-            {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-            Create user story
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function ExtractStoriesDialog({
-  open,
-  onOpenChange,
-  projectId,
-  members,
-  onCreated,
-}: {
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
-  projectId: string;
-  members: User[];
-  onCreated: (stories: UserStory[]) => void;
-}) {
-  const [text, setText] = useState('');
-  const [file, setFile] = useState<File | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [preview, setPreview] = useState<ExtractedStoryPreview[] | null>(null);
-  const [checked, setChecked] = useState<Set<string>>(new Set());
-  const [includeTaskKeys, setIncludeTaskKeys] = useState<Set<string>>(new Set());
-  const [dragOver, setDragOver] = useState(false);
-
-  useEffect(() => {
-    if (open) {
-      setText('');
-      setFile(null);
-      setPreview(null);
-      setChecked(new Set());
-      setIncludeTaskKeys(new Set());
-    }
-  }, [open]);
-
-  const runExtract = async () => {
-    if (!text.trim() && !file) {
-      toast.error('Paste text or upload a requirements document');
-      return;
-    }
-    setLoading(true);
-    try {
-      const res = await api.extractUserStories(projectId, {
-        text: text.trim() || undefined,
-        file: file || undefined,
-      });
-      const stories = Array.isArray(res.stories) ? res.stories : [];
-      if (!stories.length) {
-        toast.message('No user stories found in the document');
-        return;
-      }
-      setPreview(stories);
-      setChecked(new Set(stories.map(s => s.key).filter(Boolean)));
-      const keys = new Set<string>();
-      for (const s of stories) for (const t of s.tasks ?? []) if (t.key) keys.add(t.key);
-      setIncludeTaskKeys(keys);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Extract failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const saveSelected = async () => {
-    if (!preview) return;
-    const selected = preview.filter(s => checked.has(s.key));
-    if (!selected.length) {
-      toast.error('Select at least one story');
-      return;
-    }
-    const storiesPayload = selected.map(s => ({
-      ...s,
-      tasks: (s.tasks ?? [])
-        .filter(t => includeTaskKeys.has(t.key))
-        .map(t => ({ ...t, assign: false })),
-    }));
-    if (storiesPayload.some(s => (s.tasks?.length ?? 0) === 0)) {
-      toast.error('Each selected story needs at least one task checked');
-      return;
-    }
-    setSaving(true);
-    try {
-      const created = await api.bulkCreateUserStories({
-        projectId,
-        stories: storiesPayload,
-      });
-      toast.success(`Created ${created.length} user stor${created.length === 1 ? 'y' : 'ies'}`);
-      onCreated(created);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Create failed');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Extract user stories from requirements</DialogTitle>
-        </DialogHeader>
-        {!preview ? (
-          <div className="space-y-3">
-            <Textarea
-              value={text}
-              onChange={e => setText(e.target.value)}
-              rows={6}
-              placeholder="Paste requirements…"
-              className="font-mono text-xs"
-            />
-            <div
-              onDragOver={e => {
-                e.preventDefault();
-                setDragOver(true);
-              }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={e => {
-                e.preventDefault();
-                setDragOver(false);
-                const f = e.dataTransfer.files?.[0];
-                if (f) setFile(f);
-              }}
-              className={`rounded-md border border-dashed px-3 py-4 text-center text-[11px] ${
-                dragOver ? 'border-primary bg-primary/5' : 'border-border/40 text-muted-foreground/50'
-              }`}
-            >
-              {file ? (
-                <span className="text-foreground">{file.name}</span>
-              ) : (
-                <>
-                  Drag & drop a PDF/DOCX, or{' '}
-                  <label className="text-primary underline cursor-pointer">
-                    browse
-                    <input
-                      type="file"
-                      className="sr-only"
-                      accept=".pdf,.docx,.txt,.md"
-                      onChange={e => setFile(e.target.files?.[0] || null)}
-                    />
-                  </label>
-                </>
-              )}
-            </div>
-            <Button type="button" className="w-full" disabled={loading} onClick={() => void runExtract()}>
-              {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Sparkles className="h-4 w-4 mr-2" />}
-              Extract stories (preview)
-            </Button>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-7 text-[11px]"
-                onClick={() => {
-                  setChecked(new Set(preview.map(s => s.key)));
-                  const keys = new Set<string>();
-                  for (const s of preview) for (const t of s.tasks ?? []) keys.add(t.key);
-                  setIncludeTaskKeys(keys);
-                }}
-              >
-                Select all
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-7 text-[11px]"
-                onClick={() => {
-                  setChecked(new Set());
-                  setIncludeTaskKeys(new Set());
-                }}
-              >
-                Deselect all
-              </Button>
-              <Button type="button" size="sm" variant="ghost" className="h-7 text-[11px]" onClick={() => setPreview(null)}>
-                Back
-              </Button>
-            </div>
-            <div className="space-y-2">
-              {preview.map(s => {
-                const taskN = s.tasks?.length ?? 0;
-                const includedN = (s.tasks ?? []).filter(t => includeTaskKeys.has(t.key)).length;
-                const subN = (s.tasks ?? [])
-                  .filter(t => includeTaskKeys.has(t.key))
-                  .reduce((n, t) => n + (t.subtasks?.length ?? 0), 0);
-                return (
-                <div
-                  key={s.key}
-                  className="rounded-md border border-border/40 p-2 space-y-1.5"
-                >
-                  <label className="flex items-start gap-2 cursor-pointer">
-                    <Checkbox
-                      checked={checked.has(s.key)}
-                      onCheckedChange={() => {
-                        setChecked(prev => {
-                          const n = new Set(prev);
-                          if (n.has(s.key)) n.delete(s.key);
-                          else n.add(s.key);
-                          return n;
-                        });
-                      }}
-                    />
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium truncate" title={s.title}>{s.title}</div>
-                      {s.description && (
-                        <div className="text-[11px] text-muted-foreground/70 mt-0.5 line-clamp-3">
-                          {s.description}
-                        </div>
-                      )}
-                      {(taskN > 0 || subN > 0) && (
-                        <div className="text-[10px] text-muted-foreground/50 mt-1">
-                          {includedN}/{taskN} task{taskN === 1 ? '' : 's'} selected
-                          {subN ? ` · ${subN} subtask${subN === 1 ? '' : 's'}` : ''}
-                        </div>
-                      )}
-                    </div>
-                  </label>
-                  {taskN > 0 && (
-                    <ul className="ml-6 space-y-1 border-l border-border/30 pl-2">
-                      {(s.tasks ?? []).map(t => (
-                        <li key={t.key} className="flex items-start gap-1.5 text-[11px]">
-                          <Checkbox
-                            checked={includeTaskKeys.has(t.key)}
-                            onCheckedChange={() => {
-                              setIncludeTaskKeys(prev => {
-                                const n = new Set(prev);
-                                if (n.has(t.key)) n.delete(t.key);
-                                else n.add(t.key);
-                                return n;
-                              });
-                            }}
-                          />
-                          <span>
-                            {t.title}
-                            <span className="ml-1 text-muted-foreground/45">
-                              {includeTaskKeys.has(t.key) ? '· include' : '· skip'}
-                            </span>
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              );})}
-            </div>
-            <p className="text-[10px] text-muted-foreground/50">
-              Story checkbox = create story. Task checkbox = create that task. Unchecked tasks are skipped.
-              Created tasks stay unassigned until you assign the user story.
-            </p>
-            <Button type="button" className="w-full" disabled={saving} onClick={() => void saveSelected()}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              Create selected stories
-              {(preview.some(s => (s.tasks?.length ?? 0) > 0)) ? ' + tasks' : ''}
-            </Button>
-          </div>
-        )}
       </DialogContent>
     </Dialog>
   );

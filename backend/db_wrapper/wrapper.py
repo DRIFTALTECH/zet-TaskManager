@@ -163,8 +163,8 @@ class DatabaseWrapper:
             elif ephemeral:
                 self._pools.release(conn, write=True)
 
-    def read(self, sql: str, params: tuple | dict | list | None = None) -> list[dict[str, Any]]:
-        rows = self._run(sql, params, write=False)
+    def read(self, sql: str, params: tuple | dict | list | None = None, *, primary: bool = False) -> list[dict[str, Any]]:
+        rows = self._run(sql, params, write=False, primary=primary)
         return [_json_safe(row) for row in rows]
 
     def write(self, sql: str, params: tuple | dict | list | None = None) -> dict[str, Any]:
@@ -228,13 +228,15 @@ class DatabaseWrapper:
         params: tuple | dict | list | None,
         *,
         write: bool,
+        primary: bool = False,
     ) -> list[dict[str, Any]] | int:
         kind = "WRITE" if write else "READ"
         transient = _transient_errors()
         scope = _scope_var.get()
         t_total = time.perf_counter()
+        use_writer = write or primary
 
-        if write:
+        if use_writer:
             conn = self._acquire_write(scope)
             ephemeral = scope is None
         else:
@@ -273,7 +275,7 @@ class DatabaseWrapper:
                         result = [dict(zip(columns, row)) for row in cur.fetchall()]
 
                 total_ms = (time.perf_counter() - t_total) * 1000
-                endpoint = "writer" if write or (scope and scope._wrote_in_scope) else "reader"
+                endpoint = "writer" if use_writer or (scope and scope._wrote_in_scope) else "reader"
                 log.debug(
                     "%s [%s] %.1f ms (conn=%.1f exec=%.1f commit=%.1f) %s",
                     kind,
@@ -303,7 +305,7 @@ class DatabaseWrapper:
                 raise
             log.warning("%s connection error before execute: %s", kind, exc)
             if ephemeral:
-                self._pools.release(conn, write=write, close=True)
+                self._pools.release(conn, write=use_writer, close=True)
             raise
         except Exception:
             if write and executed and scope and scope.txn_depth > 0:
@@ -314,4 +316,4 @@ class DatabaseWrapper:
             raise
         finally:
             if ephemeral:
-                self._pools.release(conn, write=write)
+                self._pools.release(conn, write=use_writer)

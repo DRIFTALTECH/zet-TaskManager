@@ -118,7 +118,6 @@ export function ProposalCard({
             sectionId: p.section_id ?? undefined,
             tags: p.tags,
           });
-          toast.info('Pick a user story to create the task');
           return;
         case 'add_member':
           await addMemberToProject(p.project_id!, p.user_id!);
@@ -292,7 +291,7 @@ export function ExtractedTaskCard({ task, onEdit }: { task: AIExtractedTask; onE
         {task.due_date && <span className="flex items-center gap-1"><Calendar className="h-3 w-3" /> {task.due_date}</span>}
       </div>
       <div className="flex gap-2 pt-1 border-t border-border/30">
-        <button type="button" onClick={() => { if (currentUser) { toast.info('Pick a user story'); onEdit(prefill); } }}
+        <button type="button" onClick={() => { if (currentUser) onEdit(prefill); }}
           className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-violet-600 text-white text-xs font-semibold">
           <Check className="h-3.5 w-3.5" /> Accept
         </button>

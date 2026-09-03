@@ -2,12 +2,16 @@ import { useAppStore } from '@/stores/appStore';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import {
   Search, ListTodo, FolderOpen, Users, X, ChevronRight, Clock,
-  AlertTriangle, CheckCircle2,
+  AlertTriangle, CheckCircle2, BookOpen,
 } from 'lucide-react';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { isTaskAssignedTo, normalizePriority } from '@/lib/task-utils';
 import UserAvatar from '@/components/UserAvatar';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/lib/api';
+import { storyKeys, STORY_STALE_TIME } from '@/lib/queryClient';
+import type { UserStory } from '@/types';
 
 interface Props {
   open: boolean;
@@ -34,6 +38,13 @@ export default function GlobalSearchModal({ open, onOpenChange }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const isManager = currentUser?.role === 'manager' || currentUser?.role === 'superadmin';
+  const { data: stories = [] } = useQuery({
+    queryKey: storyKeys.all,
+    queryFn: () => api.listUserStories(),
+    staleTime: STORY_STALE_TIME,
+    refetchOnMount: false,
+    enabled: open && !!currentUser,
+  });
 
   // Reset query on open
   useEffect(() => {
@@ -94,11 +105,19 @@ export default function GlobalSearchModal({ open, onOpenChange }: Props) {
           .slice(0, 4)
       : [];
 
-    return { tasks: matchedTasks, projects: matchedProjects, people: matchedPeople };
-  }, [q, tasks, projects, users, currentUser, isManager]);
+    const accessibleStoryIds = new Set(accessibleProjects.map(p => p.id));
+    const matchedStories = stories
+      .filter(s =>
+        accessibleStoryIds.has(s.projectId) &&
+        (s.title.toLowerCase().includes(q) || (s.description ?? '').toLowerCase().includes(q)),
+      )
+      .slice(0, 6);
+
+    return { tasks: matchedTasks, projects: matchedProjects, people: matchedPeople, stories: matchedStories };
+  }, [q, tasks, projects, users, stories, currentUser, isManager]);
 
   const hasResults = results &&
-    (results.tasks.length > 0 || results.projects.length > 0 || results.people.length > 0);
+    (results.tasks.length > 0 || results.projects.length > 0 || results.people.length > 0 || results.stories.length > 0);
 
   function close() {
     onOpenChange(false);
@@ -117,6 +136,15 @@ export default function GlobalSearchModal({ open, onOpenChange }: Props) {
     close();
     useAppStore.getState().selectProject(projectId);
     navigate('/');
+  }
+
+  function goStory(story: UserStory) {
+    close();
+    useAppStore.getState().selectProject(story.projectId);
+    navigate('/');
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('zet:open-story', { detail: { storyId: story.id } }));
+    }, 100);
   }
 
   function goUser(userId: string) {
@@ -138,7 +166,7 @@ export default function GlobalSearchModal({ open, onOpenChange }: Props) {
             ref={inputRef}
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder="Search tasks, projects, people…"
+            placeholder="Search tasks, stories, projects, people…"
             className="flex-1 bg-transparent text-sm focus:outline-none placeholder:text-muted-foreground/40"
           />
           {query && (
@@ -156,7 +184,7 @@ export default function GlobalSearchModal({ open, onOpenChange }: Props) {
           {!q && (
             <div className="py-12 text-center text-sm text-muted-foreground/40">
               <Search className="h-8 w-8 mx-auto mb-3 opacity-20" />
-              Type to search across tasks, projects{isManager ? ', and people' : ''}
+              Type to search across tasks, stories, projects{isManager ? ', and people' : ''}
               <p className="text-xs mt-2 opacity-60">
                 <kbd className="font-mono">⌘K</kbd> / <kbd className="font-mono">Ctrl+K</kbd> to open anytime
               </p>
@@ -199,6 +227,34 @@ export default function GlobalSearchModal({ open, onOpenChange }: Props) {
                         <span className={`text-[11px] font-semibold shrink-0 ${PRIORITY_COLORS[priority] ?? ''}`}>
                           {priority}
                         </span>
+                        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/20 group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0" />
+                      </button>
+                    );
+                  })}
+                </section>
+              )}
+
+              {results!.stories.length > 0 && (
+                <section>
+                  <div className="flex items-center gap-2 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50">
+                    <BookOpen className="h-3 w-3" />
+                    Stories
+                  </div>
+                  {results!.stories.map(s => {
+                    const project = projects.find(p => p.id === s.projectId);
+                    return (
+                      <button
+                        key={s.id}
+                        onClick={() => goStory(s)}
+                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-muted/50 transition-colors text-left group"
+                      >
+                        <BookOpen className="h-4 w-4 shrink-0 text-muted-foreground/40 group-hover:text-primary transition-colors" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate group-hover:text-primary transition-colors">{s.title}</p>
+                          {project && (
+                            <p className="text-xs text-muted-foreground/50 truncate">{project.name}</p>
+                          )}
+                        </div>
                         <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/20 group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0" />
                       </button>
                     );
