@@ -56,7 +56,6 @@ TABLES_CHILD_FIRST = (
     "timesheet_submissions",
     "user_story_attachments",
     "user_story_assignees",
-    "user_story_board",
     "user_stories",
     "tasks",
     "sections",

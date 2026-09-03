@@ -472,32 +472,13 @@ def _migrate_temp_task_assignees() -> None:
 
 
 def _migrate_user_story_board_fields() -> None:
-    """Stories carry the same board fields as tasks: sprint, tags, manager approval.
-
-    Aurora app_user is not owner of user_stories, so ADD COLUMN is skipped.
-    user_story_board is a new table (CREATE) used when those columns are missing.
-    """
+    """Stories carry the same board fields as tasks: sprint, tags, manager approval."""
     db = get_database()
     _add_column_if_missing(db, "user_stories", "sprint", "VARCHAR NOT NULL DEFAULT ''")
     _add_column_if_missing(db, "user_stories", "tags_json", "TEXT NOT NULL DEFAULT '[]'")
     _add_column_if_missing(
         db, "user_stories", "approved_by_manager", "BOOLEAN NOT NULL DEFAULT FALSE"
     )
-    try:
-        _create_table_if_missing(
-            db,
-            "user_story_board",
-            """
-            CREATE TABLE IF NOT EXISTS user_story_board (
-                story_id VARCHAR PRIMARY KEY,
-                sprint VARCHAR NOT NULL DEFAULT '',
-                tags_json TEXT NOT NULL DEFAULT '[]',
-                approved_by_manager BOOLEAN NOT NULL DEFAULT FALSE
-            )
-            """,
-        )
-    except Exception as e:
-        log.warning("Could not create user_story_board: %s", e)
 
 
 def init_db() -> None:

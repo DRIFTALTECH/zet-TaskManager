@@ -1,14 +1,16 @@
 """CRUD for user_stories — all SQL for this table lives here."""
 from __future__ import annotations
 
+import json
+
 import realtime
 from crud._base import Db, fetch_all, fetch_one, row_to_model, rows_to_models
 from database.models import UserStory
 from db_wrapper.dialect import use_sqlite
 
 _BOARD_COLS = ("sprint", "tags_json", "approved_by_manager")
+_USB = "usb:"  # packed into estimated_hours when Aurora lacks board columns
 _has_board_cols: bool | None = None
-_has_sidecar: bool | None = None
 
 
 def _story_has_board_cols(db: Db) -> bool:
@@ -34,27 +36,21 @@ def _story_has_board_cols(db: Db) -> bool:
     return _has_board_cols
 
 
-def _story_has_sidecar(db: Db) -> bool:
-    global _has_sidecar
-    if _has_sidecar is not None:
-        return _has_sidecar
-    if use_sqlite():
-        rows = fetch_all(
-            db,
-            "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = %s",
-            ("user_story_board",),
-        )
-    else:
-        rows = fetch_all(
-            db,
-            """
-            SELECT 1 AS ok FROM information_schema.tables
-            WHERE table_schema = 'public' AND table_name = %s
-            """,
-            ("user_story_board",),
-        )
-    _has_sidecar = bool(rows)
-    return _has_sidecar
+def _pack_board(sprint: str, tags_json: str, approved: bool) -> str:
+    return _USB + json.dumps(
+        {"sprint": sprint or "", "tags": tags_json or "[]", "ok": bool(approved)},
+        separators=(",", ":"),
+    )
+
+
+def _unpack_board(raw: str | None) -> dict | None:
+    if not raw or not str(raw).startswith(_USB):
+        return None
+    try:
+        data = json.loads(raw[len(_USB):])
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def _board_vals(story: UserStory) -> tuple[str, str, bool]:
@@ -65,36 +61,16 @@ def _board_vals(story: UserStory) -> tuple[str, str, bool]:
     )
 
 
-def _upsert_board(db: Db, story_id: str, sprint: str, tags_json: str, approved: bool) -> None:
-    db.write("DELETE FROM user_story_board WHERE story_id = %s", (story_id,))
-    db.write(
-        """
-        INSERT INTO user_story_board (story_id, sprint, tags_json, approved_by_manager)
-        VALUES (%s, %s, %s, %s)
-        """,
-        (story_id, sprint or "", tags_json or "[]", bool(approved)),
-    )
-
-
 def _hydrate(db: Db, stories: list[UserStory]) -> None:
-    if not stories or _story_has_board_cols(db) or not _story_has_sidecar(db):
+    if not stories or _story_has_board_cols(db):
         return
-    rows = fetch_all(
-        db,
-        """
-        SELECT story_id, sprint, tags_json, approved_by_manager
-        FROM user_story_board WHERE story_id = ANY(%s)
-        """,
-        ([s.id for s in stories],),
-    )
-    by_id = {r["story_id"]: r for r in rows}
     for s in stories:
-        b = by_id.get(s.id)
+        b = _unpack_board(getattr(s, "estimated_hours", None))
         if not b:
             continue
         s.sprint = b.get("sprint") or ""
-        s.tags_json = b.get("tags_json") or "[]"
-        s.approved_by_manager = bool(b.get("approved_by_manager"))
+        s.tags_json = b.get("tags") or "[]"
+        s.approved_by_manager = bool(b.get("ok"))
 
 
 def get_by_id(db: Db, story_id: str) -> UserStory | None:
@@ -243,11 +219,12 @@ def create(
             """,
             (
                 story_id, project_id, section_id, title, description, acceptance_criteria,
-                priority, status, assignee_id, reporter_id, estimated_hours, story_points,
+                priority, status, assignee_id, reporter_id,
+                _pack_board(sprint or "", tags_json or "[]", bool(approved_by_manager)),
+                story_points,
                 start_date, due_date, created_at, updated_at,
             ),
         )
-        _upsert_board(db, story_id, sprint or "", tags_json or "[]", bool(approved_by_manager))
     realtime.bump("tasks")
     return get_by_id(db, story_id)  # type: ignore[return-value]
 
@@ -287,19 +264,16 @@ def update(db: Db, story: UserStory) -> UserStory:
             (
                 story.project_id, story.section_id, story.title, story.description,
                 story.acceptance_criteria, story.priority, story.status,
-                story.assignee_id, story.reporter_id, story.estimated_hours,
+                story.assignee_id, story.reporter_id, _pack_board(sprint, tags_json, approved),
                 story.story_points, story.start_date, story.due_date,
                 story.updated_at, story.id,
             ),
         )
-        _upsert_board(db, story.id, sprint, tags_json, approved)
     realtime.bump("tasks")
     return get_by_id(db, story.id)  # type: ignore[return-value]
 
 
 def delete(db: Db, story_id: str) -> None:
     # Tasks keep rows; FK ON DELETE SET NULL clears user_story_id.
-    if _story_has_sidecar(db):
-        db.write("DELETE FROM user_story_board WHERE story_id = %s", (story_id,))
     db.write("DELETE FROM user_stories WHERE id = %s", (story_id,))
     realtime.bump("tasks")
