@@ -58,3 +58,21 @@ def test_task_min_log_minutes_manager_only_and_enforced(client, manager, employe
     _backdate_timer(muser["id"], tid, minutes_ago=3)
     out = client.post(f"/tasks/{tid}/timer/stop", json={"tzOffset": 0}, headers=MH).json()
     assert out["timeTracked"] == 0
+
+
+def test_actual_hours_on_done_and_approve(client, manager):
+    user, H = manager
+    tid = _make_task(client, user, H)
+
+    r = client.post(f"/tasks/{tid}/move", headers=H, json={"status": "done", "actualHours": 2.5})
+    assert r.status_code == 200, r.text
+    assert r.json()["timeTracked"] == 9000
+
+    r = client.post(f"/tasks/{tid}/approve", headers=H, json={"actualHours": 3})
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "completed"
+    assert r.json()["timeTracked"] == 10800
+
+    r = client.post(f"/tasks/{tid}/approve", headers=H, json={"actualHours": 0})
+    assert r.status_code == 200, r.text
+    assert r.json()["timeTracked"] == 0

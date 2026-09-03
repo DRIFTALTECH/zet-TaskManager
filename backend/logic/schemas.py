@@ -308,6 +308,7 @@ class TaskPatch(BaseModel):
     completedAt: str | None = None
     minLogMinutes: int | None = None
     estimatedHours: float | None = None
+    actualHours: float | None = None
     userStoryId: str | None = None
     parentTaskId: str | None = None
 
@@ -506,6 +507,11 @@ class PrdCommitBody(BaseModel):
 
 class TaskMoveBody(BaseModel):
     status: str
+    actualHours: float | None = None
+
+
+class ApproveTaskBody(BaseModel):
+    actualHours: float | None = None
 
 
 class LogTimeBody(BaseModel):

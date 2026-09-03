@@ -55,10 +55,11 @@ import {
   taskMatchesDueDateRange,
   taskMatchesPriorityFilter,
 } from '@/lib/due-date-utils';
-import { isTopLevelTask, isTaskConfirmed, isStoryConfirmed, isStandaloneTask, storyAssigneeIds, taskMatchesAssigneeFilter, taskMatchesSprintFilter, matchesSprintFilter, NO_SPRINT_FILTER_ID, UNASSIGNED_FILTER_ID, childTasksOf, taskAssigneeIds, normalizePriority, rollupStoryHours } from '@/lib/task-utils';
+import { isTopLevelTask, isTaskConfirmed, isStoryConfirmed, isStandaloneTask, storyAssigneeIds, taskMatchesAssigneeFilter, taskMatchesSprintFilter, matchesSprintFilter, NO_SPRINT_FILTER_ID, UNASSIGNED_FILTER_ID, childTasksOf, taskAssigneeIds, normalizePriority, rollupStoryHours, isDoneBoardStatus } from '@/lib/task-utils';
 import UserAvatar from '@/components/UserAvatar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { api } from '@/lib/api';
+import { promptActualHours } from '@/components/ActualHoursDialog';
 import { useQuery } from '@tanstack/react-query';
 import { storyKeys, STORY_STALE_TIME, upsertUserStory } from '@/lib/queryClient';
 import type { UserStory } from '@/types';
@@ -947,7 +948,18 @@ const DashboardPage = () => {
       if (targetCol === doneColumnId && activeTimers[activeIdStr]) {
         await stopTimer(activeIdStr);
       }
-      await moveTask(activeIdStr, targetCol);
+      const dragged = tasks.find(t => t.id === activeIdStr);
+      if (
+        dragged
+        && isDoneBoardStatus(targetCol, doneColumnId)
+        && !isDoneBoardStatus(dragged.status, doneColumnId)
+      ) {
+        const hours = await promptActualHours(dragged, 'done');
+        if (hours === null) return;
+        await moveTask(activeIdStr, targetCol, hours);
+      } else {
+        await moveTask(activeIdStr, targetCol);
+      }
     } catch { toast.error('Could not move task'); }
   };
 
@@ -960,9 +972,11 @@ const DashboardPage = () => {
     const task = tasks.find(t => t.id === id);
     if (task) {
       if (isTaskConfirmed(task)) return;
+      const hours = await promptActualHours(task, 'approve');
+      if (hours === null) return;
       setApprovingId(id);
       try {
-        await approveTask(id);
+        await approveTask(id, hours);
       } catch (e) {
         toast.error(e instanceof Error ? e.message : 'Could not approve task');
       } finally { setApprovingId(null); }

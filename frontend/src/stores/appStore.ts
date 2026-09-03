@@ -100,10 +100,10 @@ interface AppState {
       estimatedHours?: number | null;
     },
   ) => Promise<Task>;
-  updateTask: (id: string, updates: Partial<Task>) => Promise<void>;
+  updateTask: (id: string, updates: Partial<Task> & { actualHours?: number }) => Promise<void>;
   startTask: (id: string) => Promise<void>;
-  moveTask: (id: string, status: TaskStatus) => Promise<void>;
-  approveTask: (id: string) => Promise<void>;
+  moveTask: (id: string, status: TaskStatus, actualHours?: number) => Promise<void>;
+  approveTask: (id: string, actualHours?: number) => Promise<void>;
   reopenTaskToBacklog: (id: string) => Promise<void>;
   logTime: (id: string, date: string, seconds: number) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
@@ -510,6 +510,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (updates.completedAt !== undefined) patch.completedAt = updates.completedAt ?? null;
     if (updates.minLogMinutes !== undefined) patch.minLogMinutes = updates.minLogMinutes;
     if (updates.estimatedHours !== undefined) patch.estimatedHours = updates.estimatedHours ?? null;
+    if (updates.actualHours !== undefined) patch.actualHours = updates.actualHours;
     if (updates.userStoryId !== undefined) patch.userStoryId = updates.userStoryId;
     const t = await api.patchTask(id, patch);
     set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
@@ -529,15 +530,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     cacheFullTask(t);
   },
 
-  moveTask: async (id, status) => {
-    const t = await api.moveTask(id, status);
+  moveTask: async (id, status, actualHours) => {
+    const t = await api.moveTask(id, status, actualHours);
     set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
     cacheFullTask(t);
     get().emitAgentEvent('task_moved');
   },
 
-  approveTask: async id => {
-    const t = await api.approveTask(id);
+  approveTask: async (id, actualHours) => {
+    const t = await api.approveTask(id, actualHours);
     set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
     cacheFullTask(t);
     get().emitAgentEvent('task_approved');

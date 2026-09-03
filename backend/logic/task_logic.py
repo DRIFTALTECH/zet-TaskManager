@@ -12,7 +12,7 @@ import crud.timelog as timelog_crud
 import crud.users as users_crud
 from database.models import Task
 from database.init_db import new_id
-from logic.schemas import LogTimeBody, TaskCreate, TaskMoveBody, TaskOut, TaskPatch
+from logic.schemas import ApproveTaskBody, LogTimeBody, TaskCreate, TaskMoveBody, TaskOut, TaskPatch
 from logic import project_logic, user_logic, notification_logic
 from logic.audit import log_audit
 
@@ -284,11 +284,32 @@ def _date_or_none(value: str | None) -> str | None:
     return s or None
 
 
+def _set_actual_hours(db: Db, task_id: str, user_id: str, hours: float | None) -> None:
+    """Replace tracked time with the hours entered at Done / Approve. None = leave as-is."""
+    if hours is None:
+        return
+    if hours < 0 or hours > 10_000:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "actualHours must be 0–10000")
+    timelog_crud.replace_task_seconds(
+        db, task_id, user_id, date.today().isoformat(), int(round(hours * 3600))
+    )
+
+
+def _refresh_task(db: Db, task_id: str) -> Task:
+    t = tasks_crud.get_by_id(db, task_id)
+    if not t:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Task not found")
+    return t
+
+
 def patch_task(db: Db, current_user_id: str, task_id: str, body: TaskPatch) -> TaskOut:
     t = tasks_crud.get_by_id(db, task_id)
     if not t:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Task not found")
     project_logic.ensure_project_member(db, t.project_id, current_user_id)
+    if "actualHours" in body.model_fields_set:
+        _set_actual_hours(db, task_id, current_user_id, body.actualHours if body.actualHours is not None else 0)
+        t = _refresh_task(db, task_id)
     if body.minLogMinutes is not None:
         project_logic.ensure_manager(db, current_user_id)
         if body.minLogMinutes < 0 or body.minLogMinutes > 180:
@@ -410,6 +431,9 @@ def move_task(db: Db, current_user_id: str, task_id: str, body: TaskMoveBody) ->
     project_logic.ensure_project_member(db, t.project_id, current_user_id)
     if t.status == "completed":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Completed tasks cannot be moved on the board")
+    if body.actualHours is not None:
+        _set_actual_hours(db, task_id, current_user_id, body.actualHours)
+        t = _refresh_task(db, task_id)
     t.status = body.status
     # Moving to Done ends any active work session
     if body.status == "done":
@@ -449,12 +473,15 @@ def reopen_completed_to_backlog(db: Db, current_user_id: str, task_id: str) -> T
     return to_task_out(db, t, current_user_id)
 
 
-def approve_task(db: Db, current_user_id: str, task_id: str) -> TaskOut:
+def approve_task(db: Db, current_user_id: str, task_id: str, actual_hours: float | None = None) -> TaskOut:
     project_logic.ensure_manager(db, current_user_id)
     t = tasks_crud.get_by_id(db, task_id)
     if not t:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Task not found")
     project_logic.ensure_project_member(db, t.project_id, current_user_id)
+    if actual_hours is not None:
+        _set_actual_hours(db, task_id, current_user_id, actual_hours)
+        t = _refresh_task(db, task_id)
     if t.status == "completed":
         # Already confirmed — return as-is so a stale Approve click is not an error.
         return to_task_out(db, t, current_user_id)
@@ -572,10 +599,11 @@ def reopen_to_backlog_action(db: Db, user_id: str, task_id: str) -> TaskOut:
     return result
 
 
-def approve_task_action(db: Db, user_id: str, task_id: str) -> TaskOut:
+def approve_task_action(db: Db, user_id: str, task_id: str, body: ApproveTaskBody | None = None) -> TaskOut:
     existing = tasks_crud.get_by_id(db, task_id)
     already_completed = bool(existing and existing.status == "completed")
-    result = approve_task(db, user_id, task_id)
+    hours = body.actualHours if body is not None else None
+    result = approve_task(db, user_id, task_id, hours)
     if already_completed:
         return result
     log_audit(db, user_id, "task.approved", "task", task_id, result.title, {})

@@ -36,6 +36,7 @@ const DashboardPanArea = lazy(() =>
 );
 import { useLiveSync } from "./hooks/useTaskSync";
 import Companion from "./components/agents/Companion";
+import { ActualHoursDialogHost } from "./components/ActualHoursDialog";
 import { queryClient } from "./lib/queryClient";
 
 /** Full-screen progress used for every wait before the app is usable. */
@@ -83,6 +84,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       <ErrorBoundary area="Assistant">
         <Companion />
       </ErrorBoundary>
+      <ActualHoursDialogHost />
     </div>
   );
 }

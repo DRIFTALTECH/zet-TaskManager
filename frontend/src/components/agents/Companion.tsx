@@ -10,6 +10,7 @@ import { useAppStore } from '@/stores/appStore';
 import { TaskCreatorModal } from '@/pages/AIPage';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { isTaskAssignedTo } from '@/lib/task-utils';
+import { promptActualHours } from '@/components/ActualHoursDialog';
 import { daysFromTodayInLocal } from '@/lib/due-date-utils';
 import { isCompleted } from '@/lib/manage-utils';
 import { idPillColor } from '@/lib/pill-color';
@@ -369,7 +370,9 @@ export default function Companion() {
         else { await startTimer(task.id); toast.success('Timer started'); }
       } else {
         if (activeTimers[task.id]) await stopTimer(task.id);
-        await moveTask(task.id, doneColId);
+        const hours = await promptActualHours(task, 'done');
+        if (hours === null) return;
+        await moveTask(task.id, doneColId, hours);
         toast.success('Marked done');
       }
     } catch (e) {

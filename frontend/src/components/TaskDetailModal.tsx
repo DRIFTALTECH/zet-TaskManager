@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { taskAssigneeIds, isTaskAssignedTo, normalizePriority, childTasksOf, isTaskDone } from '@/lib/task-utils';
+import { taskAssigneeIds, isTaskAssignedTo, normalizePriority, childTasksOf, isTaskDone, isDoneBoardStatus } from '@/lib/task-utils';
 import { projectPickerLabel } from '@/lib/project-utils';
 import UserAvatar from '@/components/UserAvatar';
 import { AdjustMinDurationSection } from '@/components/AdjustMinDurationSection';
@@ -26,6 +26,7 @@ import { SprintSelect } from '@/components/SprintSelect';
 import { matchAgentBrand, AgentBrandBadge } from '@/lib/agent-brand';
 import { dueBucketDateTextClass, getDueBucket } from '@/lib/due-date-utils';
 import { api } from '@/lib/api';
+import { promptActualHours } from '@/components/ActualHoursDialog';
 import { projectKeys, queryClient, taskKeys } from '@/lib/queryClient';
 import { formatLocalDateTime } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -411,6 +412,12 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange }: Props) => {
       estimatedHours = n > 0 ? n : null;
     }
     const ids = [...new Set(draftAssigneeIds)];
+    let actualHours: number | undefined;
+    if (isDoneBoardStatus(draftStatus || task.status) && !isDoneBoardStatus(task.status)) {
+      const hours = await promptActualHours(task, 'done');
+      if (hours === null) return;
+      actualHours = hours;
+    }
     setSaving(true);
     try {
       await updateTask(task.id, {
@@ -428,6 +435,7 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange }: Props) => {
         tags: draftTags,
         startedAt: draftStartedAt || null,
         completedAt: draftCompletedAt || null,
+        actualHours,
       });
       toast.success('Task saved');
       onOpenChange(false);
@@ -840,11 +848,12 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange }: Props) => {
                                 void (async () => {
                                   try {
                                     if (done) {
-                                      // moveTask → done; reopen API only accepts completed — undo via backlog move
                                       if (st.status === 'completed') await reopenTaskToBacklog(st.id);
                                       else await moveTask(st.id, 'backlog');
                                     } else {
-                                      await moveTask(st.id, 'done');
+                                      const hours = await promptActualHours(st, 'done');
+                                      if (hours === null) return;
+                                      await moveTask(st.id, 'done', hours);
                                     }
                                   } catch (e) {
                                     toast.error(e instanceof Error ? e.message : 'Could not update subtask');

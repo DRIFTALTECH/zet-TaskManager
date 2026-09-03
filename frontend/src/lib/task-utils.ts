@@ -10,8 +10,27 @@ export function childTasksOf(tasks: Task[], parentId: string): Task[] {
   return tasks.filter(t => t.parentTaskId === parentId);
 }
 
+export const DONE_COLUMN_STORAGE_KEY = 'tm_done_col';
+
+export function storedDoneColumnId(): string {
+  try {
+    return localStorage.getItem(DONE_COLUMN_STORAGE_KEY) || 'done';
+  } catch {
+    return 'done';
+  }
+}
+
+export function isDoneBoardStatus(status: string, doneColumnId?: string | null): boolean {
+  const s = (status || '').trim();
+  if (!s) return false;
+  const low = s.toLowerCase();
+  if (low === 'done' || low === 'completed') return true;
+  const done = doneColumnId || storedDoneColumnId();
+  return s === done;
+}
+
 export function isTaskDone(task: Task): boolean {
-  return task.status === 'completed' || task.status === 'done';
+  return isDoneBoardStatus(task.status);
 }
 
 /**

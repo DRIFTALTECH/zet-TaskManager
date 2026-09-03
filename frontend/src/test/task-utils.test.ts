@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { isStandaloneTask, isTaskConfirmed, isStoryConfirmed, rollupStoryHours } from '@/lib/task-utils';
+import { isDoneBoardStatus, isStandaloneTask, isTaskConfirmed, isStoryConfirmed, rollupStoryHours } from '@/lib/task-utils';
+import { parseHoursInput } from '@/components/ActualHoursDialog';
 
 describe('isTaskConfirmed', () => {
   it('hides manager-approved and terminal completed work from the active board', () => {
@@ -42,5 +43,24 @@ describe('rollupStoryHours', () => {
     ];
     expect(rollupStoryHours(tasks, 'us1')).toEqual({ estimatedHours: 6, actualHours: 1.5 });
     expect(rollupStoryHours(tasks, 'none')).toEqual({ estimatedHours: null, actualHours: 0 });
+  });
+});
+
+describe('isDoneBoardStatus', () => {
+  it('treats done, completed, and the configured done column as done', () => {
+    expect(isDoneBoardStatus('done')).toBe(true);
+    expect(isDoneBoardStatus('completed')).toBe(true);
+    expect(isDoneBoardStatus('in_progress')).toBe(false);
+    expect(isDoneBoardStatus('col_xyz', 'col_xyz')).toBe(true);
+  });
+});
+
+describe('parseHoursInput', () => {
+  it('accepts decimal hours and h:mm paste', () => {
+    expect(parseHoursInput('2.5')).toBe(2.5);
+    expect(parseHoursInput('2:30')).toBe(2.5);
+    expect(parseHoursInput('2h')).toBe(2);
+    expect(parseHoursInput('')).toBe(null);
+    expect(parseHoursInput('-1')).toBe(null);
   });
 });

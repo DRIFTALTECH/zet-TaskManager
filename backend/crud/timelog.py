@@ -114,3 +114,20 @@ def recompute_task_total(db: Db, task_id: str) -> int:
     if task_exists:
         db.write("UPDATE tasks SET time_tracked = %s WHERE id = %s", (total, task_id))
     return total
+
+
+def replace_task_seconds(db: Db, task_id: str, user_id: str, log_date: str, seconds: int) -> int:
+    """Set the task's actual time to exactly `seconds` (one log row for this user/day)."""
+    seconds = max(0, int(seconds))
+    db.write("DELETE FROM task_time_logs WHERE task_id = %s", (task_id,))
+    if seconds > 0:
+        db.write(
+            """
+            INSERT INTO task_time_logs (task_id, user_id, log_date, seconds)
+            VALUES (%s, %s, %s, %s)
+            """,
+            (task_id, user_id, log_date, seconds),
+        )
+    total = recompute_task_total(db, task_id)
+    realtime.bump("tasks")
+    return total

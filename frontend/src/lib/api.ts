@@ -381,6 +381,7 @@ export const api = {
       completedAt: string | null;
       minLogMinutes: number;
       estimatedHours: number | null;
+      actualHours: number;
       userStoryId: string | null;
       parentTaskId: string | null;
     }>,
@@ -533,12 +534,15 @@ export const api = {
     });
   },
 
-  async moveTask(taskId: string, status: string): Promise<Task> {
-    return request(`/tasks/${taskId}/move`, { method: 'POST', body: JSON.stringify({ status }) });
+  async moveTask(taskId: string, status: string, actualHours?: number): Promise<Task> {
+    const body: { status: string; actualHours?: number } = { status };
+    if (actualHours !== undefined) body.actualHours = actualHours;
+    return request(`/tasks/${taskId}/move`, { method: 'POST', body: JSON.stringify(body) });
   },
 
-  async approveTask(taskId: string): Promise<Task> {
-    return request(`/tasks/${taskId}/approve`, { method: 'POST' });
+  async approveTask(taskId: string, actualHours?: number): Promise<Task> {
+    const body = actualHours !== undefined ? { actualHours } : {};
+    return request(`/tasks/${taskId}/approve`, { method: 'POST', body: JSON.stringify(body) });
   },
 
   async reopenTaskToBacklog(taskId: string): Promise<Task> {

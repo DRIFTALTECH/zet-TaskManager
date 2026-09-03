@@ -6,7 +6,7 @@
  */
 import { useAppStore } from '@/stores/appStore';
 import { projectPickerLabel } from '@/lib/project-utils';
-import { isTaskAssignedTo, isTaskConfirmed, taskAssigneeIds, normalizePriority } from '@/lib/task-utils';
+import { isDoneBoardStatus, isTaskAssignedTo, isTaskConfirmed, taskAssigneeIds, normalizePriority } from '@/lib/task-utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
@@ -44,6 +44,7 @@ import { AddWorkMenu } from '@/components/AddWorkMenu';
 import CreateTaskModal from '@/components/CreateTaskModal';
 import { CreateUserStoryDialog } from '@/components/CreateUserStoryDialog';
 import { upsertUserStory } from '@/lib/queryClient';
+import { promptActualHours } from '@/components/ActualHoursDialog';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import {
   projectAccent, formatHM, hoursDecimal,
@@ -487,14 +488,24 @@ const ProjectDetailPage = () => {
 
   const doMove = async (task: Task, status: string) => {
     setMovingId(task.id);
-    try { await moveTask(task.id, status); }
+    try {
+      if (isDoneBoardStatus(status) && !isDoneBoardStatus(task.status)) {
+        const hours = await promptActualHours(task, 'done');
+        if (hours === null) return;
+        await moveTask(task.id, status, hours);
+      } else {
+        await moveTask(task.id, status);
+      }
+    }
     catch (e) { toast.error(e instanceof Error ? e.message : 'Could not move task'); }
     finally { setMovingId(null); }
   };
   const doApprove = async (task: Task) => {
     if (isTaskConfirmed(task)) return;
+    const hours = await promptActualHours(task, 'approve');
+    if (hours === null) return;
     setMovingId(task.id);
-    try { await approveTask(task.id); /* Tasker mascot animates the approval */ }
+    try { await approveTask(task.id, hours); }
     catch (e) { toast.error(e instanceof Error ? e.message : 'Could not approve'); }
     finally { setMovingId(null); }
   };

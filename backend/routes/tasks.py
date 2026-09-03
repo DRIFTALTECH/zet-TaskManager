@@ -4,6 +4,7 @@ import realtime
 from database.database import Db, get_db
 from logic import task_feedback_logic, task_logic, tasks_import_logic, timer_logic
 from logic.schemas import (
+    ApproveTaskBody,
     LogTimeBody,
     MinTimerPersistBody,
     MinTimerPersistOut,
@@ -114,8 +115,13 @@ def reopen_task_to_backlog(task_id: str, user_id: str = Depends(get_current_user
 
 
 @router.post("/{task_id}/approve", response_model=TaskOut)
-def approve_task(task_id: str, user_id: str = Depends(get_current_user_id), db: Db = Depends(get_db)):
-    return task_logic.approve_task_action(db, user_id, task_id)
+def approve_task(
+    task_id: str,
+    body: ApproveTaskBody | None = None,
+    user_id: str = Depends(get_current_user_id),
+    db: Db = Depends(get_db),
+):
+    return task_logic.approve_task_action(db, user_id, task_id, body)
 
 
 @router.post("/{task_id}/log-time", response_model=TaskOut)
