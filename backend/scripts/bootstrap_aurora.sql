@@ -1,4 +1,18 @@
--- ZET Aurora/Postgres schema bootstrap (idempotent). Run on empty `postgres` database.
+-- ZET Aurora/Postgres schema bootstrap — the whole schema, idempotent.
+--
+-- Run as the OWNER (postgres), not as the app's IAM role: the service connects
+-- with no DDL rights and cannot create or alter anything for itself, so what is
+-- missing here can never appear at runtime.
+--
+--     psql "$DATABASE_URL" -f scripts/bootstrap_aurora.sql
+--
+-- Wiping and redeploying:
+--     1. aws rds create-db-cluster-snapshot ...        (take a snapshot first)
+--     2. python scripts/wipe_data.py --apply           (clears rows, keeps schema)
+--     3. psql ... -f scripts/bootstrap_aurora.sql      (adds anything new)
+--     4. python scripts/seed_superadmin.py --apply     (one account to log in with)
+--
+-- `tests/test_bootstrap_schema.py` fails if this file falls behind the models.
 
 CREATE TABLE IF NOT EXISTS users (
     id VARCHAR PRIMARY KEY,
@@ -67,6 +81,17 @@ CREATE TABLE IF NOT EXISTS user_stories (
     sprint VARCHAR NOT NULL DEFAULT '',
     tags_json TEXT NOT NULL DEFAULT '[]',
     approved_by_manager BOOLEAN NOT NULL DEFAULT FALSE,
+    -- A story may sit under another (epic -> story). NULL = top level.
+    parent_story_id VARCHAR REFERENCES user_stories (id) ON DELETE SET NULL,
+    created_at VARCHAR NOT NULL,
+    updated_at VARCHAR NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_story_feedback (
+    id VARCHAR PRIMARY KEY,
+    user_story_id VARCHAR NOT NULL REFERENCES user_stories (id) ON DELETE CASCADE,
+    user_id VARCHAR NOT NULL REFERENCES users (id),
+    message TEXT NOT NULL,
     created_at VARCHAR NOT NULL,
     updated_at VARCHAR NOT NULL
 );
@@ -142,7 +167,9 @@ CREATE TABLE IF NOT EXISTS task_time_logs (
 CREATE TABLE IF NOT EXISTS kanban_columns (
     id VARCHAR PRIMARY KEY,
     label VARCHAR NOT NULL,
-    position INTEGER NOT NULL DEFAULT 0
+    position INTEGER NOT NULL DEFAULT 0,
+    -- Palette key from lib/column-colors, not a hex value.
+    color VARCHAR NOT NULL DEFAULT 'slate'
 );
 
 CREATE TABLE IF NOT EXISTS timesheet_submissions (
@@ -158,6 +185,24 @@ CREATE TABLE IF NOT EXISTS timesheet_submissions (
     CONSTRAINT uq_timesheet_submission_user_week UNIQUE (user_id, week_start)
 );
 
+CREATE TABLE IF NOT EXISTS skills (
+    id VARCHAR PRIMARY KEY,
+    name VARCHAR NOT NULL,
+    created_at VARCHAR NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS user_skills (
+    user_id VARCHAR NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    skill_id VARCHAR NOT NULL REFERENCES skills (id) ON DELETE CASCADE,
+    PRIMARY KEY (user_id, skill_id)
+);
+
+CREATE TABLE IF NOT EXISTS task_skills (
+    task_id VARCHAR NOT NULL REFERENCES tasks (id) ON DELETE CASCADE,
+    skill_id VARCHAR NOT NULL REFERENCES skills (id) ON DELETE CASCADE,
+    PRIMARY KEY (task_id, skill_id)
+);
+
 CREATE TABLE IF NOT EXISTS timesheet_entries (
     id VARCHAR PRIMARY KEY,
     user_id VARCHAR NOT NULL REFERENCES users (id),
@@ -169,6 +214,9 @@ CREATE TABLE IF NOT EXISTS timesheet_entries (
     time_to VARCHAR NOT NULL,
     seconds INTEGER NOT NULL,
     billable BOOLEAN NOT NULL DEFAULT TRUE,
+    -- Set when the row came from a task (timer stop, or the hours entered at
+    -- Done), so those hours can be revised instead of duplicated.
+    task_id VARCHAR REFERENCES tasks (id) ON DELETE SET NULL,
     created_at VARCHAR NOT NULL
 );
 
@@ -331,3 +379,14 @@ CREATE TABLE IF NOT EXISTS temp_tasks (
 CREATE INDEX IF NOT EXISTS ix_temp_tasks_user_id ON temp_tasks (user_id);
 CREATE INDEX IF NOT EXISTS ix_temp_tasks_import_id ON temp_tasks (import_id);
 CREATE INDEX IF NOT EXISTS ix_temp_tasks_parent_id ON temp_tasks (parent_id);
+CREATE INDEX IF NOT EXISTS ix_user_stories_parent ON user_stories (parent_story_id);
+CREATE INDEX IF NOT EXISTS ix_user_story_feedback_story ON user_story_feedback (user_story_id);
+CREATE INDEX IF NOT EXISTS ix_timesheet_entries_task ON timesheet_entries (task_id);
+
+-- The service connects as a least-privilege IAM role with no DDL rights, so it
+-- can never create any of the above for itself. Grant it the data access it
+-- needs, including on tables added later.
+GRANT USAGE ON SCHEMA public TO app_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_user;

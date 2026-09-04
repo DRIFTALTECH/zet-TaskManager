@@ -267,11 +267,17 @@ def _create_table_if_missing(db, table: str, ddl: str) -> None:
     """Skip CREATE TABLE when the relation already exists.
 
     Postgres still demands CREATE on schema public for IF NOT EXISTS, which a
-    least-privilege IAM role (app_user) will not have on a live cluster.
+    least-privilege IAM role (app_user) will not have on a live cluster. A
+    denial is logged and stepped over rather than raised: booting without a
+    table costs one feature, while refusing to boot costs the whole service.
+    The owner creates it with `scripts/migration_add_story_tables.sql`.
     """
     if _table_exists(db, table):
         return
-    db.write(ddl)
+    try:
+        db.write(ddl)
+    except Exception as exc:
+        log.warning("Could not create table %s (%s). Run the owner migration.", table, exc)
 
 
 def _table_exists(db, table: str) -> bool:
