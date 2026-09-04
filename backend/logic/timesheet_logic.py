@@ -552,6 +552,7 @@ def to_out(e: TimesheetEntry) -> TimesheetEntryOut:
         workDate=e.work_date,
         projectId=e.project_id,
         sectionId=e.section_id,
+        taskId=getattr(e, "task_id", None),
         description=e.description or "",
         timeFrom=e.time_from,
         timeTo=e.time_to,
@@ -643,6 +644,7 @@ def create_entry(
         work_date=body.workDate,
         project_id=body.projectId,
         section_id=body.sectionId,
+        task_id=body.taskId,
         description=body.description or "",
         time_from=tf,
         time_to=tt,
@@ -652,6 +654,71 @@ def create_entry(
     )
     te_crud.create_entry(db, row)
     return to_out(row)
+
+
+def _next_free_slot(db: Db, user_id: str, work_date: str, seconds: int) -> tuple[str, str]:
+    """Where a task's hours sit on the day.
+
+    Closing a task reports a duration, not a clock range, but a timesheet row needs
+    both. The block is appended after whatever the user already logged that day —
+    starting at 09:00 on an empty day — so a day of closed tasks reads as a
+    sequence rather than a pile of overlapping 09:00 rows.
+    """
+    day_start = 9 * 3600
+    used_until = day_start
+    for e in te_crud.list_for_user_day(db, user_id, work_date):
+        end = _hm_to_seconds(e.time_to)
+        # A row crossing midnight ends the next day; it cannot push today's cursor.
+        if _hm_to_seconds(e.time_from) <= end:
+            used_until = max(used_until, end)
+    # Never spill past the day: a long entry is pulled back so it still ends by 23:59.
+    start = min(used_until, max(0, 86_340 - seconds))
+    end = min(86_340, start + seconds)
+    return f"{start // 3600:02d}:{start % 3600 // 60:02d}", f"{end // 3600:02d}:{end % 3600 // 60:02d}"
+
+
+def record_task_time(
+    db: Db, user_id: str, task, seconds: int, work_date: str
+) -> TimesheetEntryOut | None:
+    """Put a task's actual time on the user's timesheet, replacing any earlier row
+    for the same task.
+
+    Called when a task is closed with hours and minutes. Replacing rather than
+    appending is what keeps the two numbers equal: a task that was timed already
+    has a row, and the hours entered at Done are the correction to it.
+
+    Deliberately skips `_ensure_date_editable`: a submitted week must not block
+    someone from finishing a task. It returns None instead of raising when the
+    row cannot be written, and the task's own time log stays the source of truth.
+    """
+    te_crud.delete_for_task(db, user_id, task.id)
+    if seconds <= 0:
+        return None
+    if not task.section_id:
+        return None
+    try:
+        _reject_future_date(work_date)
+        project_logic.ensure_project_member(db, task.project_id, user_id)
+        _validate_section_project(db, task.project_id, task.section_id)
+        time_from, time_to = _next_free_slot(db, user_id, work_date, seconds)
+        row = TimesheetEntry(
+            id=new_id("te"),
+            user_id=user_id,
+            work_date=work_date,
+            project_id=task.project_id,
+            section_id=task.section_id,
+            task_id=task.id,
+            description=task.title,
+            time_from=time_from,
+            time_to=time_to,
+            seconds=seconds,
+            billable=True,
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+        te_crud.create_entry(db, row)
+        return to_out(row)
+    except HTTPException:
+        return None
 
 
 def patch_entry(db: Db, user_id: str, entry_id: str, body: TimesheetEntryPatch) -> TimesheetEntryOut:

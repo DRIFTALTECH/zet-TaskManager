@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, File, Response, UploadFile
 
 import realtime
 from database.database import Db, get_db
-from logic import task_feedback_logic, task_logic, tasks_import_logic, timer_logic
+from logic import convert_logic, task_feedback_logic, task_logic, tasks_import_logic, timer_logic
 from logic.schemas import (
     ApproveTaskBody,
     LogTimeBody,
@@ -16,6 +16,7 @@ from logic.schemas import (
     TaskOut,
     TaskPatch,
     TasksImportReport,
+    UserStoryOut,
     TimerRunOut,
     TimerStopBody,
 )
@@ -148,3 +149,8 @@ def patch_task_feedback(task_id: str, feedback_id: str, body: TaskFeedbackPatch,
 def delete_task_feedback(task_id: str, feedback_id: str, user_id: str = Depends(get_current_user_id), db: Db = Depends(get_db)):
     task_feedback_logic.delete_feedback(db, user_id, task_id, feedback_id)
     return Response(status_code=204)
+
+
+@router.post("/{task_id}/convert-to-story", response_model=UserStoryOut)
+def convert_task_to_story(task_id: str, user_id: str = Depends(get_current_user_id), db: Db = Depends(get_db)):
+    return convert_logic.task_to_story(db, user_id, task_id)

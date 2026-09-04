@@ -26,7 +26,6 @@ const ManageProjectsOverview = lazy(() => import("./pages/ManageProjectsOverview
 const ProjectDetailPage = lazy(() => import("./pages/ProjectDetailPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const AIPage = lazy(() => import("./pages/AIPage"));
-const PrdImportPage = lazy(() => import("./pages/PrdImportPage"));
 const MeetingNotesPage = lazy(() => import("./pages/MeetingNotesPage"));
 const SuperAdminPage = lazy(() => import("./pages/SuperAdminPage"));
 const OverviewPage = lazy(() => import("./pages/OverviewPage"));
@@ -37,6 +36,7 @@ const DashboardPanArea = lazy(() =>
 import { useLiveSync } from "./hooks/useTaskSync";
 import Companion from "./components/agents/Companion";
 import { ActualHoursDialogHost } from "./components/ActualHoursDialog";
+import { ConfirmDialogHost } from "./components/ConfirmDialog";
 import { queryClient } from "./lib/queryClient";
 
 /** Full-screen progress used for every wait before the app is usable. */
@@ -58,7 +58,7 @@ function PageSkeleton() {
   );
 }
 
-/** S3 website hosting 301s /prd → /prd/, which does not match Route path="/prd". */
+/** S3 website hosting 301s a path to a trailing slash, which no Route matches. */
 function StripTrailingSlash() {
   const { pathname, search, hash } = useLocation();
   if (pathname.length > 1 && pathname.endsWith("/")) {
@@ -85,6 +85,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
         <Companion />
       </ErrorBoundary>
       <ActualHoursDialogHost />
+      <ConfirmDialogHost />
     </div>
   );
 }
@@ -215,7 +216,8 @@ function MsalRedirectResume({ children }: { children: React.ReactNode }) {
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
+    {/* No hover delay: an icon-only button should name itself the moment you reach it. */}
+    <TooltipProvider delayDuration={0} skipDelayDuration={0}>
       <Sonner />
       <ThemeHandler />
       <BootstrapGate>
@@ -243,7 +245,6 @@ const App = () => (
           <Route path="/delivery" element={<Navigate to="/manage/status" replace />} />
           <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
           <Route path="/ai" element={<ProtectedRoute><AIPage /></ProtectedRoute>} />
-          <Route path="/prd" element={<ProtectedRoute managerOnly><PrdImportPage /></ProtectedRoute>} />
           <Route path="/overview" element={<ProtectedRoute managerOnly><DashboardPanArea><OverviewPage /></DashboardPanArea></ProtectedRoute>} />
           <Route path="/overview/users" element={<Navigate to="/overview?tab=user" replace />} />
           <Route path="/superadmin" element={<ProtectedRoute><SuperAdminPage /></ProtectedRoute>} />

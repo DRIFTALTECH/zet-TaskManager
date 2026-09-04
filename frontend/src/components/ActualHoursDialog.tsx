@@ -49,9 +49,17 @@ function fmtHours(seconds: number): string {
   return Number.isInteger(h) ? String(h) : h.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
 }
 
+/** Tracked seconds → the two fields, rounded to the nearest minute. */
+function splitHM(seconds: number): { h: string; m: string } {
+  const total = Math.max(0, Math.round((seconds || 0) / 60));
+  if (total === 0) return { h: '', m: '' };
+  return { h: String(Math.floor(total / 60)), m: String(total % 60) };
+}
+
 export function ActualHoursDialogHost() {
   const [pending, setPending] = useState<Pending | null>(null);
-  const [value, setValue] = useState('');
+  const [hours, setHours] = useState('');
+  const [minutes, setMinutes] = useState('');
   const [error, setError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -62,7 +70,9 @@ export function ActualHoursDialogHost() {
 
   useEffect(() => {
     if (!pending) return;
-    setValue(fmtHours(pending.task.timeTracked || 0));
+    const seeded = splitHM(pending.task.timeTracked || 0);
+    setHours(seeded.h);
+    setMinutes(seeded.m);
     setError('');
     const t = window.setTimeout(() => inputRef.current?.select(), 50);
     return () => window.clearTimeout(t);
@@ -74,12 +84,26 @@ export function ActualHoursDialogHost() {
   };
 
   const confirm = () => {
-    const hours = parseHoursInput(value);
-    if (hours == null) {
+    const h = hours.trim() === '' ? 0 : Number(hours);
+    const m = minutes.trim() === '' ? 0 : Number(minutes);
+    if (!Number.isFinite(h) || !Number.isFinite(m) || h < 0 || m < 0) {
       setError('Enter how long it took, or Clear.');
       return;
     }
-    close(hours);
+    if (m > 59) {
+      setError('Minutes must be 0–59.');
+      return;
+    }
+    const total = h + m / 60;
+    if (total <= 0) {
+      setError('Enter how long it took, or Clear.');
+      return;
+    }
+    if (total > 10_000) {
+      setError('That is more hours than a task can hold.');
+      return;
+    }
+    close(total);
   };
 
   const task = pending?.task;
@@ -106,21 +130,47 @@ export function ActualHoursDialogHost() {
             </p>
           )}
           <div className="space-y-1.5">
-            <Label htmlFor="actual-hours">Actual hours</Label>
-            <Input
-              id="actual-hours"
-              ref={inputRef}
-              inputMode="decimal"
-              placeholder="e.g. 2.5 or 2:30"
-              value={value}
-              onChange={e => { setValue(e.target.value); setError(''); }}
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); confirm(); } }}
-            />
+            <Label htmlFor="actual-hours">Time spent</Label>
+            <div className="flex items-end gap-2">
+              <div className="flex-1 space-y-1">
+                <Input
+                  id="actual-hours"
+                  ref={inputRef}
+                  type="number"
+                  min="0"
+                  step="1"
+                  inputMode="numeric"
+                  placeholder="0"
+                  value={hours}
+                  onChange={e => { setHours(e.target.value); setError(''); }}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); confirm(); } }}
+                />
+                <span className="block text-[11px] text-muted-foreground">Hours</span>
+              </div>
+              <div className="flex-1 space-y-1">
+                <Input
+                  id="actual-minutes"
+                  type="number"
+                  min="0"
+                  max="59"
+                  step="1"
+                  inputMode="numeric"
+                  placeholder="0"
+                  value={minutes}
+                  onChange={e => { setMinutes(e.target.value); setError(''); }}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); confirm(); } }}
+                />
+                <span className="block text-[11px] text-muted-foreground">Minutes</span>
+              </div>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Saved to your timesheet for today under this task.
+            </p>
             {error ? <p className="text-xs text-destructive">{error}</p> : null}
           </div>
         </div>
         <DialogFooter className="gap-2 sm:justify-between">
-          <Button type="button" variant="ghost" onClick={() => { setValue('0'); close(0); }}>
+          <Button type="button" variant="ghost" onClick={() => { setHours(''); setMinutes(''); close(0); }}>
             Clear
           </Button>
           <div className="flex gap-2">

@@ -11,6 +11,7 @@ from db_wrapper.dialect import use_sqlite
 _BOARD_COLS = ("sprint", "tags_json", "approved_by_manager")
 _USB = "usb:"  # packed into estimated_hours when Aurora lacks board columns
 _has_board_cols: bool | None = None
+_has_parent_col: bool | None = None
 
 
 def _story_has_board_cols(db: Db) -> bool:
@@ -36,9 +37,36 @@ def _story_has_board_cols(db: Db) -> bool:
     return _has_board_cols
 
 
-def _pack_board(sprint: str, tags_json: str, approved: bool) -> str:
+def _story_has_parent_col(db: Db) -> bool:
+    """The parent link needs a column this role may not be allowed to add."""
+    global _has_parent_col
+    if _has_parent_col is not None:
+        return _has_parent_col
+    if use_sqlite():
+        rows = fetch_all(db, "PRAGMA table_info(user_stories)")
+        names = {r.get("name") for r in rows}
+    else:
+        rows = fetch_all(
+            db,
+            """
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'user_stories'
+              AND column_name = 'parent_story_id'
+            """,
+        )
+        names = {r["column_name"] for r in rows}
+    _has_parent_col = "parent_story_id" in names
+    return _has_parent_col
+
+
+def _pack_board(sprint: str, tags_json: str, approved: bool, parent: str | None = None) -> str:
     return _USB + json.dumps(
-        {"sprint": sprint or "", "tags": tags_json or "[]", "ok": bool(approved)},
+        {
+            "sprint": sprint or "",
+            "tags": tags_json or "[]",
+            "ok": bool(approved),
+            "parent": parent or "",
+        },
         separators=(",", ":"),
     )
 
@@ -53,11 +81,12 @@ def _unpack_board(raw: str | None) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
-def _board_vals(story: UserStory) -> tuple[str, str, bool]:
+def _board_vals(story: UserStory) -> tuple[str, str, bool, str | None]:
     return (
         getattr(story, "sprint", None) or "",
         getattr(story, "tags_json", None) or "[]",
         bool(getattr(story, "approved_by_manager", False)),
+        getattr(story, "parent_story_id", None) or None,
     )
 
 
@@ -71,6 +100,7 @@ def _hydrate(db: Db, stories: list[UserStory]) -> None:
         s.sprint = b.get("sprint") or ""
         s.tags_json = b.get("tags") or "[]"
         s.approved_by_manager = bool(b.get("ok"))
+        s.parent_story_id = b.get("parent") or None
 
 
 def get_by_id(db: Db, story_id: str) -> UserStory | None:
@@ -180,8 +210,10 @@ def create(
     sprint: str = "",
     tags_json: str = "[]",
     approved_by_manager: bool = False,
+    parent_story_id: str | None = None,
 ) -> UserStory:
     extras = _story_has_board_cols(db)
+    parent_col = _story_has_parent_col(db)
     if extras:
         db.write(
             """
@@ -204,6 +236,11 @@ def create(
                 created_at, updated_at,
             ),
         )
+        if parent_col and parent_story_id:
+            db.write(
+                "UPDATE user_stories SET parent_story_id = %s WHERE id = %s",
+                (parent_story_id, story_id),
+            )
     else:
         db.write(
             """
@@ -220,7 +257,7 @@ def create(
             (
                 story_id, project_id, section_id, title, description, acceptance_criteria,
                 priority, status, assignee_id, reporter_id,
-                _pack_board(sprint or "", tags_json or "[]", bool(approved_by_manager)),
+                _pack_board(sprint or "", tags_json or "[]", bool(approved_by_manager), parent_story_id),
                 story_points,
                 start_date, due_date, created_at, updated_at,
             ),
@@ -230,7 +267,7 @@ def create(
 
 
 def update(db: Db, story: UserStory) -> UserStory:
-    sprint, tags_json, approved = _board_vals(story)
+    sprint, tags_json, approved, parent = _board_vals(story)
     if _story_has_board_cols(db):
         db.write(
             """
@@ -251,6 +288,11 @@ def update(db: Db, story: UserStory) -> UserStory:
                 story.updated_at, story.id,
             ),
         )
+        if _story_has_parent_col(db):
+            db.write(
+                "UPDATE user_stories SET parent_story_id = %s WHERE id = %s",
+                (parent, story.id),
+            )
     else:
         db.write(
             """
@@ -264,7 +306,7 @@ def update(db: Db, story: UserStory) -> UserStory:
             (
                 story.project_id, story.section_id, story.title, story.description,
                 story.acceptance_criteria, story.priority, story.status,
-                story.assignee_id, story.reporter_id, _pack_board(sprint, tags_json, approved),
+                story.assignee_id, story.reporter_id, _pack_board(sprint, tags_json, approved, parent),
                 story.story_points, story.start_date, story.due_date,
                 story.updated_at, story.id,
             ),
@@ -277,3 +319,21 @@ def delete(db: Db, story_id: str) -> None:
     # Tasks keep rows; FK ON DELETE SET NULL clears user_story_id.
     db.write("DELETE FROM user_stories WHERE id = %s", (story_id,))
     realtime.bump("tasks")
+
+
+def list_children(db: Db, parent_story_id: str) -> list[UserStory]:
+    """Stories sitting directly under this one."""
+    if _story_has_parent_col(db):
+        rows = rows_to_models(
+            UserStory,
+            fetch_all(
+                db,
+                "SELECT * FROM user_stories WHERE parent_story_id = %s ORDER BY created_at",
+                (parent_story_id,),
+            ),
+        )
+        _hydrate(db, rows)
+        return rows
+    # Packed mode: the link lives inside estimated_hours, so it cannot be queried.
+    rows = [s for s in list_all(db) if getattr(s, "parent_story_id", None) == parent_story_id]
+    return rows

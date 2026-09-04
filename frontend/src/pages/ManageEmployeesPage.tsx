@@ -1,3 +1,4 @@
+import { FIELD_INPUT as inputCls } from '@/lib/field-styles';
 import { useAppStore } from '@/stores/appStore';
 import { projectPickerLabel } from '@/lib/project-utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -81,7 +82,6 @@ const ManageEmployeesPage = () => {
     return { assignedCount: assignedHere.length, activeCount: notCompleted.length, inProgressCount: onBoardActive.length };
   }, [memberToRemove, selectedProject, projectTasks]);
 
-  const inputCls = 'w-full rounded-xl border border-border/50 bg-muted/40 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 transition-all placeholder:text-muted-foreground/40';
 
   const handleAddSection = async () => {
     if (!sectionName.trim()) return toast.error('Enter section name');

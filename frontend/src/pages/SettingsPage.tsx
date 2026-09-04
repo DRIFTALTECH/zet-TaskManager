@@ -1,3 +1,4 @@
+import { FIELD_INPUT as inputCls } from '@/lib/field-styles';
 import { useAppStore } from '@/stores/appStore';
 import { motion } from 'framer-motion';
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
@@ -50,7 +51,6 @@ function timeAgo(iso: string) {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-const inputCls = 'w-full rounded-xl border border-border/50 bg-muted/40 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 transition-all placeholder:text-muted-foreground/40';
 
 /** The MCP endpoint is embedded in the backend at /mcp; it always tracks the
  *  configured API origin (not the Vite `/api` rewrite). Override with VITE_MCP_URL. */
@@ -597,14 +597,14 @@ export default function SettingsPage() {
                 <div className="rounded-xl bg-muted/20 border border-border/30 px-4 py-3">
                   <div className="flex items-center gap-2 text-muted-foreground/50 mb-1">
                     <Mail className="h-3.5 w-3.5" />
-                    <span className="text-[10px] font-bold uppercase tracking-wide">Email</span>
+                    <span className="text-[13px] text-muted-foreground">Email</span>
                   </div>
                   <p className="text-sm font-medium text-foreground truncate">{currentUser.email}</p>
                 </div>
                 <div className="rounded-xl bg-muted/20 border border-border/30 px-4 py-3">
                   <div className="flex items-center gap-2 text-muted-foreground/50 mb-1">
                     <Briefcase className="h-3.5 w-3.5" />
-                    <span className="text-[10px] font-bold uppercase tracking-wide">Role</span>
+                    <span className="text-[13px] text-muted-foreground">Role</span>
                   </div>
                   <p className="text-sm font-medium text-foreground capitalize">{currentUser.role}</p>
                 </div>

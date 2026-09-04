@@ -3,6 +3,7 @@
  * Reused on user profile edit; backed by /skills and user skill APIs.
  */
 
+import { FIELD_INPUT as inputCls } from '@/lib/field-styles';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ChevronDown, Paperclip, Plus, X } from 'lucide-react';
@@ -19,8 +20,6 @@ import type { Skill } from '@/types';
 
 const CREATE_NEW = '__create_new__';
 
-const inputCls =
-  'w-full rounded-xl border border-border/50 bg-muted/40 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40';
 
 type Props = {
   selectedSkillIds: string[];

@@ -104,6 +104,10 @@ class UserStory(Base):
     id = Column(String, primary_key=True)
     project_id = Column(String, ForeignKey("projects.id"), nullable=False, index=True)
     section_id = Column(String, ForeignKey("sections.id"), nullable=True, index=True)
+    # Additive: a story may sit under another (epic → story). NULL = top level.
+    parent_story_id = Column(
+        String, ForeignKey("user_stories.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     title = Column(String, nullable=False)
     description = Column(Text, nullable=False, default="")
     acceptance_criteria = Column(Text, nullable=False, default="")
@@ -241,6 +245,9 @@ class KanbanColumn(Base):
     id = Column(String, primary_key=True)
     label = Column(String, nullable=False)
     position = Column(Integer, nullable=False, default=0)
+    # Palette key (see logic/kanban_logic.COLUMN_COLORS), not a raw hex value —
+    # the frontend maps it to light/dark tokens.
+    color = Column(String, nullable=False, default="slate")
 
 
 class TimesheetSubmission(Base):
@@ -272,6 +279,9 @@ class TimesheetEntry(Base):
     work_date = Column(String, nullable=False, index=True)
     project_id = Column(String, ForeignKey("projects.id"), nullable=False)
     section_id = Column(String, ForeignKey("sections.id"), nullable=False)
+    # Set when the row came from a task (timer stop, or the hours entered at Done).
+    # NULL for hand-written rows and Clockify imports.
+    task_id = Column(String, ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, index=True)
     description = Column(Text, nullable=False, default="")
     time_from = Column(String, nullable=False)
     time_to = Column(String, nullable=False)
@@ -286,6 +296,21 @@ class TaskFeedback(Base):
 
     id = Column(String, primary_key=True)
     task_id = Column(String, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    message = Column(Text, nullable=False)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+
+
+class UserStoryFeedback(Base):
+    """Comment thread on a user story; mirrors task_feedback."""
+
+    __tablename__ = "user_story_feedback"
+
+    id = Column(String, primary_key=True)
+    user_story_id = Column(
+        String, ForeignKey("user_stories.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
     message = Column(Text, nullable=False)
     created_at = Column(String, nullable=False)

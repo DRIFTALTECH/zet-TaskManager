@@ -1,4 +1,4 @@
-import type { AuditLog, ClockifyImportReport, Client, KanbanColumn, Notification, Project, Role, Skill, Task, TaskAttachment, TaskChecklist, TaskFeedback, TimesheetSubmission, TimesheetSubmissionReview, TimesheetWorkEntry, TasksImportReport, User } from '@/types';
+import type { AuditLog, ClockifyImportReport, Client, KanbanColumn, Notification, Project, Role, Skill, Task, TaskAttachment, TaskChecklist, TaskFeedback, TimesheetSubmission, TimesheetSubmissionReview, TimesheetWorkEntry, TasksImportReport, User, UserStoryFeedback } from '@/types';
 import { getApiUrl } from '@/lib/env';
 
 const TOKEN_KEY = 'tm_token';
@@ -359,6 +359,16 @@ export const api = {
     return request('/tasks', { method: 'POST', body: JSON.stringify(body) });
   },
 
+  /** Promote a task to a story; its subtasks become the story's tasks. */
+  async convertTaskToStory(taskId: string): Promise<import('@/types').UserStory> {
+    return request(`/tasks/${taskId}/convert-to-story`, { method: 'POST' });
+  },
+
+  /** Demote a story to a task; its tasks become that task's subtasks. */
+  async convertStoryToTask(storyId: string): Promise<Task> {
+    return request(`/user-stories/${storyId}/convert-to-task`, { method: 'POST' });
+  },
+
   async deleteTask(taskId: string): Promise<void> {
     await request(`/tasks/${taskId}`, { method: 'DELETE' });
   },
@@ -430,6 +440,9 @@ export const api = {
     storyId: string,
     patch: Partial<{
       title: string;
+      projectId: string;
+      /** "" detaches the story back to the top level. */
+      parentStoryId: string;
       description: string;
       acceptanceCriteria: string;
       priority: string;
@@ -554,6 +567,25 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ date, seconds }),
     });
+  },
+
+  async listUserStoryFeedback(storyId: string): Promise<UserStoryFeedback[]> {
+    return request(`/user-stories/${storyId}/feedback`);
+  },
+
+  async createUserStoryFeedback(storyId: string, message: string, mentionedUserIds: string[] = []): Promise<UserStoryFeedback> {
+    return request(`/user-stories/${storyId}/feedback`, { method: 'POST', body: JSON.stringify({ message, mentionedUserIds }) });
+  },
+
+  async patchUserStoryFeedback(storyId: string, feedbackId: string, message: string): Promise<UserStoryFeedback> {
+    return request(`/user-stories/${storyId}/feedback/${feedbackId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ message }),
+    });
+  },
+
+  async deleteUserStoryFeedback(storyId: string, feedbackId: string): Promise<void> {
+    await request(`/user-stories/${storyId}/feedback/${feedbackId}`, { method: 'DELETE' });
   },
 
   async listTaskFeedback(taskId: string): Promise<TaskFeedback[]> {
@@ -686,14 +718,18 @@ export const api = {
     return request('/kanban/columns');
   },
 
-  async addKanbanColumn(label: string): Promise<KanbanColumn[]> {
-    return request('/kanban/columns', { method: 'POST', body: JSON.stringify({ label }) });
+  async addKanbanColumn(label: string, color?: string): Promise<KanbanColumn[]> {
+    return request('/kanban/columns', { method: 'POST', body: JSON.stringify({ label, color }) });
   },
 
-  async renameKanbanColumn(columnId: string, label: string): Promise<KanbanColumn[]> {
+  /** Patches label, colour, or both — omitted fields keep their current value. */
+  async updateKanbanColumn(
+    columnId: string,
+    patch: { label?: string; color?: string },
+  ): Promise<KanbanColumn[]> {
     return request(`/kanban/columns/${columnId}`, {
       method: 'PATCH',
-      body: JSON.stringify({ label }),
+      body: JSON.stringify(patch),
     });
   },
 

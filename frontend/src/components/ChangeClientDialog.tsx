@@ -2,6 +2,7 @@
  * ChangeClientDialog — pick an existing client, create a new one, or clear the client.
  */
 
+import { FIELD_INPUT as inputCls } from '@/lib/field-styles';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -18,8 +19,6 @@ import { cn } from '@/lib/utils';
 const CREATE_NEW = '__create_new__';
 const NO_CLIENT = '__no_client__';
 
-const inputCls =
-  'w-full rounded-xl border border-border/50 bg-muted/40 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 transition-all placeholder:text-muted-foreground/40';
 
 type Props = {
   open: boolean;

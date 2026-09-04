@@ -1,14 +1,16 @@
 /**
- * PRD studio: outline detailed user stories, review/assign, then save.
+ * The PRD flow itself: paste or upload requirements, watch the analyze stream,
+ * review the drafted stories, save them.
+ *
+ * Lives apart from the page because the same flow is offered inside the story
+ * modal's "Generate tasks" dialog — one implementation, so the two cannot drift.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Navigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { FileText, Loader2, Sparkles, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { useAppStore } from '@/stores/appStore';
-import { pageEnter } from '@/lib/motion';
 import type { PrdDraft, PrdDraftStory, PrdStreamEvent } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -28,12 +30,9 @@ function upsertStory(stories: PrdDraftStory[], next: PrdDraftStory): PrdDraftSto
   return copy;
 }
 
-export default function PrdImportPage() {
-  const currentUser = useAppStore(s => s.currentUser);
+export function PrdWorkbench({ onSaved }: { onSaved?: (storyIds: string[]) => void }) {
   const projects = useAppStore(s => s.projects);
   const syncTasks = useAppStore(s => s.syncTasks);
-  const isManager = currentUser?.role === 'manager' || currentUser?.role === 'superadmin';
-
   const [text, setText] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -97,8 +96,6 @@ export default function PrdImportPage() {
     tick();
     return () => window.clearInterval(id);
   }, [analyzing, loadDraft]);
-
-  if (!isManager) return <Navigate to="/" replace />;
 
   const onStreamEvent = (ev: PrdStreamEvent) => {
     if (ev.type === 'progress') {
@@ -200,6 +197,7 @@ export default function PrdImportPage() {
       toast.success(
         `Saved ${res.storiesCreated} user stor${res.storiesCreated === 1 ? 'y' : 'ies'}`,
       );
+      onSaved?.(res.storyIds ?? []);
       return { storyIds: res.storyIds ?? [] };
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not save story');
@@ -212,23 +210,7 @@ export default function PrdImportPage() {
   const hasDraft = draft.stories.length > 0;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={pageEnter}
-      className="w-full space-y-6 p-6 pb-16"
-    >
-      <header className="space-y-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
-          Import · Requirements
-        </p>
-        <h1 className="text-3xl font-semibold tracking-tight">PRD studio</h1>
-        <p className="max-w-xl text-sm leading-relaxed text-muted-foreground">
-          Analyze a PRD into detailed user stories. Open a story to read and edit it, save it,
-          then generate tasks when you are ready.
-        </p>
-      </header>
-
+    <div className="space-y-6">
       <section
         onDragOver={e => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={e => {
@@ -366,6 +348,8 @@ export default function PrdImportPage() {
           onCommit={commit}
         />
       )}
-    </motion.div>
+    </div>
   );
 }
+
+export default PrdWorkbench;

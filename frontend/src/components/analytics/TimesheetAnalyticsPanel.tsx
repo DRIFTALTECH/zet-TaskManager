@@ -8,6 +8,7 @@
 
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { DatePickerInput } from '@/components/DatePickerInput';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   AreaChart, Area,
@@ -86,18 +87,24 @@ export function TimesheetAnalyticsPanel({ userId }: { userId?: string }) {
       {/* Date range controls */}
       <div className="flex flex-wrap items-center gap-3">
         <span className="text-sm font-medium text-muted-foreground">Period:</span>
-        <input
-          type="date"
+        <DatePickerInput
+          variant="boxed"
+          className="w-auto min-w-[10rem]"
           value={range.startDate}
-          onChange={e => setRange(r => ({ ...r, startDate: e.target.value }))}
-          className="rounded-lg border border-border/40 bg-background px-3 py-1.5 text-sm"
+          onChange={startDate => setRange(r => ({ ...r, startDate }))}
+          max={range.endDate}
+          clearable={false}
+          aria-label="Period start"
         />
         <span className="text-muted-foreground">→</span>
-        <input
-          type="date"
+        <DatePickerInput
+          variant="boxed"
+          className="w-auto min-w-[10rem]"
           value={range.endDate}
-          onChange={e => setRange(r => ({ ...r, endDate: e.target.value }))}
-          className="rounded-lg border border-border/40 bg-background px-3 py-1.5 text-sm"
+          onChange={endDate => setRange(r => ({ ...r, endDate }))}
+          min={range.startDate}
+          clearable={false}
+          aria-label="Period end"
         />
       </div>
 

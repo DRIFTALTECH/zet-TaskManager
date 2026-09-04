@@ -285,14 +285,62 @@ def _date_or_none(value: str | None) -> str | None:
 
 
 def _set_actual_hours(db: Db, task_id: str, user_id: str, hours: float | None) -> None:
-    """Replace tracked time with the hours entered at Done / Approve. None = leave as-is."""
+    """Replace tracked time with the hours entered at Done / Approve. None = leave as-is.
+
+    The same figure is mirrored onto the user's timesheet: the hours someone gives
+    when closing a task are the hours they worked, and re-typing them by hand on
+    the Timesheet page is how the two drift apart.
+    """
     if hours is None:
         return
     if hours < 0 or hours > 10_000:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "actualHours must be 0–10000")
-    timelog_crud.replace_task_seconds(
-        db, task_id, user_id, date.today().isoformat(), int(round(hours * 3600))
-    )
+    seconds = int(round(hours * 3600))
+    work_date = date.today().isoformat()
+    timelog_crud.replace_task_seconds(db, task_id, user_id, work_date, seconds)
+
+    from logic import timesheet_logic
+
+    task = tasks_crud.get_by_id(db, task_id)
+    if task:
+        timesheet_logic.record_task_time(db, user_id, task, seconds, work_date)
+
+
+_DONE_STATUSES = frozenset({"completed", "done"})
+
+
+def _sync_story_status_from_tasks(db: Db, task: Task) -> None:
+    """Keep a story's status honest about the work underneath it.
+
+    A story is a container: the moment one of its tasks is picked up, the story
+    is being worked on, and leaving it in Backlog makes every board and grouping
+    lie. So a task moving to a working status drags its story along, a story is
+    only marked done once every task is, and nothing ever pushes a story back to
+    Backlog — that stays a deliberate act.
+    """
+    from crud import user_stories as stories_crud
+
+    story_id = (getattr(task, "user_story_id", None) or "").strip()
+    if not story_id:
+        return
+    story = stories_crud.get_by_id(db, story_id)
+    if not story:
+        return
+
+    new_status = (task.status or "").strip()
+    if not new_status or new_status == story.status:
+        return
+
+    if new_status in _DONE_STATUSES:
+        siblings = tasks_crud.list_for_user_story(db, story_id)
+        if not siblings or any((t.status or "").strip() not in _DONE_STATUSES for t in siblings):
+            return
+    elif new_status == "backlog":
+        return
+
+    story.status = new_status
+    story.updated_at = datetime.now(timezone.utc).isoformat()
+    stories_crud.update(db, story)
 
 
 def _refresh_task(db: Db, task_id: str) -> Task:
@@ -401,6 +449,8 @@ def patch_task(db: Db, current_user_id: str, task_id: str, body: TaskPatch) -> T
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, "Subtasks cannot nest more than one level")
         t.parent_task_id = pid
     tasks_crud.update_task(db, t)
+    if body.status is not None:
+        _sync_story_status_from_tasks(db, t)
     return to_task_out(db, t, current_user_id)
 
 
@@ -440,6 +490,7 @@ def move_task(db: Db, current_user_id: str, task_id: str, body: TaskMoveBody) ->
         t.is_started = False
         t.started_at = None
     tasks_crud.update_task(db, t)
+    _sync_story_status_from_tasks(db, t)
     return to_task_out(db, t, current_user_id)
 
 

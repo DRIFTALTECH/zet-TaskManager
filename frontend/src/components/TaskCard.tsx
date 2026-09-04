@@ -6,45 +6,21 @@
 import { useEffect, useState, type CSSProperties, type HTMLAttributes } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { CheckCircle, CheckCircle2, RotateCcw } from 'lucide-react';
+import { CheckCircle2, CircleDot, RotateCcw, UserPlus2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import UserAvatar from '@/components/UserAvatar';
 import { useAppStore } from '@/stores/appStore';
+import { projectNameColor } from '@/lib/project-utils';
 import { isTaskAssignedTo, taskAssigneeIds, normalizePriority } from '@/lib/task-utils';
 import {
   dueBucketDateTextClass,
   getDueBucket,
 } from '@/lib/due-date-utils';
 import type { Priority, Task } from '@/types';
-
-const priorityBadgeStyles: Record<Priority, string> = {
-  Urgent: 'text-red-600 dark:text-red-400',
-  High: 'text-orange-600 dark:text-orange-400',
-  Medium: 'text-yellow-600 dark:text-yellow-400',
-  Low: 'text-green-600 dark:text-green-400',
-};
+import { priorityTextClass } from '@/lib/priority-styles';
 
 const CARD_SHADOW =
   'shadow-[0_1px_4px_rgba(0,0,0,0.10)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.14)] dark:shadow-[0_1px_4px_rgba(255,255,255,0.14)] dark:hover:shadow-[0_2px_8px_rgba(255,255,255,0.22)]';
-
-const PROJECT_NAME_COLORS = [
-  'text-blue-600 dark:text-blue-400',
-  'text-violet-600 dark:text-violet-400',
-  'text-emerald-600 dark:text-emerald-400',
-  'text-orange-600 dark:text-orange-400',
-  'text-pink-600 dark:text-pink-400',
-  'text-teal-600 dark:text-teal-400',
-  'text-amber-600 dark:text-amber-400',
-  'text-cyan-600 dark:text-cyan-400',
-  'text-indigo-600 dark:text-indigo-400',
-  'text-rose-600 dark:text-rose-400',
-];
-
-function projectNameColor(id: string): string {
-  let h = 0;
-  for (const c of id) h = (h * 31 + c.charCodeAt(0)) & 0xffff;
-  return PROJECT_NAME_COLORS[h % PROJECT_NAME_COLORS.length];
-}
 
 /** Project (text) + sprint (pill) in fixed slots so every card lines up. */
 export function BoardCardMetaPills({
@@ -117,9 +93,6 @@ export type TaskCardProps = {
   showProjectPill?: boolean;
   /** When set, shows a user-story chip on the card */
   userStoryTitle?: string | null;
-  showApprove?: boolean;
-  onApprove?: () => void;
-  approving?: boolean;
   /** Completed-row mode (compact, not the board card). */
   completed?: boolean;
   showReopen?: boolean;
@@ -137,9 +110,6 @@ export function TaskCard({
   onClick,
   showProjectPill: _showProjectPill = false,
   userStoryTitle = null,
-  showApprove = false,
-  onApprove,
-  approving = false,
   completed = false,
   showReopen = false,
   onReopen,
@@ -225,31 +195,31 @@ export function TaskCard({
       {...dragAttributes}
       {...dragListeners}
       onClick={onClick}
-      className={`group relative min-h-[250px] ${
+      className={`group relative ${
         isSortable
           ? 'touch-none select-none cursor-grab active:cursor-grabbing'
           : 'cursor-pointer'
       }`}
     >
       <div
-        className={`rounded-2xl border border-border/70 bg-card p-6 min-h-[250px] flex flex-col transition-shadow ${CARD_SHADOW}`}
+        className={`rounded-xl border border-border/70 bg-card p-3 flex flex-col transition-shadow ${CARD_SHADOW}`}
       >
-        <div className="flex items-center justify-between mb-4">
-          <span className="text-xs font-mono text-muted-foreground/60 tracking-wider">
-            TF-{task.id.replace(/\D/g, '').padStart(3, '0')}
+        <div className="flex items-center justify-between gap-2 mb-1.5">
+          {/* Labelled the way a story card is, rather than by a reference number. */}
+          <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+            <CircleDot className="h-3 w-3 text-primary" /> Task
           </span>
-          <span className={`text-[11px] px-3 py-1 rounded-full font-semibold ${priorityBadgeStyles[priority]}`}>
+          <span className={`shrink-0 text-[10px] font-semibold ${priorityTextClass[priority]}`}>
             {priority}
           </span>
         </div>
-        <h4 className="text-base font-bold leading-snug mb-2 text-foreground line-clamp-2 shrink-0">{task.title}</h4>
+        <h4 className="text-[13px] font-semibold leading-snug mb-1.5 text-foreground line-clamp-2 shrink-0">{task.title}</h4>
         {userStoryTitle && (
           <span className="mb-2 inline-flex max-w-full items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border border-border/50 bg-muted/40 text-muted-foreground font-semibold truncate">
             {userStoryTitle}
           </span>
         )}
-        <div className="flex-1 min-h-0 min-w-0" aria-hidden />
-        <div className="pt-2 mt-auto space-y-2 shrink-0">
+        <div className="mt-auto space-y-1.5 shrink-0">
           <BoardCardMetaPills
             projectId={task.projectId}
             sprint={task.sprint}
@@ -257,23 +227,14 @@ export function TaskCard({
           />
           <div className="flex items-end justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
-              <div className="flex -space-x-2 shrink-0">
+              <div className="flex -space-x-1.5 shrink-0">
                 {assigneeList.slice(0, 3).map(u => (
-                  <UserAvatar key={u.id} name={u.name} avatar={u.avatar} size="xs" className="border-2 border-card" />
+                  <UserAvatar key={u.id} name={u.name} avatar={u.avatar} size="xs" className="ring-2 ring-card" />
                 ))}
                 {assigneeList.length === 0 && (
-                  <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center">
-                    <span className="text-[10px] text-muted-foreground">?</span>
-                  </div>
+                  <UserPlus2 className="h-3.5 w-3.5 text-muted-foreground/40" />
                 )}
               </div>
-              <span className="text-sm text-muted-foreground font-medium truncate">
-                {assigneeList.length === 0
-                  ? 'Unassigned'
-                  : assigneeList.length === 1
-                    ? assigneeList[0].name.split(' ')[0]
-                    : `${assigneeList.length} people`}
-              </span>
             </div>
             <div className="flex items-center justify-end gap-2 shrink-0">
               {showTimer && (
@@ -281,19 +242,19 @@ export function TaskCard({
                   <div className="flex items-center gap-1.5">
                     <button
                       type="button"
-                      className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-destructive/90 text-destructive-foreground hover:bg-destructive transition-colors"
+                      className="text-[11px] font-semibold px-2 py-1 rounded-lg bg-destructive/90 text-destructive-foreground hover:bg-destructive transition-colors"
                       onClick={e => { e.stopPropagation(); void stopTimer(task.id); }}
                     >
                       Stop
                     </button>
                     {elapsed ? (
-                      <span className="text-xs font-mono text-muted-foreground tabular-nums">{elapsed}</span>
+                      <span className="text-[11px] font-mono text-muted-foreground tabular-nums">{elapsed}</span>
                     ) : null}
                   </div>
                 ) : (
                   <button
                     type="button"
-                    className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                    className="text-[11px] font-semibold px-2 py-1 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
                     onClick={e => { e.stopPropagation(); void startTimer(task.id); }}
                   >
                     Start
@@ -301,27 +262,13 @@ export function TaskCard({
                 )
               )}
               {task.dueDate?.trim() ? (
-                <span className={`text-sm font-mono ${dueBucketDateTextClass(dueBucket, isDoneLane)}`}>
+                <span className={`text-[11px] font-mono ${dueBucketDateTextClass(dueBucket, isDoneLane)}`}>
                   {formatDate(task.dueDate)}
                 </span>
               ) : null}
             </div>
           </div>
         </div>
-        {showApprove && (
-          <div className="pt-3 mt-1 border-t border-border/50">
-            <Button
-              type="button"
-              size="sm"
-              className="w-full rounded-xl gap-1.5 bg-green-600 text-white hover:bg-green-700 border-green-600 shadow-sm"
-              disabled={approving}
-              onClick={e => { e.stopPropagation(); void onApprove?.(); }}
-            >
-              <CheckCircle className="h-3.5 w-3.5" />
-              {approving ? 'Approving…' : 'Approve completed'}
-            </Button>
-          </div>
-        )}
       </div>
     </div>
   );

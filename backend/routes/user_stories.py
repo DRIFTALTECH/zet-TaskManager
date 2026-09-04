@@ -2,12 +2,15 @@ from fastapi import APIRouter, Depends, File, Form, Response, UploadFile
 from fastapi.responses import FileResponse
 
 from database.database import Db, get_db
-from logic import attachment_logic, user_story_logic
+from logic import attachment_logic, convert_logic, user_story_feedback_logic, user_story_logic
 from logic.schemas import (
     TaskOut,
     UserStoryAttachmentOut,
     UserStoryConfirmGenerateBody,
     UserStoryCreate,
+    UserStoryFeedbackCreate,
+    UserStoryFeedbackOut,
+    UserStoryFeedbackPatch,
     UserStoryGeneratePreviewOut,
     UserStoryOut,
     UserStoryPatch,
@@ -188,3 +191,52 @@ def delete_story_attachment(
     user_story_logic.get_story(db, user_id, story_id)
     attachment_logic.delete_for_user_story(db, story_id, attachment_id, user_id)
     return Response(status_code=204)
+
+
+# ── Comments ──────────────────────────────────────────────────────────────────
+
+
+@router.get("/user-stories/{story_id}/feedback", response_model=list[UserStoryFeedbackOut])
+def list_story_feedback(
+    story_id: str,
+    user_id: str = Depends(get_current_user_id),
+    db: Db = Depends(get_db),
+):
+    return user_story_feedback_logic.list_feedback(db, user_id, story_id)
+
+
+@router.post("/user-stories/{story_id}/feedback", response_model=UserStoryFeedbackOut)
+def create_story_feedback(
+    story_id: str,
+    body: UserStoryFeedbackCreate,
+    user_id: str = Depends(get_current_user_id),
+    db: Db = Depends(get_db),
+):
+    return user_story_feedback_logic.create_feedback_action(db, user_id, story_id, body)
+
+
+@router.patch("/user-stories/{story_id}/feedback/{feedback_id}", response_model=UserStoryFeedbackOut)
+def patch_story_feedback(
+    story_id: str,
+    feedback_id: str,
+    body: UserStoryFeedbackPatch,
+    user_id: str = Depends(get_current_user_id),
+    db: Db = Depends(get_db),
+):
+    return user_story_feedback_logic.patch_feedback(db, user_id, story_id, feedback_id, body)
+
+
+@router.delete("/user-stories/{story_id}/feedback/{feedback_id}", status_code=204)
+def delete_story_feedback(
+    story_id: str,
+    feedback_id: str,
+    user_id: str = Depends(get_current_user_id),
+    db: Db = Depends(get_db),
+):
+    user_story_feedback_logic.delete_feedback(db, user_id, story_id, feedback_id)
+    return Response(status_code=204)
+
+
+@router.post("/user-stories/{story_id}/convert-to-task", response_model=TaskOut)
+def convert_story_to_task(story_id: str, user_id: str = Depends(get_current_user_id), db: Db = Depends(get_db)):
+    return convert_logic.story_to_task(db, user_id, story_id)

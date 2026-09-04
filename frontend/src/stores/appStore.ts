@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { User, Project, Task, TaskStatus, KanbanColumn, Role, Client, Skill } from '@/types';
 import { api, isAuthError, isPendingApproval, TOKEN_KEY } from '@/lib/api';
 import { defaultSelectedProjectIdForUser } from '@/lib/project-utils';
-import { cacheFullTask, dropFullTask, queryClient, seedUserStoriesCache } from '@/lib/queryClient';
+import { cacheFullTask, dropFullTask, queryClient, seedUserStoriesCache, upsertUserStory } from '@/lib/queryClient';
 
 /** Map server timer rows → { taskId: epochMs } for the running-timer UI. */
 function timersToMap(rows: { taskId: string; startedAt: string }[]): Record<string, number> {
@@ -23,11 +23,11 @@ export type AgentEventKind =
 let agentEventSeq = 0;
 
 const DEFAULT_COLUMNS: KanbanColumn[] = [
-  { id: 'backlog', label: 'Backlog' },
-  { id: 'in_progress', label: 'In Progress' },
-  { id: 'testing', label: 'Testing' },
-  { id: 'in_review', label: 'In Review' },
-  { id: 'done', label: 'Done' },
+  { id: 'backlog', label: 'Backlog', color: 'slate' },
+  { id: 'in_progress', label: 'In Progress', color: 'violet' },
+  { id: 'testing', label: 'Testing', color: 'amber' },
+  { id: 'in_review', label: 'In Review', color: 'sky' },
+  { id: 'done', label: 'Done', color: 'emerald' },
 ];
 
 interface AppState {
@@ -109,9 +109,10 @@ interface AppState {
   deleteTask: (id: string) => Promise<void>;
 
   kanbanColumns: KanbanColumn[];
-  addColumn: (label: string) => Promise<void>;
+  addColumn: (label: string, color?: string) => Promise<void>;
   removeColumn: (id: string) => Promise<boolean>;
   renameColumn: (id: string, label: string) => Promise<void>;
+  setColumnColor: (id: string, color: string) => Promise<void>;
   reorderColumns: (columns: KanbanColumn[]) => Promise<void>;
 
   activeTimers: Record<string, number>; // taskId -> epoch ms when timer started
@@ -140,6 +141,21 @@ async function refetchUsersProjects(get: () => AppState, set: (p: Partial<AppSta
     clients,
     currentUser: cu ? users.find(u => u.id === cu.id) ?? cu : null,
   });
+}
+
+/**
+ * A task's status can drag its story with it (see `_sync_story_status_from_tasks`
+ * on the server), so pull the story back after any status write — otherwise the
+ * story row keeps rendering under its old group until the next full sync.
+ */
+async function refreshLinkedStory(task: Task) {
+  const storyId = task.userStoryId;
+  if (!storyId) return;
+  try {
+    upsertUserStory(await api.getUserStory(storyId));
+  } catch {
+    /* the task write already landed; the story catches up on the next sync */
+  }
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -512,9 +528,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (updates.estimatedHours !== undefined) patch.estimatedHours = updates.estimatedHours ?? null;
     if (updates.actualHours !== undefined) patch.actualHours = updates.actualHours;
     if (updates.userStoryId !== undefined) patch.userStoryId = updates.userStoryId;
+    if (updates.parentTaskId !== undefined) patch.parentTaskId = updates.parentTaskId;
     const t = await api.patchTask(id, patch);
     set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
     cacheFullTask(t);
+    if (updates.status !== undefined) await refreshLinkedStory(t);
     // Moved to a new section → Tasker "moved" animation.
     if (updates.sectionId !== undefined && prevTask && t.sectionId !== prevTask.sectionId) {
       get().emitAgentEvent('task_moved');
@@ -534,6 +552,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const t = await api.moveTask(id, status, actualHours);
     set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
     cacheFullTask(t);
+    await refreshLinkedStory(t);
     get().emitAgentEvent('task_moved');
   },
 
@@ -541,6 +560,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const t = await api.approveTask(id, actualHours);
     set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
     cacheFullTask(t);
+    await refreshLinkedStory(t);
     get().emitAgentEvent('task_approved');
   },
 
@@ -595,8 +615,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   kanbanColumns: DEFAULT_COLUMNS,
 
-  addColumn: async label => {
-    const cols = await api.addKanbanColumn(label);
+  addColumn: async (label, color) => {
+    const cols = await api.addKanbanColumn(label, color);
     set({ kanbanColumns: cols });
   },
 
@@ -611,7 +631,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   renameColumn: async (id, label) => {
-    const cols = await api.renameKanbanColumn(id, label);
+    const cols = await api.updateKanbanColumn(id, { label });
+    set({ kanbanColumns: cols });
+  },
+
+  setColumnColor: async (id, color) => {
+    const cols = await api.updateKanbanColumn(id, { color });
     set({ kanbanColumns: cols });
   },
 

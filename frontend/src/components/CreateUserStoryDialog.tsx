@@ -7,6 +7,7 @@ import { projectPickerLabel } from '@/lib/project-utils';
 import type { Priority, UserStory } from '@/types';
 import AssigneeMultiSelect from '@/components/AssigneeMultiSelect';
 import { SprintSelect } from '@/components/SprintSelect';
+import { DatePickerInput } from '@/components/DatePickerInput';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -242,7 +243,13 @@ export function CreateUserStoryDialog({
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground">Due date</label>
-              <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} />
+              <DatePickerInput
+                variant="boxed"
+                value={dueDate}
+                onChange={setDueDate}
+                placeholder="No due date"
+                aria-label="Due date"
+              />
             </div>
           </div>
           <div>

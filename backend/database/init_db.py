@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from db_wrapper import get_database
@@ -20,11 +20,11 @@ _BOOTSTRAP_SQLITE = (Path(__file__).resolve().parent.parent / "scripts" / "boots
 )
 
 _DEFAULT_KANBAN = [
-    ("backlog", "Backlog", 0),
-    ("in_progress", "In Progress", 1),
-    ("testing", "Testing", 2),
-    ("in_review", "In Review", 3),
-    ("done", "Done", 4),
+    ("backlog", "Backlog", 0, "slate"),
+    ("in_progress", "In Progress", 1, "violet"),
+    ("testing", "Testing", 2, "amber"),
+    ("in_review", "In Review", 3, "sky"),
+    ("done", "Done", 4, "emerald"),
 ]
 
 
@@ -65,10 +65,10 @@ def _seed_kanban() -> None:
     rows = db.read("SELECT id FROM kanban_columns LIMIT 1")
     if rows:
         return
-    for kid, label, pos in _DEFAULT_KANBAN:
+    for kid, label, pos, color in _DEFAULT_KANBAN:
         db.write(
-            "INSERT INTO kanban_columns (id, label, position) VALUES (%s, %s, %s)",
-            (kid, label, pos),
+            "INSERT INTO kanban_columns (id, label, position, color) VALUES (%s, %s, %s, %s)",
+            (kid, label, pos, color),
         )
 
 
@@ -118,6 +118,93 @@ def _migrate_task_estimated_hours() -> None:
     """Optional estimate on every task. Null = not set (not the 1-minute timer floor)."""
     db = get_database()
     _add_column_if_missing(db, "tasks", "estimated_hours", "VARCHAR")
+
+
+def _migrate_timesheet_entry_task_link() -> None:
+    """Timesheet rows that came from a task remember which one.
+
+    Without the link a task's hours cannot be revised: closing a task that was
+    also timed would append a second row instead of replacing the timer's.
+    """
+    db = get_database()
+    _add_column_if_missing(db, "timesheet_entries", "task_id", "VARCHAR")
+    try:
+        db.write(
+            "CREATE INDEX IF NOT EXISTS ix_timesheet_entries_task "
+            "ON timesheet_entries (task_id)"
+        )
+    except Exception:
+        pass
+
+
+def _migrate_user_story_parent() -> None:
+    """Nullable parent on a story, so one can sit under another.
+
+    Best effort: on a database where the app role cannot ALTER `user_stories`
+    the column simply never appears, and the CRUD layer packs the link into the
+    same field it already uses for the other columns it cannot add.
+    """
+    db = get_database()
+    if not _table_exists(db, "user_stories"):
+        return
+    _add_column_if_missing(db, "user_stories", "parent_story_id", "VARCHAR")
+    try:
+        db.write(
+            "CREATE INDEX IF NOT EXISTS ix_user_stories_parent "
+            "ON user_stories (parent_story_id)"
+        )
+    except Exception:
+        pass
+
+
+def _migrate_story_status_from_tasks() -> None:
+    """One-off: lift stories that were left in Backlog while their tasks moved on.
+
+    Stories only started following their tasks when that rule was added, so every
+    story created before it still sits wherever it was last put by hand. Runs
+    once — a story deliberately pushed back to Backlog must stay there, so this
+    cannot be allowed to re-run on every boot.
+    """
+    db = get_database()
+    if not (_table_exists(db, "user_stories") and _table_exists(db, "tasks")):
+        return
+    import crud.settings as settings_crud
+
+    flag = "story_status_backfill_v1"
+    try:
+        if settings_crud.get(db, flag):
+            return
+    except Exception:
+        return  # app_settings not ready yet; try again next boot
+
+    working = "('backlog', 'done', 'completed')"
+    try:
+        rows = db.read(
+            f"""
+            SELECT s.id AS story_id,
+                   (SELECT t.status FROM tasks t
+                     WHERE t.user_story_id = s.id AND t.status NOT IN {working}
+                     LIMIT 1) AS task_status
+            FROM user_stories s
+            WHERE s.status = 'backlog'
+            """
+        )
+        now = datetime.now(timezone.utc).isoformat()
+        moved = 0
+        for row in rows:
+            status = (row.get("task_status") or "").strip()
+            if not status:
+                continue
+            db.write(
+                "UPDATE user_stories SET status = %s, updated_at = %s WHERE id = %s",
+                (status, now, row["story_id"]),
+            )
+            moved += 1
+        settings_crud.set(db, flag, "done")
+        if moved:
+            log.info("Backfilled %s user story statuses from their tasks", moved)
+    except Exception:
+        log.warning("Story status backfill skipped", exc_info=True)
 
 
 def _migrate_clients() -> None:
@@ -383,6 +470,21 @@ def _migrate_user_stories() -> None:
         """,
     )
 
+    _create_table_if_missing(
+        db,
+        "user_story_feedback",
+        """
+        CREATE TABLE IF NOT EXISTS user_story_feedback (
+            id VARCHAR PRIMARY KEY,
+            user_story_id VARCHAR NOT NULL REFERENCES user_stories (id) ON DELETE CASCADE,
+            user_id VARCHAR NOT NULL REFERENCES users (id),
+            message TEXT NOT NULL,
+            created_at VARCHAR NOT NULL,
+            updated_at VARCHAR NOT NULL
+        )
+        """,
+    )
+
     # Backfill assignees from legacy single assignee_id
     try:
         rows = db.read(
@@ -415,6 +517,7 @@ def _migrate_user_stories() -> None:
         "CREATE INDEX IF NOT EXISTS ix_tasks_user_story_id ON tasks (user_story_id)",
         "CREATE INDEX IF NOT EXISTS ix_tasks_parent_task_id ON tasks (parent_task_id)",
         "CREATE INDEX IF NOT EXISTS ix_user_story_attachments_story ON user_story_attachments (user_story_id)",
+        "CREATE INDEX IF NOT EXISTS ix_user_story_feedback_story ON user_story_feedback (user_story_id)",
     ):
         try:
             # Skip task indexes until the column is present (defensive)
@@ -481,6 +584,21 @@ def _migrate_user_story_board_fields() -> None:
     )
 
 
+def _migrate_kanban_color() -> None:
+    """Per-column colour. Existing rows get slate; the base columns keep their
+    long-standing hardcoded hues so boards look unchanged after the upgrade."""
+    db = get_database()
+    if not _table_exists(db, "kanban_columns") or _column_exists(db, "kanban_columns", "color"):
+        return
+    _add_column_if_missing(db, "kanban_columns", "color", "VARCHAR NOT NULL DEFAULT 'slate'")
+    # The ADD is soft-failed when the role does not own the table (a DBA applies
+    # it out of band). Never backfill against a column that is still missing.
+    if not _column_exists(db, "kanban_columns", "color"):
+        return
+    for kid, _label, _pos, color in _DEFAULT_KANBAN:
+        db.write("UPDATE kanban_columns SET color = %s WHERE id = %s", (color, kid))
+
+
 def init_db() -> None:
     # Bootstrap creates base tables. On existing DBs, CREATE TABLE IF NOT EXISTS is a
     # no-op — new columns are NOT added there. Hierarchy columns/indexes come next.
@@ -489,6 +607,7 @@ def init_db() -> None:
     _migrate_task_min_log_minutes()
     _migrate_task_sprint()
     _migrate_task_estimated_hours()
+    _migrate_timesheet_entry_task_link()
     _migrate_clients()
     _migrate_skills()
     _migrate_user_stories()
@@ -497,6 +616,9 @@ def init_db() -> None:
     _migrate_forecast_visibility()
     _migrate_pat_expiry()
     _migrate_temp_task_assignees()
+    _migrate_kanban_color()
+    _migrate_user_story_parent()
+    _migrate_story_status_from_tasks()
     _seed_kanban()
     from logic.audit import purge_old_audit_logs
 

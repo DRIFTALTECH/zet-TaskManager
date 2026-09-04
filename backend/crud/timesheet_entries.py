@@ -2,7 +2,7 @@ from database.models import TimesheetEntry
 
 from crud._base import Db, fetch_all, fetch_one, row_to_model, rows_to_models
 
-_SELECT = """SELECT id, user_id, work_date, project_id, section_id, description,
+_SELECT = """SELECT id, user_id, work_date, project_id, section_id, task_id, description,
     time_from, time_to, seconds, billable, created_at FROM timesheet_entries"""
 
 
@@ -85,18 +85,45 @@ def exists_matching(
     return row is not None
 
 
+def list_for_user_day(db: Db, user_id: str, work_date: str) -> list[TimesheetEntry]:
+    rows = fetch_all(
+        db,
+        f"{_SELECT} WHERE user_id = %s AND work_date = %s ORDER BY time_from",
+        (user_id, work_date),
+    )
+    return rows_to_models(TimesheetEntry, rows)
+
+
+def list_for_task(db: Db, user_id: str, task_id: str) -> list[TimesheetEntry]:
+    """Every row this user has logged against one task, oldest first."""
+    rows = fetch_all(
+        db,
+        f"{_SELECT} WHERE user_id = %s AND task_id = %s ORDER BY work_date, time_from",
+        (user_id, task_id),
+    )
+    return rows_to_models(TimesheetEntry, rows)
+
+
+def delete_for_task(db: Db, user_id: str, task_id: str) -> None:
+    db.write(
+        "DELETE FROM timesheet_entries WHERE user_id = %s AND task_id = %s",
+        (user_id, task_id),
+    )
+
+
 def create_entry(db: Db, row: TimesheetEntry) -> TimesheetEntry:
     db.write(
         """INSERT INTO timesheet_entries
-            (id, user_id, work_date, project_id, section_id, description,
+            (id, user_id, work_date, project_id, section_id, task_id, description,
              time_from, time_to, seconds, billable, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
         (
             row.id,
             row.user_id,
             row.work_date,
             row.project_id,
             row.section_id,
+            getattr(row, "task_id", None),
             row.description,
             row.time_from,
             row.time_to,
@@ -112,7 +139,7 @@ def update_entry(db: Db, row: TimesheetEntry) -> TimesheetEntry:
     db.write(
         """UPDATE timesheet_entries SET
             user_id = %s, work_date = %s, project_id = %s, section_id = %s,
-            description = %s, time_from = %s, time_to = %s, seconds = %s,
+            task_id = %s, description = %s, time_from = %s, time_to = %s, seconds = %s,
             billable = %s, created_at = %s
             WHERE id = %s""",
         (
@@ -120,6 +147,7 @@ def update_entry(db: Db, row: TimesheetEntry) -> TimesheetEntry:
             row.work_date,
             row.project_id,
             row.section_id,
+            getattr(row, "task_id", None),
             row.description,
             row.time_from,
             row.time_to,

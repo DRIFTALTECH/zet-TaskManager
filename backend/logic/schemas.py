@@ -317,6 +317,7 @@ class UserStoryOut(BaseModel):
     id: str
     projectId: str
     sectionId: str | None = None
+    parentStoryId: str | None = None
     title: str
     description: str
     acceptanceCriteria: str
@@ -362,6 +363,9 @@ class UserStoryCreate(BaseModel):
 
 class UserStoryPatch(BaseModel):
     title: str | None = None
+    projectId: str | None = None
+    # "" detaches the story back to the top level; None leaves it alone.
+    parentStoryId: str | None = None
     description: str | None = None
     acceptanceCriteria: str | None = None
     priority: str | None = None
@@ -540,14 +544,19 @@ class MinTimerPersistBody(BaseModel):
 class KanbanColumnOut(BaseModel):
     id: str
     label: str
+    color: str
 
 
 class KanbanColumnCreate(BaseModel):
     label: str
+    color: str | None = None
 
 
 class KanbanColumnRename(BaseModel):
-    label: str
+    """Label and/or colour. Omitted fields keep their current value."""
+
+    label: str | None = None
+    color: str | None = None
 
 
 class KanbanReorderBody(BaseModel):
@@ -560,6 +569,7 @@ class TimesheetEntryOut(BaseModel):
     workDate: str
     projectId: str
     sectionId: str
+    taskId: str | None = None
     description: str
     timeFrom: str
     timeTo: str
@@ -621,6 +631,8 @@ class TimesheetEntryCreate(BaseModel):
     timeFrom: str
     timeTo: str
     billable: bool = True
+    # Set by the task flows (timer stop, hours at Done) so the row can be revised.
+    taskId: str | None = None
 
 
 class TimesheetEntryPatch(BaseModel):
@@ -699,6 +711,25 @@ class TaskFeedbackCreate(BaseModel):
 
 
 class TaskFeedbackPatch(BaseModel):
+    message: str = Field(..., min_length=1, max_length=8000)
+
+
+class UserStoryFeedbackOut(BaseModel):
+    id: str
+    userStoryId: str
+    userId: str
+    authorName: str
+    message: str
+    createdAt: str
+    updatedAt: str
+
+
+class UserStoryFeedbackCreate(BaseModel):
+    message: str = Field(..., min_length=1, max_length=8000)
+    mentionedUserIds: list[str] = Field(default_factory=list)
+
+
+class UserStoryFeedbackPatch(BaseModel):
     message: str = Field(..., min_length=1, max_length=8000)
 
 

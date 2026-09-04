@@ -5,6 +5,8 @@ export type TaskStatus = string;
 export interface KanbanColumn {
   id: string;
   label: string;
+  /** Palette key from lib/column-colors — not a hex value. */
+  color?: string;
 }
 
 export interface User {
@@ -101,6 +103,8 @@ export interface UserStory {
   id: string;
   projectId: string;
   sectionId?: string | null;
+  /** Set when this story sits under another (epic → story). */
+  parentStoryId?: string | null;
   title: string;
   description: string;
   acceptanceCriteria: string;
@@ -191,6 +195,16 @@ export type PrdStreamEvent =
 export interface TaskFeedback {
   id: string;
   taskId: string;
+  userId: string;
+  authorName: string;
+  message: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UserStoryFeedback {
+  id: string;
+  userStoryId: string;
   userId: string;
   authorName: string;
   message: string;

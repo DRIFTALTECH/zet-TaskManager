@@ -1,33 +1,41 @@
 import { useAppStore } from '@/stores/appStore';
 import { Task, Priority, TaskStatus, TaskAttachment, TaskFeedback } from '@/types';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
+import { confirmAction } from '@/components/ConfirmDialog';
+import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import {
   Calendar, Tag, Clock, AlertTriangle, Plus, X, Trash2,
   FolderOpen, Layers, Mail, UserCircle, CircleDot,
   MessageSquare, Send, User2, CheckCircle2, RotateCcw, ChevronRight,
   Paperclip, Download, Upload, Sparkles, Eye, FileText, BookOpen,
-  CheckSquare, Square,
+  ChevronsUpDown,
 } from 'lucide-react';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { taskAssigneeIds, isTaskAssignedTo, normalizePriority, childTasksOf, isTaskDone, isDoneBoardStatus } from '@/lib/task-utils';
 import { projectPickerLabel } from '@/lib/project-utils';
 import UserAvatar from '@/components/UserAvatar';
-import { AdjustMinDurationSection } from '@/components/AdjustMinDurationSection';
-import { SubtaskManager } from '@/components/SubtaskSection';
+import RichTextEditor from '@/components/RichTextEditor';
+import { FieldLabel } from '@/components/ui/field';
+import { DatePickerInput } from '@/components/DatePickerInput';
+import { FIELD_GRID, HIDE_EMPTY_FIELDS } from '@/lib/field-styles';
+import { useShowEmptyFields } from '@/hooks/useShowEmptyFields';
+import { WorkItemRow } from '@/components/WorkItemRow';
+import { WorkTypeSelect } from '@/components/dash/WorkTypeSelect';
+import { HoursMinutesInput, formatHM, secondsToDecimalHours } from '@/components/HoursMinutesInput';
+import { AssigneeCell } from '@/components/dash/DashCells';
 import { SprintSelect } from '@/components/SprintSelect';
 import { matchAgentBrand, AgentBrandBadge } from '@/lib/agent-brand';
 import { dueBucketDateTextClass, getDueBucket } from '@/lib/due-date-utils';
 import { api } from '@/lib/api';
 import { promptActualHours } from '@/components/ActualHoursDialog';
-import { projectKeys, queryClient, taskKeys } from '@/lib/queryClient';
+import { queryClient, taskKeys } from '@/lib/queryClient';
 import { formatLocalDateTime } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -37,8 +45,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-interface Props { task: Task | null; open: boolean; onOpenChange: (open: boolean) => void; }
-type CustomFieldRow = { localId: string; key: string; value: string };
+interface Props {
+  task: Task | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  /** Turn this task into a story. */
+  onConvert?: (taskId: string) => void;
+}
 
 // ── Config maps ───────────────────────────────────────────────────────────────
 const priorityConfig: Record<Priority, { style: string; dot: string; ring: string }> = {
@@ -102,19 +115,7 @@ function fmtSize(bytes: number) {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
-function newRow(): CustomFieldRow { return { localId: crypto.randomUUID(), key: '', value: '' }; }
-function rowsFromTask(cf?: Record<string, string>): CustomFieldRow[] {
-  return Object.entries(cf || {}).map(([key, value]) => ({ localId: crypto.randomUUID(), key, value }));
-}
-function recordFromRows(rows: CustomFieldRow[]): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const r of rows) { const k = r.key.trim(); if (k) out[k] = r.value.trim(); }
-  return out;
-}
 function sortedKey(ids: string[]) { return [...ids].sort().join('|'); }
-function cfSig(cf?: Record<string, string>) {
-  return JSON.stringify(Object.keys(cf || {}).sort().reduce<Record<string, string>>((a, k) => { a[k] = (cf || {})[k]; return a; }, {}));
-}
 
 function renderMessageWithMentions(message: string, userNames: string[]) {
   if (!message.includes('@')) return message;
@@ -154,26 +155,18 @@ function useElapsedTime(epochStart: number | null): string {
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
-function SectionLabel({ icon: Icon, label, accent = 'text-muted-foreground/60' }: { icon: React.ElementType; label: string; accent?: string }) {
-  return (
-    <div className={`flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.12em] mb-3 ${accent}`}>
-      <Icon className="h-3.5 w-3.5 shrink-0" />
-      <span>{label}</span>
-    </div>
-  );
-}
-
 function Avatar({ name, avatar, size = 'md' }: { name: string; avatar?: string; size?: 'sm' | 'md' | 'lg' }) {
   const sizeMap: Record<string, 'sm' | 'md' | 'lg'> = { sm: 'sm', md: 'md', lg: 'lg' };
   return <UserAvatar name={name} avatar={avatar} size={sizeMap[size]} />;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-const TaskDetailModal = ({ task: listTask, open, onOpenChange }: Props) => {
+const TaskDetailModal = ({ task: listTask, open, onOpenChange, onConvert }: Props) => {
   const {
     users, projects, kanbanColumns, updateTask, currentUser, deleteTask, reopenTaskToBacklog,
     activeTimers, startTimer, stopTimer, tasks: allTasks, moveTask,
   } = useAppStore();
+  const { showEmpty, toggleEmptyFields } = useShowEmptyFields();
   const { data: fullTask } = useQuery({
     queryKey: taskKeys.detail(listTask?.id ?? '_'),
     queryFn: () => api.getTask(listTask!.id),
@@ -190,21 +183,18 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange }: Props) => {
   const [draftDescription, setDraftDescription] = useState('');
   const [draftPriority, setDraftPriority] = useState<Priority>('Medium');
   const [draftAssigneeIds, setDraftAssigneeIds] = useState<string[]>([]);
-  const [draftCustomRows, setDraftCustomRows] = useState<CustomFieldRow[]>([]);
   const [draftSprint, setDraftSprint] = useState('');
   const [draftEstimatedHours, setDraftEstimatedHours] = useState('');
+  const [draftActualHours, setDraftActualHours] = useState('');
   const [draftDueDate, setDraftDueDate] = useState('');
   const [draftProjectId, setDraftProjectId] = useState('');
   const [draftSectionId, setDraftSectionId] = useState('');
   const [draftStatus, setDraftStatus] = useState('');
-  const [draftTags, setDraftTags] = useState<string[]>([]);
   const [draftStartedAt, setDraftStartedAt] = useState('');
   const [draftCompletedAt, setDraftCompletedAt] = useState('');
-  const [tagInput, setTagInput] = useState('');
   const [saving, setSaving] = useState(false);
 
   const taskId = task?.id ?? '';
-  const storyProjectId = draftProjectId || task?.projectId || '';
   const { data: feedbackList = [], isLoading: feedbackLoading } = useQuery({
     queryKey: taskKeys.feedback(taskId),
     queryFn: () => api.listTaskFeedback(taskId),
@@ -215,12 +205,6 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange }: Props) => {
     queryKey: taskKeys.attachments(taskId),
     queryFn: () => api.getAttachments(taskId),
     enabled: open && !!taskId,
-    staleTime: Infinity,
-  });
-  const { data: sectionStories = [] } = useQuery({
-    queryKey: projectKeys.userStories(storyProjectId),
-    queryFn: () => api.listProjectUserStories(storyProjectId),
-    enabled: open && !!storyProjectId,
     staleTime: Infinity,
   });
   const [newFeedbackText, setNewFeedbackText] = useState('');
@@ -291,17 +275,15 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange }: Props) => {
     setDraftDescription(t.description ?? '');
     setDraftPriority(normalizePriority(t.priority));
     setDraftAssigneeIds([...taskAssigneeIds(t)]);
-    setDraftCustomRows(rowsFromTask(t.customFields));
     setDraftSprint(t.sprint ?? '');
     setDraftEstimatedHours(t.estimatedHours != null && t.estimatedHours > 0 ? String(t.estimatedHours) : '');
+    setDraftActualHours(secondsToDecimalHours(t.timeTracked || 0));
     setDraftDueDate(dateOnly(t.dueDate));
     setDraftProjectId(t.projectId);
     setDraftSectionId(t.sectionId);
     setDraftStatus(t.status);
-    setDraftTags([...(t.tags ?? [])]);
     setDraftStartedAt(dateOnly(t.startedAt));
     setDraftCompletedAt(dateOnly(t.completedAt));
-    setTagInput('');
   }, []);
 
   useEffect(() => { if (task && open) resetDraft(task); }, [open, task?.id, task?.description, assigneeKey, resetDraft]);
@@ -317,19 +299,18 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange }: Props) => {
       draftTitle !== task.title ||
       draftDescription !== (task.description ?? '') ||
       draftPriority !== normalizePriority(task.priority) ||
-      cfSig(recordFromRows(draftCustomRows)) !== cfSig(task.customFields) ||
       sortedKey(draftAssigneeIds) !== sortedKey(taskAssigneeIds(task)) ||
       draftSprint.trim() !== (task.sprint ?? '').trim() ||
       (draftEstimatedHours.trim() || '') !== (task.estimatedHours != null && task.estimatedHours > 0 ? String(task.estimatedHours) : '') ||
+      draftActualHours !== secondsToDecimalHours(task.timeTracked || 0) ||
       draftDueDate !== dateOnly(task.dueDate) ||
       draftProjectId !== task.projectId ||
       draftSectionId !== task.sectionId ||
       draftStatus !== task.status ||
-      sortedKey(draftTags) !== sortedKey(task.tags ?? []) ||
       draftStartedAt !== dateOnly(task.startedAt) ||
       draftCompletedAt !== dateOnly(task.completedAt)
     );
-  }, [task, canEdit, draftTitle, draftDescription, draftPriority, draftAssigneeIds, draftCustomRows, draftSprint, draftEstimatedHours, draftDueDate, draftProjectId, draftSectionId, draftStatus, draftTags, draftStartedAt, draftCompletedAt]);
+  }, [task, canEdit, draftTitle, draftDescription, draftPriority, draftAssigneeIds, draftSprint, draftEstimatedHours, draftActualHours, draftDueDate, draftProjectId, draftSectionId, draftStatus, draftStartedAt, draftCompletedAt]);
 
   const timerEpochStart = task ? (activeTimers[task.id] ?? null) : null;
   const elapsed = useElapsedTime(timerEpochStart);
@@ -345,6 +326,9 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange }: Props) => {
     const q = mentionQuery.toLowerCase();
     return users.filter(u => u.name.toLowerCase().includes(q)).slice(0, 6);
   }, [mentionQuery, users]);
+
+  // Must stay above the early return below — hooks cannot be conditional.
+  const handleOpenChange = useUnsavedChangesGuard({ isDirty, onOpenChange, what: 'task' });
 
   if (!task) return null;
 
@@ -379,17 +363,6 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange }: Props) => {
   if (displayStatus && !statusOptions.some(s => s.id === displayStatus)) {
     statusOptions.push({ id: displayStatus, label: statusCfg.label });
   }
-  const linkedStory = sectionStories.find(s => s.id === (task.userStoryId || ''));
-
-  const toggleAssignee = (uid: string) => setDraftAssigneeIds(prev =>
-    prev.includes(uid) ? prev.filter(id => id !== uid) : [...prev, uid]);
-
-  const addTag = () => {
-    const next = tagInput.trim().replace(/,$/, '');
-    if (!next || draftTags.includes(next)) { setTagInput(''); return; }
-    setDraftTags(prev => [...prev, next]);
-    setTagInput('');
-  };
 
   const handleProjectChange = (pid: string) => {
     setDraftProjectId(pid);
@@ -412,8 +385,21 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange }: Props) => {
       estimatedHours = n > 0 ? n : null;
     }
     const ids = [...new Set(draftAssigneeIds)];
+    // Only send actual time when it was actually touched: the server replaces the
+    // task's time logs and its timesheet row with whatever arrives here, so
+    // sending an unchanged value on every save would rewrite both for nothing.
     let actualHours: number | undefined;
-    if (isDoneBoardStatus(draftStatus || task.status) && !isDoneBoardStatus(task.status)) {
+    const actualRaw = draftActualHours.trim();
+    if (actualRaw !== secondsToDecimalHours(task.timeTracked || 0)) {
+      const n = actualRaw ? Number(actualRaw) : 0;
+      if (!Number.isFinite(n) || n < 0) { toast.error('Actual time must be hours and minutes'); return; }
+      actualHours = n;
+    }
+    if (
+      actualHours === undefined &&
+      isDoneBoardStatus(draftStatus || task.status) &&
+      !isDoneBoardStatus(task.status)
+    ) {
       const hours = await promptActualHours(task, 'done');
       if (hours === null) return;
       actualHours = hours;
@@ -424,7 +410,6 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange }: Props) => {
         title,
         description: draftDescription,
         priority: draftPriority,
-        customFields: recordFromRows(draftCustomRows),
         assigneeIds: ids,
         sprint: draftSprint.trim(),
         estimatedHours,
@@ -432,7 +417,6 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange }: Props) => {
         projectId: draftProjectId || task.projectId,
         sectionId: draftSectionId || task.sectionId,
         status: draftStatus || task.status,
-        tags: draftTags,
         startedAt: draftStartedAt || null,
         completedAt: draftCompletedAt || null,
         actualHours,
@@ -518,7 +502,13 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange }: Props) => {
   };
 
   const deleteFeedback = async (id: string) => {
-    if (!window.confirm('Delete this comment?')) return;
+    const ok = await confirmAction({
+      title: 'Delete this comment?',
+      description: 'This cannot be undone.',
+      confirmLabel: 'Delete comment',
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await api.deleteTaskFeedback(task.id, id);
       queryClient.setQueryData(taskKeys.feedback(task.id), (prev: TaskFeedback[] | undefined) =>
@@ -547,23 +537,20 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange }: Props) => {
     } finally { setReopening(false); }
   };
 
-  const handleOpenChange = (next: boolean) => {
-    if (!next && isDirty && !window.confirm('You have unsaved changes. Close without saving?')) return;
-    onOpenChange(next);
-  };
+
 
   return (
     <>
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="sm:max-w-[1060px] flex max-h-[min(92dvh,92vh)] min-h-0 flex-col gap-0 overflow-hidden border-border/30 bg-card p-0 rounded-2xl shadow-2xl">
+        <DialogContent className="flex h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] min-h-0 max-w-none flex-col gap-0 overflow-hidden rounded-2xl border-border/30 bg-card p-0 shadow-2xl sm:max-w-[min(96vw,1500px)]">
           <DialogTitle className="sr-only">{task.title}</DialogTitle>
           <DialogDescription className="sr-only">Task details for {task.title}</DialogDescription>
 
           {/* ── Header ────────────────────────────────────────────── */}
-          <div className="shrink-0 px-7 pt-5 pb-4 border-b border-border/30 bg-gradient-to-b from-muted/30 to-transparent">
+          <div className="shrink-0 px-5 pt-3 pb-3 sm:px-7 border-b border-border/30 bg-gradient-to-b from-muted/30 to-transparent">
 
             {/* Breadcrumb */}
-            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/50 mb-4 flex-wrap pr-10">
+            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/50 mb-2 flex-wrap pr-10">
               <FolderOpen className="h-3 w-3 shrink-0" />
               <span className="hover:text-foreground/70 transition-colors cursor-default">{project?.name ?? '—'}</span>
               <ChevronRight className="h-3 w-3 shrink-0 opacity-30" />
@@ -580,12 +567,13 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange }: Props) => {
                   <textarea
                     value={draftTitle}
                     onChange={e => setDraftTitle(e.target.value)}
-                    rows={3}
-                    className="w-full text-[22px] font-bold bg-muted/40 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:bg-muted/60 placeholder:text-muted-foreground/30 border border-transparent focus:border-primary/20 transition-all leading-snug resize-y min-h-[2.85rem] max-h-[12rem] whitespace-pre-wrap break-words"
+                    ref={el => { if (el) { el.style.height = 'auto'; el.style.height = `${el.scrollHeight}px`; } }}
+                    rows={1}
+                    className="w-full resize-none overflow-y-auto rounded-lg border border-transparent bg-transparent px-2 py-0.5 text-[18px] font-bold leading-snug tracking-tight text-foreground transition-colors placeholder:text-muted-foreground/30 hover:bg-muted/40 focus:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-primary/30 max-h-[8rem] whitespace-pre-wrap break-words"
                     placeholder="Task title"
                   />
                 ) : (
-                  <h2 className="text-[22px] font-bold text-foreground leading-snug break-words whitespace-normal">
+                  <h2 className="px-2 py-0.5 text-[18px] font-bold leading-snug tracking-tight text-foreground break-words whitespace-normal">
                     {task.title}
                   </h2>
                 )}
@@ -601,6 +589,13 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange }: Props) => {
                     {reopening ? 'Moving…' : 'Reopen'}
                   </button>
                 )}
+                {canEdit && onConvert && (
+                  <WorkTypeSelect
+                    size="md"
+                    value="task"
+                    onChange={() => onConvert(task.id)}
+                  />
+                )}
                 {canDeleteTask && (
                   <button
                     onClick={() => setDeleteConfirmOpen(true)}
@@ -614,7 +609,7 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange }: Props) => {
             </div>
 
             {/* Badges */}
-            <div className="flex flex-wrap gap-2 mt-4">
+            <div className="flex flex-wrap gap-2 mt-2">
               <span className={`text-[11px] px-3 py-1 rounded-full font-semibold border ${statusCfg.style}`}>
                 {statusLabel}
               </span>
@@ -640,38 +635,257 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange }: Props) => {
             </div>
           </div>
 
-          {/* ── Body ──────────────────────────────────────────────── */}
+          {/* ── Body: fields + content scroll together, rail runs full height ── */}
           <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-y-auto md:overflow-hidden divide-y md:divide-y-0 md:divide-x divide-border/20">
+            <div className="flex-1 min-w-0 md:overflow-y-auto overscroll-contain">
 
-            {/* ── LEFT pane ─────────────────────────────────────── */}
-            <div className="flex-1 min-w-0 md:overflow-y-auto overscroll-contain p-5 sm:p-7 space-y-7">
+              {/* ── Fields ─────────────────────────────────────── */}
+              <div className="border-b border-border/30 px-5 py-3 sm:px-7">
+            <div className={`${FIELD_GRID} ${showEmpty ? '' : HIDE_EMPTY_FIELDS}`}>
 
-              {linkedStory && (
-                <section className="rounded-xl border border-violet-500/20 overflow-hidden">
-                  <div className="flex items-center gap-2 px-4 py-2.5 bg-violet-500/10">
-                    <BookOpen className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />
-                    <span className="text-[11px] font-bold uppercase tracking-wide text-violet-600 dark:text-violet-400">User story</span>
+              {/* Priority */}
+              <section>
+                <FieldLabel icon={AlertTriangle} label="Priority" />
+                {canEdit ? (
+                  <Select value={draftPriority} onValueChange={v => setDraftPriority(v as Priority)}>
+                    <SelectTrigger className="h-8 w-full text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(['Urgent', 'High', 'Medium', 'Low'] as Priority[]).map(p => (
+                        <SelectItem key={p} value={p}>
+                          <span className="flex items-center gap-2">
+                            <span className={`h-2 w-2 rounded-full ${priorityConfig[p].dot}`} />
+                            {p}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <span className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl font-semibold border ${priCfg.style}`}>
+                    <span className={`w-2 h-2 rounded-full ${priCfg.dot}`} />
+                    {displayPriority}
+                  </span>
+                )}
+              </section>
+
+              {/* Status */}
+              <section>
+                <FieldLabel icon={CircleDot} label="Status" />
+                {canEdit ? (
+                  <Select value={draftStatus || task.status} onValueChange={setDraftStatus}>
+                    <SelectTrigger className="h-8 w-full text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {statusOptions.map(s => (
+                        <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <span className={`inline-flex items-center text-xs px-3 py-1.5 rounded-xl font-semibold border ${statusCfg.style}`}>
+                    {statusLabel}
+                  </span>
+                )}
+              </section>
+
+              {/* Project */}
+              <section>
+                <FieldLabel icon={FolderOpen} label="Project" />
+                {canEdit ? (
+                  <Select value={draftProjectId || task.projectId} onValueChange={handleProjectChange}>
+                    <SelectTrigger className="h-8 w-full text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {editableProjects.map(p => (
+                        <SelectItem key={p.id} value={p.id}>{projectPickerLabel(p)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <p className="text-sm font-semibold text-foreground">{project?.name ?? '—'}</p>
+                )}
+              </section>
+
+              {/* Section */}
+              <section data-empty={!(canEdit ? (draftSectionId || task.sectionId) : section?.name)}>
+                <FieldLabel icon={Layers} label="Section" />
+                {canEdit && project ? (
+                  <Select
+                    value={draftSectionId || task.sectionId}
+                    onValueChange={setDraftSectionId}
+                  >
+                    <SelectTrigger className="h-8 w-full text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {project.sections.map(s => (
+                        <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <p className="text-xs text-foreground">{section?.name ?? '—'}</p>
+                )}
+              </section>
+
+              {/* Sprint */}
+              <section data-empty={!(canEdit ? draftSprint : task.sprint?.trim())}>
+                <FieldLabel icon={Layers} label="Sprint" />
+                {canEdit ? (
+                  <SprintSelect value={draftSprint} onChange={setDraftSprint} projectId={draftProjectId || task.projectId} />
+                ) : (
+                  <div className="text-sm text-foreground">{task.sprint?.trim() || 'No sprint'}</div>
+                )}
+              </section>
+
+              {/* Estimated time */}
+              <section>
+                <FieldLabel icon={Clock} label="Estimate" />
+                {canEdit ? (
+                  <HoursMinutesInput
+                    value={draftEstimatedHours}
+                    onChange={setDraftEstimatedHours}
+                    aria-label="Estimate"
+                  />
+                ) : (
+                  <div className="text-sm text-foreground">
+                    {task.estimatedHours != null && task.estimatedHours > 0
+                      ? formatHM(String(task.estimatedHours))
+                      : '—'}
                   </div>
-                  <div className="px-4 py-3.5 space-y-3 bg-violet-500/5">
-                    <p className="text-sm font-semibold text-foreground">{linkedStory.title}</p>
-                    {linkedStory.description?.trim() ? (
-                      <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground/90">{linkedStory.description}</p>
-                    ) : (
-                      <p className="text-sm italic text-muted-foreground/50">No story description.</p>
-                    )}
-                    {linkedStory.acceptanceCriteria?.trim() ? (
-                      <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">Acceptance criteria</p>
-                        <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground/80">{linkedStory.acceptanceCriteria}</p>
-                      </div>
-                    ) : null}
+                )}
+              </section>
+
+              {/* Actual — the hours that reach the timesheet */}
+              <section>
+                <FieldLabel icon={Clock} label="Actual" />
+                {canEdit ? (
+                  <HoursMinutesInput
+                    value={draftActualHours}
+                    onChange={setDraftActualHours}
+                    aria-label="Actual"
+                  />
+                ) : (
+                  <div className="text-sm text-foreground">
+                    {task.timeTracked > 0 ? formatHM(secondsToDecimalHours(task.timeTracked)) : '—'}
                   </div>
-                </section>
-              )}
+                )}
+              </section>
+
+              {/* Started */}
+              <section data-empty={!(draftStartedAt || task.startedAt)}>
+                <FieldLabel icon={Calendar} label="Started" />
+                <div className="min-w-0">
+                {canEdit ? (
+                  <DatePickerInput
+                    value={draftStartedAt}
+                    onChange={setDraftStartedAt}
+                    placeholder="Not started"
+                    aria-label="Started"
+                  />
+                ) : (
+                  <div className="text-sm text-foreground">
+                    {draftStartedAt || task.startedAt ? formatLocalDateTime(draftStartedAt || task.startedAt || '') : '—'}
+                  </div>
+                )}
+                </div>
+              </section>
+
+              {/* Due Date */}
+              <section data-empty={!(draftDueDate || task.dueDate?.trim())}>
+                <FieldLabel icon={Calendar} label="Due Date" />
+                <div className="min-w-0">
+                {canEdit ? (
+                  <DatePickerInput
+                    value={draftDueDate}
+                    onChange={setDraftDueDate}
+                    placeholder="No due date"
+                    aria-label="Due date"
+                  />
+                ) : draftDueDate || task.dueDate?.trim() ? (
+                  <div className={`text-sm font-bold ${dueBucketDateTextClass(dueBucket, isDoneDue)}`}>
+                    {fmtDate(draftDueDate || task.dueDate)}
+                  </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground">No due date</div>
+                )}
+                {isOverdue && (
+                  <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-red-400/80 bg-red-500/8 px-2 py-0.5 rounded-md border border-red-500/15">
+                    <AlertTriangle className="h-3 w-3" /> Past due
+                  </div>
+                )}
+                </div>
+              </section>
+
+              {/* Assignees */}
+              <section>
+                <FieldLabel icon={User2} label="Assignees" />
+                <div className="min-w-0">
+                {canEdit ? (
+                  <AssigneeCell
+                    assigneeIds={draftAssigneeIds}
+                    members={projectMembers}
+                    onChange={setDraftAssigneeIds}
+                  />
+                ) : assigneeUsers.length === 0 ? (
+                  <p className="text-xs text-muted-foreground/40 italic">Unassigned</p>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {assigneeUsers.map(u => (
+                      <span key={u.id} className="inline-flex items-center gap-1.5">
+                        <UserAvatar name={u.name} avatar={u.avatar} size="xs" />
+                        <span className="text-xs font-medium truncate">{u.name}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                </div>
+              </section>
+
+              {/* Completed */}
+              <section data-empty={!(draftCompletedAt || task.completedAt)}>
+                <FieldLabel icon={Calendar} label="Completed" />
+                <div className="min-w-0">
+                {canEdit ? (
+                  <DatePickerInput
+                    value={draftCompletedAt}
+                    onChange={setDraftCompletedAt}
+                    placeholder="Not completed"
+                    aria-label="Completed"
+                  />
+                ) : (
+                  <div className="text-sm text-foreground">
+                    {draftCompletedAt || task.completedAt ? formatLocalDateTime(draftCompletedAt || task.completedAt || '') : '—'}
+                  </div>
+                )}
+                </div>
+              </section>
+
+              {/* Created */}
+              <section>
+                <FieldLabel icon={Clock} label="Created" />
+                <div className="text-[11px] text-foreground/60 tabular-nums">{taskCreatedTimeline}</div>
+              </section>
+            </div>
+            <button
+              type="button"
+              onClick={toggleEmptyFields}
+              className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground/60 transition-colors hover:text-foreground"
+            >
+              <ChevronsUpDown className="h-3 w-3" />
+              {showEmpty ? 'Collapse empty fields' : 'Show empty fields'}
+            </button>
+          </div>
+
+              <div className="p-5 sm:p-7 space-y-7">
 
               {/* Description */}
               <section>
-                <SectionLabel icon={MessageSquare} label="Description" accent="text-blue-400/70" />
+                <FieldLabel icon={MessageSquare} label="Description" />
                 {(task.dueDate || canUseTaskTimer) && (
                   <div className="flex flex-wrap items-center justify-between gap-2 -mt-1 mb-3">
                     {task.dueDate ? (
@@ -707,186 +921,55 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange }: Props) => {
                     )}
                   </div>
                 )}
-                {canEdit ? (
-                  <textarea
+{canEdit ? (
+                  <RichTextEditor
                     value={draftDescription}
-                    onChange={e => setDraftDescription(e.target.value)}
+                    onChange={setDraftDescription}
                     placeholder="Add a description…"
-                    rows={5}
-                    className="w-full rounded-xl border border-border/50 bg-muted/20 px-4 py-3.5 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 resize-none transition-all placeholder:text-muted-foreground/35"
+                    className="rounded-xl border border-border/50 bg-muted/20 px-3 py-3"
                   />
+                ) : task.description?.trim() ? (
+                  <RichTextEditor value={task.description} onChange={() => {}} editable={false} />
                 ) : (
-                  <div className="rounded-xl border border-border/30 bg-muted/10 px-4 py-4 text-sm leading-relaxed text-foreground min-h-[88px] whitespace-pre-wrap">
-                    {task.description?.trim()
-                      ? task.description
-                      : <span className="text-muted-foreground/40 italic">No description provided.</span>
-                    }
+                  <div className="rounded-xl border border-border/30 bg-muted/10 px-4 py-4 text-sm italic text-muted-foreground/40">
+                    No description provided.
                   </div>
                 )}
               </section>
 
-              {isManager && (
-                <AdjustMinDurationSection task={task} />
-              )}
-
-              {/* Manage Assignees */}
-              {canEdit && (
+              {nestedChildren.length > 0 && (
                 <section>
-                  <SectionLabel icon={User2} label="Manage Assignees" accent="text-violet-400/70" />
-                  {task.userStoryId && (
-                    <p className="text-[11px] text-muted-foreground/60 mb-2">
-                      Linked to a user story — you can leave assignees empty; the task stays under the story.
-                    </p>
-                  )}
-                  <div className="rounded-xl border border-border/40 overflow-hidden divide-y divide-border/25 bg-card max-h-[280px] overflow-y-auto">
-                    {projectMembers.map(u => (
-                      <label
-                        key={u.id}
-                        className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-primary/5 transition-colors group"
-                      >
-                        <Checkbox checked={draftAssigneeIds.includes(u.id)} onCheckedChange={() => toggleAssignee(u.id)} />
-                        <Avatar name={u.name} avatar={u.avatar} size="sm" />
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-semibold truncate group-hover:text-primary transition-colors">{u.name}</div>
-                          <div className="text-xs text-muted-foreground truncate">{u.email}</div>
-                        </div>
-                        {u.role === 'manager' && (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-bold shrink-0">Mgr</span>
-                        )}
-                      </label>
+                  <div className="flex items-center justify-between mb-3">
+                    <FieldLabel
+                      icon={Layers}
+                      label={`Subtasks (${nestedChildren.filter(isTaskDone).length}/${nestedChildren.length})`}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    {nestedChildren.map(st => (
+                      <WorkItemRow
+                        key={st.id}
+                        task={st}
+                        onClick={() => window.dispatchEvent(new CustomEvent('zet:open-task', { detail: { taskId: st.id } }))}
+                        onToggleDone={async wasDone => {
+                          try {
+                            if (wasDone) {
+                              if (st.status === 'completed') await reopenTaskToBacklog(st.id);
+                              else await moveTask(st.id, 'backlog');
+                            } else {
+                              const hours = await promptActualHours(st, 'done');
+                              if (hours === null) return;
+                              await moveTask(st.id, 'done', hours);
+                            }
+                          } catch (e) {
+                            toast.error(e instanceof Error ? e.message : 'Could not update subtask');
+                          }
+                        }}
+                      />
                     ))}
                   </div>
                 </section>
               )}
-
-              {/* Custom Fields */}
-              {(canEdit || Object.keys(task.customFields || {}).length > 0) && (
-                <section>
-                  <SectionLabel icon={Plus} label="Custom Fields" accent="text-amber-400/70" />
-                  {canEdit ? (
-                    <div className="space-y-2.5">
-                      {draftCustomRows.map(row => (
-                        <div key={row.localId} className="flex items-center gap-2">
-                          <input
-                            value={row.key}
-                            onChange={e => setDraftCustomRows(prev => prev.map(r => r.localId === row.localId ? { ...r, key: e.target.value } : r))}
-                            placeholder="Field name"
-                            className="flex-1 min-w-0 rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 transition-all placeholder:text-muted-foreground/35"
-                          />
-                          <input
-                            value={row.value}
-                            onChange={e => setDraftCustomRows(prev => prev.map(r => r.localId === row.localId ? { ...r, value: e.target.value } : r))}
-                            placeholder="Value"
-                            className="flex-[2] min-w-0 rounded-lg border border-border/50 bg-muted/30 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 transition-all placeholder:text-muted-foreground/35"
-                          />
-                          <button
-                            onClick={() => setDraftCustomRows(prev => prev.filter(r => r.localId !== row.localId))}
-                            className="p-2 rounded-lg hover:bg-red-500/10 text-muted-foreground/50 hover:text-red-600 dark:text-red-400 transition-colors"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      ))}
-                      <button
-                        onClick={() => setDraftCustomRows(prev => [...prev, newRow()])}
-                        className="mt-1 text-sm text-primary/60 hover:text-primary flex items-center gap-1.5 px-3 py-2 rounded-lg hover:bg-primary/8 transition-colors font-medium"
-                      >
-                        <Plus className="h-3.5 w-3.5" /> Add field
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {Object.entries(task.customFields || {}).map(([key, value]) => (
-                        <div key={key} className="flex items-center gap-3 text-sm rounded-xl border border-border/30 px-4 py-2.5 bg-muted/10 hover:bg-muted/20 transition-colors">
-                          <span className="font-semibold text-muted-foreground shrink-0 w-28 truncate">{key}</span>
-                          <span className="w-px h-3.5 bg-border/40 shrink-0" />
-                          <span className="text-foreground flex-1 break-words">{value}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </section>
-              )}
-
-              {nestedChildren.length > 0 && (() => {
-                const nestedDone = nestedChildren.filter(isTaskDone).length;
-                const nestedTotal = nestedChildren.length;
-                const nestedPct = nestedTotal ? Math.round((nestedDone / nestedTotal) * 100) : 0;
-                return (
-                  <section>
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground/60">
-                        <CheckSquare className="h-3.5 w-3.5 shrink-0" />
-                        <span>Subtasks ({nestedDone}/{nestedTotal} completed)</span>
-                      </div>
-                    </div>
-                    <div className="mb-3">
-                      <div className="flex items-center justify-between text-[10px] text-muted-foreground/50 mb-1">
-                        <span>Progress</span>
-                        <span className={nestedPct === 100 ? 'text-emerald-600 dark:text-emerald-400 font-bold' : ''}>
-                          {nestedDone}/{nestedTotal} · {nestedPct}%
-                        </span>
-                      </div>
-                      <div className="h-1.5 rounded-full bg-muted/40 overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all duration-500 ${nestedPct === 100 ? 'bg-emerald-500' : 'bg-primary'}`}
-                          style={{ width: `${nestedPct}%` }}
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      {nestedChildren.map(st => {
-                        const done = isTaskDone(st);
-                        return (
-                          <div
-                            key={st.id}
-                            className="flex items-center gap-2.5 group rounded-xl px-2 py-1.5 hover:bg-muted/30 transition-colors"
-                          >
-                            <button
-                              type="button"
-                              onClick={() => {
-                                void (async () => {
-                                  try {
-                                    if (done) {
-                                      if (st.status === 'completed') await reopenTaskToBacklog(st.id);
-                                      else await moveTask(st.id, 'backlog');
-                                    } else {
-                                      const hours = await promptActualHours(st, 'done');
-                                      if (hours === null) return;
-                                      await moveTask(st.id, 'done', hours);
-                                    }
-                                  } catch (e) {
-                                    toast.error(e instanceof Error ? e.message : 'Could not update subtask');
-                                  }
-                                })();
-                              }}
-                              className="shrink-0 text-muted-foreground/50 hover:text-primary transition-colors"
-                              title={done ? 'Mark as not completed' : 'Mark as completed'}
-                              aria-label={done ? 'Mark as not completed' : 'Mark as completed'}
-                            >
-                              {done
-                                ? <CheckSquare className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                                : <Square className="h-4 w-4" />}
-                            </button>
-                            <span
-                              className={`flex-1 text-sm min-w-0 truncate ${
-                                done ? 'line-through text-muted-foreground/40' : 'text-foreground'
-                              }`}
-                            >
-                              {st.title}
-                            </span>
-                            {done && (
-                              <span className="text-[10px] font-semibold text-emerald-500 shrink-0">Completed</span>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </section>
-                );
-              })()}
-
-              <SubtaskManager taskId={task.id} />
 
               {/* ── Attachments ── */}
               <section>
@@ -919,8 +1002,8 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange }: Props) => {
                   return (
                     <>
                       <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground/60">
-                          <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                        <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
+                          <Paperclip className="h-3.5 w-3.5 shrink-0 opacity-60" />
                           <span>Attachments {attachments.length > 0 ? `(${attachments.length})` : ''}</span>
                         </div>
                         <label className="text-[11px] text-primary/60 hover:text-primary flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-primary/8 transition-colors font-medium cursor-pointer">
@@ -982,13 +1065,18 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange }: Props) => {
                 })()}
               </section>
 
+              </div>
+            </div>
+
+            {/* ── RIGHT rail: comments ──────────────────────────── */}
+            <div className="flex w-full min-h-0 shrink-0 flex-col overscroll-contain bg-muted/5 md:w-[340px] md:overflow-y-auto">
+              <div className="p-5 sm:p-6">
               {/* Comments */}
               <section>
                 <div className="flex items-center justify-between mb-3">
-                  <SectionLabel
+                  <FieldLabel
                     icon={MessageSquare}
                     label={feedbackList.length > 0 ? `Comments (${feedbackList.length})` : 'Comments'}
-                    accent="text-emerald-400/70"
                   />
                   {feedbackList.length > 1 && (
                     <button
@@ -1190,329 +1278,7 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange }: Props) => {
                   </div>
                 </div>
               </section>
-            </div>
-
-            {/* ── RIGHT sidebar ─────────────────────────────────── */}
-            <div className="w-full md:w-[255px] shrink-0 md:overflow-y-auto overscroll-contain p-5 sm:p-6 space-y-6 bg-muted/5">
-
-              {/* Priority */}
-              <section>
-                <SectionLabel icon={AlertTriangle} label="Priority" accent="text-orange-400/70" />
-                {canEdit ? (
-                  <div className="space-y-1.5">
-                    {(['Low', 'Medium', 'High', 'Urgent'] as Priority[]).map(p => (
-                      <button
-                        key={p}
-                        onClick={() => setDraftPriority(p)}
-                        className={`w-full text-xs px-3 py-2 rounded-xl border font-semibold transition-all text-left flex items-center gap-2.5 ${priorityConfig[p].style} ${
-                          draftPriority === p
-                            ? `ring-2 ring-offset-1 ring-offset-card ${priorityConfig[p].ring} opacity-100 shadow-sm`
-                            : 'opacity-45 hover:opacity-70'
-                        }`}
-                      >
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${priorityConfig[p].dot}`} />
-                        {p}
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <span className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl font-semibold border ${priCfg.style}`}>
-                    <span className={`w-2 h-2 rounded-full ${priCfg.dot}`} />
-                    {displayPriority}
-                  </span>
-                )}
-              </section>
-
-              {/* User story — read-only; set at task creation */}
-              {task.userStoryId && (
-                <section>
-                  <SectionLabel icon={BookOpen} label="User story" accent="text-violet-400/70" />
-                  <p className="text-xs text-muted-foreground">
-                    {linkedStory?.title || 'Linked story'}
-                  </p>
-                </section>
-              )}
-
-              {/* Status */}
-              <section>
-                <SectionLabel icon={CircleDot} label="Status" accent="text-slate-400/70" />
-                {canEdit ? (
-                  <Select value={draftStatus || task.status} onValueChange={setDraftStatus}>
-                    <SelectTrigger className="w-full text-xs h-9">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {statusOptions.map(s => (
-                        <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <span className={`inline-flex items-center text-xs px-3 py-1.5 rounded-xl font-semibold border ${statusCfg.style}`}>
-                    {statusLabel}
-                  </span>
-                )}
-              </section>
-
-              {/* Project */}
-              <section>
-                <SectionLabel icon={FolderOpen} label="Project" accent="text-sky-400/70" />
-                {canEdit ? (
-                  <Select value={draftProjectId || task.projectId} onValueChange={handleProjectChange}>
-                    <SelectTrigger className="w-full text-xs h-9">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {editableProjects.map(p => (
-                        <SelectItem key={p.id} value={p.id}>{projectPickerLabel(p)}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <p className="text-sm font-semibold text-foreground">{project?.name ?? '—'}</p>
-                )}
-              </section>
-
-              {/* Section */}
-              <section>
-                <SectionLabel icon={Layers} label="Section" accent="text-teal-400/70" />
-                {canEdit && project ? (
-                  <Select
-                    value={draftSectionId || task.sectionId}
-                    onValueChange={setDraftSectionId}
-                  >
-                    <SelectTrigger className="w-full text-xs h-9">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {project.sections.map(s => (
-                        <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <p className="text-xs text-foreground">{section?.name ?? '—'}</p>
-                )}
-              </section>
-
-              {/* Sprint */}
-              <section>
-                <SectionLabel icon={Layers} label="Sprint" accent="text-violet-400/70" />
-                {canEdit ? (
-                  <SprintSelect value={draftSprint} onChange={setDraftSprint} projectId={draftProjectId || task.projectId} />
-                ) : (
-                  <div className="text-sm text-foreground">{task.sprint?.trim() || 'No sprint'}</div>
-                )}
-              </section>
-
-              {/* Estimated time */}
-              <section>
-                <SectionLabel icon={Clock} label="Estimated time" accent="text-amber-400/70" />
-                {canEdit ? (
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.25"
-                      inputMode="decimal"
-                      value={draftEstimatedHours}
-                      onChange={e => setDraftEstimatedHours(e.target.value)}
-                      placeholder="Hours"
-                      className="w-full text-sm font-semibold bg-muted/40 border border-border/50 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 transition-all"
-                    />
-                    <span className="text-xs text-muted-foreground shrink-0">hours</span>
-                  </div>
-                ) : (
-                  <div className="text-sm text-foreground">
-                    {task.estimatedHours != null && task.estimatedHours > 0
-                      ? `${task.estimatedHours}h`
-                      : '—'}
-                  </div>
-                )}
-              </section>
-
-              {/* Due Date */}
-              <section>
-                <SectionLabel icon={Calendar} label="Due Date" accent="text-cyan-400/70" />
-                {canEdit ? (
-                  <input
-                    type="date"
-                    value={draftDueDate}
-                    onChange={e => setDraftDueDate(e.target.value)}
-                    className="w-full text-sm font-semibold bg-muted/40 border border-border/50 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 transition-all [color-scheme:dark]"
-                  />
-                ) : draftDueDate || task.dueDate?.trim() ? (
-                  <>
-                    <div className={`text-sm font-bold ${dueBucketDateTextClass(dueBucket, isDoneDue)}`}>
-                      {fmtDate(draftDueDate || task.dueDate)}
-                    </div>
-                    <div className="text-[11px] text-muted-foreground font-mono mt-0.5">{draftDueDate || task.dueDate}</div>
-                  </>
-                ) : (
-                  <div className="text-sm text-muted-foreground">No due date</div>
-                )}
-                {!isDoneDue && dueBucket === 'today' && (
-                  <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-red-600 dark:text-red-300 bg-red-500/10 px-2 py-0.5 rounded-md border border-red-500/25">
-                    Due today
-                  </div>
-                )}
-                {!isDoneDue && dueBucket === 'tomorrow' && (
-                  <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-orange-600 dark:text-orange-300 bg-orange-500/10 px-2 py-0.5 rounded-md border border-orange-500/25">
-                    Due tomorrow
-                  </div>
-                )}
-                {!isDoneDue && dueBucket === 'later' && (
-                  <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-muted-foreground bg-muted/40 px-2 py-0.5 rounded-md border border-border/40">
-                    Upcoming
-                  </div>
-                )}
-                {isOverdue && (
-                  <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-red-400/80 bg-red-500/8 px-2 py-0.5 rounded-md border border-red-500/15">
-                    <AlertTriangle className="h-3 w-3" /> Past due
-                  </div>
-                )}
-              </section>
-
-              {/* Assignees (read-only) */}
-              {!canEdit && (
-                <section>
-                  <SectionLabel icon={User2} label="Assignees" accent="text-violet-400/70" />
-                  {assigneeUsers.length === 0 ? (
-                    <p className="text-xs text-muted-foreground/40 italic">Unassigned</p>
-                  ) : (
-                    <div className="space-y-2.5">
-                      {assigneeUsers.map(u => (
-                        <div key={u.id} className="flex items-center gap-2.5 group">
-                          <Avatar name={u.name} avatar={u.avatar} size="sm" />
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs font-semibold truncate group-hover:text-primary transition-colors">{u.name}</div>
-                            <div className="text-[10px] text-muted-foreground/60 truncate">{u.email}</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </section>
-              )}
-
-              {/* Tags */}
-              {(canEdit || draftTags.length > 0) && (
-                <section>
-                  <SectionLabel icon={Tag} label="Tags" accent="text-pink-400/70" />
-                  <div className="flex flex-wrap gap-1.5">
-                    {draftTags.map(tag => (
-                      <span key={tag} className="inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full border border-border/40 bg-muted/30 text-muted-foreground">
-                        {tag}
-                        {canEdit && (
-                          <button
-                            type="button"
-                            onClick={() => setDraftTags(prev => prev.filter(t => t !== tag))}
-                            className="hover:text-foreground"
-                            aria-label={`Remove ${tag}`}
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        )}
-                      </span>
-                    ))}
-                  </div>
-                  {canEdit && (
-                    <input
-                      value={tagInput}
-                      onChange={e => setTagInput(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' || e.key === ',') {
-                          e.preventDefault();
-                          addTag();
-                        }
-                      }}
-                      onBlur={addTag}
-                      placeholder="Add tag"
-                      className="mt-2 w-full text-sm bg-muted/40 border border-border/50 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 transition-all"
-                    />
-                  )}
-                </section>
-              )}
-
-              {/* People */}
-              <section>
-                <SectionLabel icon={UserCircle} label="People" accent="text-indigo-400/70" />
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2.5 group">
-                    <Avatar name={creator?.name ?? '?'} avatar={creator?.avatar} size="sm" />
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-semibold">
-                        {creator?.id === assigner?.id ? 'Created & assigned by' : 'Created by'}
-                      </div>
-                      <div className="text-xs font-semibold truncate group-hover:text-primary transition-colors">{creator?.name ?? task.createdBy}</div>
-                      {creator?.email && (
-                        <div className="text-[10px] text-muted-foreground/50 flex items-center gap-1 truncate mt-0.5">
-                          <Mail className="h-2.5 w-2.5 shrink-0" />{creator.email}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  {creator?.id !== assigner?.id && (
-                    <div className="flex items-center gap-2.5 group">
-                      <Avatar name={assigner?.name ?? '?'} avatar={assigner?.avatar} size="sm" />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-semibold">Assigned by</div>
-                        <div className="text-xs font-semibold truncate group-hover:text-primary transition-colors">{assigner?.name ?? task.assignedBy}</div>
-                        {assigner?.email && (
-                          <div className="text-[10px] text-muted-foreground/50 flex items-center gap-1 truncate mt-0.5">
-                            <Mail className="h-2.5 w-2.5 shrink-0" />{assigner.email}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </section>
-
-              {/* Timeline */}
-              <section>
-                <SectionLabel icon={Clock} label="Timeline" accent="text-slate-400/70" />
-                <div className="space-y-2.5">
-                  <div>
-                    <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-semibold mb-0.5">Time tracked</div>
-                    <div className="text-sm font-bold text-foreground tabular-nums">{fmtTime(task.timeTracked)}</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-semibold mb-0.5">Created</div>
-                    <div className="text-[11px] text-foreground/60 tabular-nums">{taskCreatedTimeline}</div>
-                  </div>
-                  <div>
-                    <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-semibold mb-0.5">Started</div>
-                    {canEdit ? (
-                      <input
-                        type="date"
-                        value={draftStartedAt}
-                        onChange={e => setDraftStartedAt(e.target.value)}
-                        className="w-full text-[11px] font-mono bg-muted/40 border border-border/50 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/40 [color-scheme:dark]"
-                      />
-                    ) : draftStartedAt || task.startedAt ? (
-                      <div className="text-[11px] font-mono text-blue-400/70">{formatLocalDateTime(draftStartedAt || task.startedAt || '')}</div>
-                    ) : (
-                      <div className="text-[11px] text-muted-foreground">—</div>
-                    )}
-                  </div>
-                  <div>
-                    <div className="text-[10px] text-muted-foreground/50 uppercase tracking-wide font-semibold mb-0.5">Completed</div>
-                    {canEdit ? (
-                      <input
-                        type="date"
-                        value={draftCompletedAt}
-                        onChange={e => setDraftCompletedAt(e.target.value)}
-                        className="w-full text-[11px] font-mono bg-muted/40 border border-border/50 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-primary/40 [color-scheme:dark]"
-                      />
-                    ) : draftCompletedAt || task.completedAt ? (
-                      <div className="text-[11px] font-mono text-emerald-400/70">{formatLocalDateTime(draftCompletedAt || task.completedAt || '')}</div>
-                    ) : (
-                      <div className="text-[11px] text-muted-foreground">—</div>
-                    )}
-                  </div>
-                </div>
-              </section>
+              </div>
             </div>
           </div>
 

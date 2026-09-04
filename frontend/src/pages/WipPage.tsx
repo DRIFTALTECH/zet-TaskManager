@@ -6,6 +6,7 @@
  */
 
 import { useMemo, useState, Fragment } from 'react';
+import { DatePickerInput } from '@/components/DatePickerInput';
 import { useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -306,22 +307,26 @@ export function WipPage() {
       <div className="flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-2 text-sm text-muted-foreground">
           From
-          <input
-            type="date"
+          <DatePickerInput
+            variant="boxed"
+            className="w-auto min-w-[10rem]"
             value={range.startDate}
             max={range.endDate}
-            onChange={(e) => setRange(r => ({ ...r, startDate: e.target.value }))}
-            className="rounded-xl border border-border/40 bg-muted/20 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all"
+            onChange={startDate => setRange(r => ({ ...r, startDate }))}
+            clearable={false}
+            aria-label="From"
           />
         </label>
         <label className="flex items-center gap-2 text-sm text-muted-foreground">
           To
-          <input
-            type="date"
+          <DatePickerInput
+            variant="boxed"
+            className="w-auto min-w-[10rem]"
             value={range.endDate}
             min={range.startDate}
-            onChange={(e) => setRange(r => ({ ...r, endDate: e.target.value }))}
-            className="rounded-xl border border-border/40 bg-muted/20 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all"
+            onChange={endDate => setRange(r => ({ ...r, endDate }))}
+            clearable={false}
+            aria-label="To"
           />
         </label>
       </div>

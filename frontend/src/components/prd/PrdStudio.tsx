@@ -14,6 +14,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { DatePickerInput } from '@/components/DatePickerInput';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
 
@@ -518,20 +519,24 @@ function PlaceDialog({
                 </div>
                 <div className="space-y-1.5">
                   <Label>Start</Label>
-                  <Input
-                    type="date"
-                    defaultValue={item.startDate ?? ''}
+                  <DatePickerInput
+                    variant="boxed"
+                    value={item.startDate ?? ''}
                     disabled={busy}
-                    onBlur={e => void onPatch(item.id, { startDate: e.target.value || null })}
+                    placeholder="No start date"
+                    aria-label="Start"
+                    onChange={v => void onPatch(item.id, { startDate: v || null })}
                   />
                 </div>
                 <div className="space-y-1.5">
                   <Label>Due</Label>
-                  <Input
-                    type="date"
-                    defaultValue={item.dueDate ?? ''}
+                  <DatePickerInput
+                    variant="boxed"
+                    value={item.dueDate ?? ''}
                     disabled={busy}
-                    onBlur={e => void onPatch(item.id, { dueDate: e.target.value || null })}
+                    placeholder="No due date"
+                    aria-label="Due"
+                    onChange={v => void onPatch(item.id, { dueDate: v || null })}
                   />
                 </div>
                 <div className="space-y-1.5">

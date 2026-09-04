@@ -147,6 +147,7 @@ def _to_out(db: Db, s: UserStory) -> UserStoryOut:
         id=s.id,
         projectId=s.project_id,
         sectionId=getattr(s, "section_id", None) or None,
+        parentStoryId=getattr(s, "parent_story_id", None) or None,
         title=s.title,
         description=s.description or "",
         acceptanceCriteria=s.acceptance_criteria or "",
@@ -247,6 +248,83 @@ def create_story(db: Db, user_id: str, body: UserStoryCreate) -> UserStoryOut:
     return _to_out(db, s)
 
 
+_MAX_STORY_DEPTH = 5
+
+
+def _story_ancestors(db: Db, story_id: str) -> list[str]:
+    """Ids from a story up to its root, guarded against a corrupt loop."""
+    out: list[str] = []
+    seen = {story_id}
+    current = stories_crud.get_by_id(db, story_id)
+    while current is not None:
+        parent_id = (getattr(current, "parent_story_id", None) or "").strip()
+        if not parent_id or parent_id in seen:
+            break
+        out.append(parent_id)
+        seen.add(parent_id)
+        current = stories_crud.get_by_id(db, parent_id)
+    return out
+
+
+def _set_story_parent(db: Db, s, raw_parent_id: str, user_id: str) -> None:
+    """Nest a story under another, or detach it with "".
+
+    Guards the three ways this goes wrong: a story under itself, a cycle through
+    an ancestor, and a chain deep enough to be unreadable. Cross-project nesting
+    is refused too — a story's project is what decides who can see it.
+    """
+    parent_id = (raw_parent_id or "").strip()
+    if not parent_id:
+        s.parent_story_id = None
+        return
+    if parent_id == s.id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A story cannot sit under itself")
+    parent = stories_crud.get_by_id(db, parent_id)
+    if not parent:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid parentStoryId")
+    if parent.project_id != s.project_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Pick a story in the same project")
+    project_logic.ensure_project_member(db, parent.project_id, user_id)
+    if s.id in _story_ancestors(db, parent_id):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "That would nest a story inside itself")
+    if len(_story_ancestors(db, parent_id)) + 1 >= _MAX_STORY_DEPTH:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Stories can only be nested {_MAX_STORY_DEPTH} deep",
+        )
+    s.parent_story_id = parent.id
+
+
+def _move_story_to_project(db: Db, s, new_project_id: str, user_id: str) -> None:
+    """Re-home a story and everything hanging off it.
+
+    A story's tasks carry their own `project_id`, so moving only the story would
+    leave its tasks pointing at the old project. Sections and assignees belong to
+    a project too: both are re-resolved against the destination, and assignees
+    who are not members there are dropped rather than silently kept.
+    """
+    dest = projects_crud.get_by_id(db, new_project_id) if new_project_id else None
+    if not dest:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid projectId")
+    if dest.id == s.project_id:
+        return
+    project_logic.ensure_project_member(db, dest.id, user_id)
+
+    s.project_id = dest.id
+    s.section_id = _first_section_id(db, dest.id) or None
+    # A parent in the old project would straddle two projects.
+    s.parent_story_id = None
+
+    member_ids = set(projects_crud.member_ids(db, dest.id))
+    kept = [uid for uid in story_assignees_crud.list_user_ids_ordered(db, s.id) if uid in member_ids]
+    _set_story_assignees(db, s, kept)
+
+    for t in tasks_crud.list_for_user_story(db, s.id):
+        t.project_id = dest.id
+        t.section_id = s.section_id or t.section_id
+        tasks_crud.update(db, t)
+
+
 def patch_story(db: Db, user_id: str, story_id: str, body: UserStoryPatch) -> UserStoryOut:
     s = stories_crud.get_by_id(db, story_id)
     if not s:
@@ -260,6 +338,10 @@ def patch_story(db: Db, user_id: str, story_id: str, body: UserStoryPatch) -> Us
         s.acceptance_criteria = body.acceptanceCriteria
     if body.priority is not None:
         s.priority = body.priority
+    if body.projectId is not None:
+        _move_story_to_project(db, s, (body.projectId or "").strip(), user_id)
+    if body.parentStoryId is not None:
+        _set_story_parent(db, s, body.parentStoryId, user_id)
     if body.sectionId is not None:
         sid = (body.sectionId or "").strip() or None
         if sid:
@@ -301,6 +383,12 @@ def delete_story(db: Db, user_id: str, story_id: str) -> None:
     if not s:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User story not found")
     project_logic.ensure_project_member(db, s.project_id, user_id)
+    # Children outlive their parent at the top level; the DB's ON DELETE SET NULL
+    # only fires where the column actually exists, so do it explicitly.
+    for child in stories_crud.list_children(db, story_id):
+        child.parent_story_id = None
+        child.updated_at = datetime.now(timezone.utc).isoformat()
+        stories_crud.update(db, child)
     stories_crud.delete(db, story_id)
     db.commit()
 

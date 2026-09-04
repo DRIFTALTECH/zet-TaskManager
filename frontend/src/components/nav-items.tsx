@@ -19,7 +19,6 @@ export const navItems: NavItem[] = [
   { path: '/timesheet', label: 'Timesheet', icon: Clock, group: 'primary' },
   { path: '/calendar', label: 'Calendar', icon: CalendarRange, group: 'primary' },
   { path: '/meeting-notes', label: 'Meeting Notes', icon: CalendarDays, group: 'primary' },
-  { path: '/prd', label: 'PRD Import', icon: FileText, group: 'primary', managerOnly: true },
   {
     path: '/ai',
     label: 'Zani',

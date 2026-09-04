@@ -114,6 +114,7 @@ def stop(db: Db, user_id: str, task_id: str, tz_offset_minutes: int = 0):
                     workDate=work_date,
                     projectId=task.project_id,
                     sectionId=task.section_id,
+                    taskId=task_id,
                     description=task.title,
                     timeFrom=time_from,
                     timeTo=time_to,

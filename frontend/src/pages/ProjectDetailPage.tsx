@@ -109,7 +109,7 @@ const ProjectDetailPage = () => {
   const {
     users, projects, tasks, kanbanColumns, currentUser,
     addSection, removeSection, addMemberToProject, removeMemberFromProject,
-    moveTask, approveTask, reopenTaskToBacklog, setProjectAppearance, uploadProjectMedia, deleteProject,
+    moveTask, reopenTaskToBacklog, setProjectAppearance, uploadProjectMedia, deleteProject,
   } = useAppStore();
   const canEdit = currentUser?.role === 'manager' || currentUser?.role === 'superadmin';
 
@@ -498,15 +498,6 @@ const ProjectDetailPage = () => {
       }
     }
     catch (e) { toast.error(e instanceof Error ? e.message : 'Could not move task'); }
-    finally { setMovingId(null); }
-  };
-  const doApprove = async (task: Task) => {
-    if (isTaskConfirmed(task)) return;
-    const hours = await promptActualHours(task, 'approve');
-    if (hours === null) return;
-    setMovingId(task.id);
-    try { await approveTask(task.id, hours); }
-    catch (e) { toast.error(e instanceof Error ? e.message : 'Could not approve'); }
     finally { setMovingId(null); }
   };
   const doReopen = async (task: Task) => {
@@ -1073,12 +1064,6 @@ const ProjectDetailPage = () => {
                         <>
                           <MoveBtn disabled={busy || !prevCol} onClick={() => prevCol && void doMove(task, prevCol.id)} title={prevCol ? `Move to ${prevCol.label}` : 'At first column'} dir="left" />
                           <MoveBtn disabled={busy || !nextCol} onClick={() => nextCol && void doMove(task, nextCol.id)} title={nextCol ? `Move to ${nextCol.label}` : 'At last column'} dir="right" />
-                          {isDoneCol && !task.approvedByManager && (
-                            <button disabled={busy} onClick={() => void doApprove(task)}
-                              className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 transition-all disabled:opacity-40" title="Approve & complete">
-                              <Check className="h-3.5 w-3.5" /> Approve
-                            </button>
-                          )}
                         </>
                       )}
                     </div>

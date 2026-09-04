@@ -4,6 +4,7 @@
  * - SubtaskManager: load and manage subtasks on an existing task.
  */
 
+import { FIELD_INPUT as inputCls } from '@/lib/field-styles';
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { CheckSquare, ListChecks, Plus, Square, X } from 'lucide-react';
@@ -14,8 +15,6 @@ import type { TaskChecklist } from '@/types';
 import { newSubtaskDraftRow, type SubtaskDraftRow } from '@/lib/subtask-utils';
 import { cn } from '@/lib/utils';
 
-const inputCls =
-  'w-full rounded-xl border border-border/80 bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40';
 
 // ── Draft (create task) ───────────────────────────────────────────────────────
 

@@ -27,7 +27,7 @@ describe('isNavItemActive', () => {
   it('matches plain routes exactly', () => {
     expect(isNavItemActive(item('/timesheet'), '/timesheet')).toBe(true);
     expect(isNavItemActive(item('/timesheet'), '/timesheet/approvals')).toBe(false);
-    expect(isNavItemActive(item('/prd'), '/prd/')).toBe(true);
+    expect(isNavItemActive(item('/calendar'), '/calendar/')).toBe(true);
   });
 
   it('does not mark Dashboard active on other routes', () => {
@@ -40,7 +40,6 @@ describe('visibleNavItems', () => {
     const paths = visibleNavItems('employee').map(i => i.path);
     expect(paths).not.toContain('/users');
     expect(paths).not.toContain('/manage');
-    expect(paths).not.toContain('/prd');
     expect(paths).not.toContain('/superadmin');
     expect(paths).toContain('/timesheet');
   });
@@ -48,7 +47,6 @@ describe('visibleNavItems', () => {
   it('gives a manager the manager items but not the superadmin page', () => {
     const paths = visibleNavItems('manager').map(i => i.path);
     expect(paths).toContain('/manage');
-    expect(paths).toContain('/prd');
     expect(paths).not.toContain('/superadmin');
   });
 
@@ -58,7 +56,7 @@ describe('visibleNavItems', () => {
 
   it('keeps workspace items in primary and the rest under management', () => {
     expect(visibleNavItems('superadmin', 'primary').map(i => i.path)).toEqual([
-      '/', '/timesheet', '/calendar', '/meeting-notes', '/prd', '/ai',
+      '/', '/timesheet', '/calendar', '/meeting-notes', '/ai',
     ]);
     expect(visibleNavItems('superadmin', 'management').map(i => i.path)).toEqual([
       '/overview', '/manage', '/users', '/reports', '/users/forecast', '/superadmin',

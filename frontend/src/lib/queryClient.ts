@@ -20,6 +20,8 @@ export const taskKeys = {
 
 export const storyKeys = {
   all: ['user-stories'] as const,
+  detail: (id: string) => ['user-story', id] as const,
+  feedback: (id: string) => ['user-story', id, 'feedback'] as const,
 };
 
 export const projectKeys = {

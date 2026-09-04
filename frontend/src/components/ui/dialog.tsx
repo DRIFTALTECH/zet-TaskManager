@@ -45,6 +45,16 @@ function isFilePickerDismiss(event: { target: EventTarget | null; detail?: { ori
   return isFilePickGesture(orig);
 }
 
+/**
+ * Toasts render outside the dialog's portal, so Radix counts a click on one as an
+ * "interact outside" and closes the dialog. That kills a toast carrying an action
+ * for this dialog before its handler can run.
+ */
+function isToastInteraction(event: { target: EventTarget | null; detail?: { originalEvent?: Event } }): boolean {
+  const origin = event.detail?.originalEvent?.target ?? event.target;
+  return origin instanceof Element && !!origin.closest('[data-sonner-toaster]');
+}
+
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>
@@ -58,7 +68,9 @@ const DialogContent = React.forwardRef<
   }, []);
 
   const guardDismiss = (event: { preventDefault: () => void; target: EventTarget | null; detail?: { originalEvent?: Event } }) => {
-    if (pickingFile.current || isFilePickerDismiss(event)) event.preventDefault();
+    if (pickingFile.current || isFilePickerDismiss(event) || isToastInteraction(event)) {
+      event.preventDefault();
+    }
   };
 
   return (
