@@ -27,7 +27,7 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
-import { BookOpen, ChevronRight, CircleDot, GitBranch, GripVertical, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import { BookOpen, ChevronRight, CircleDot, GitBranch, GripVertical, Loader2, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 import { AddWorkMenu } from '@/components/AddWorkMenu';
 import { RowDescription } from '@/components/dash/RowDescription';
 import { Hint } from '@/components/ui/hint';
@@ -52,6 +52,11 @@ export type { DashUser };
 /** A single-cell edit. Only the touched field is present. */
 export interface DashRowPatch {
   title?: string;
+  /**
+   * Set when a drop lands outside any parent: membership is only ever what the
+   * user put there, so leaving a story means leaving it, not just moving group.
+   */
+  detach?: boolean;
   assigneeIds?: string[];
   status?: string;
   priority?: Priority;
@@ -94,6 +99,7 @@ function Row({
   projectName,
   withStatus,
   groupKey,
+  busy,
   selected,
   onSelectChange,
 }: {
@@ -114,6 +120,8 @@ function Row({
   withStatus: boolean;
   /** The group this row is rendered under — drops compare it to decide intent. */
   groupKey: string;
+  /** A request for this row is in flight. */
+  busy?: boolean;
   selected: boolean;
   onSelectChange: (row: DashRow, next: boolean) => void;
 }) {
@@ -154,7 +162,9 @@ function Row({
       }}
       className={`${cols(withStatus)} ${CELL} ${ROW_CARD} group my-0.5 min-h-8 cursor-pointer px-2.5 py-0.5 ${
         selected ? 'border-primary/50 bg-primary/5' : ''
-      } ${isOver && !isDragging ? 'ring-1 ring-primary/40' : ''}`}
+      } ${isOver && !isDragging ? 'ring-1 ring-primary/40' : ''} ${
+        busy ? 'pointer-events-none opacity-60' : ''
+      }`}
     >
       <div className="flex min-w-0 items-center gap-1.5">
         <span
@@ -199,7 +209,9 @@ function Row({
         ) : (
           <span className="w-[1.375rem] shrink-0" />
         )}
-        {row.type === 'subtask' ? (
+        {busy ? (
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+        ) : row.type === 'subtask' ? (
           <GitBranch className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
         ) : (
           <WorkTypeSelect
@@ -451,12 +463,14 @@ function ItemComposer({
 
 /** Highlights while a row hovers over it, so the target group is never a guess. */
 /**
- * Pointer first, then rectangles.
+ * A row wins only under the cursor; everywhere else is the group.
  *
- * `pointerWithin` alone drops nothing whenever the cursor lands in a gap between
- * groups or on a border — people aim with the drag overlay, not the cursor, so a
- * move that looked right often did nothing at all. Falling back to the
- * intersecting rectangle means a drag whose overlay covers a group lands in it.
+ * Filing something inside another item has to be deliberate, so a row is a drop
+ * target only when the pointer is actually on it. The rectangle fallback — which
+ * catches a drop released in a gap, since people aim with the drag overlay
+ * rather than the cursor — is restricted to groups, or an overlay merely
+ * overlapping a neighbouring row would silently nest the two.
+ *
  * The row being dragged is excluded so it can never be its own drop target.
  */
 function makeCollisionDetection(activeRowId: string | null): CollisionDetection {
@@ -465,12 +479,19 @@ function makeCollisionDetection(activeRowId: string | null): CollisionDetection 
     const containers = ownDroppable
       ? args.droppableContainers.filter(c => c.id !== ownDroppable)
       : args.droppableContainers;
-    const scoped = { ...args, droppableContainers: containers };
-    const byPointer = pointerWithin(scoped);
-    if (byPointer.length > 0) return byPointer;
+
+    const byPointer = pointerWithin({ ...args, droppableContainers: containers });
+    if (byPointer.length > 0) {
+      // Prefer the row the cursor is on; a group also matches and would win by
+      // area on the way past.
+      const onRow = byPointer.find(c => String(c.id).startsWith('row:'));
+      return onRow ? [onRow] : byPointer;
+    }
+
+    const groups = containers.filter(c => !String(c.id).startsWith('row:'));
     // No nearest-neighbour fallback: a drag released away from the table should
     // do nothing rather than guess a group.
-    return rectIntersection(scoped);
+    return rectIntersection({ ...args, droppableContainers: groups });
   };
 }
 
@@ -545,6 +566,8 @@ export interface DashTableProps {
   onDeleteRows: (rows: DashRow[]) => void;
   /** Story ⇄ task, from the row's own action. */
   onConvertRow: (row: DashRow) => void;
+  /** Entity ids with a request in flight. */
+  busyIds?: Set<string>;
 }
 
 export function DashTable({
@@ -572,6 +595,7 @@ export function DashTable({
   onReparentRow,
   onDeleteRows,
   onConvertRow,
+  busyIds,
 }: DashTableProps) {
   // 6px so a click on a cell popover is never read as a drag.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
@@ -737,6 +761,7 @@ export function DashTable({
                     onConvert={onConvertRow}
                     onEdit={onEditRow}
                     groupKey={group.key}
+                    busy={busyIds?.has(row.entityId)}
                     selected={selected.has(row.rowId)}
                     onSelectChange={toggleSelected}
                     withStatus={!groupKeyIsStatus}
@@ -785,18 +810,17 @@ export function DashTable({
                       <Plus className="h-3.5 w-3.5" /> Add story
                     </button>
                     <AddWorkMenu
+                      hint="More ways to add"
                       onTask={() => onAddTask(groupKeyIsStatus ? group.key : '')}
                       onStory={() => onAddStory(groupKeyIsStatus ? group.key : '')}
                       trigger={
-                        <Hint label="More ways to add">
-                          <button
-                            type="button"
-                            aria-label="More ways to add"
-                            className="mr-2 rounded p-1 text-muted-foreground/50 hover:bg-muted hover:text-foreground"
-                          >
-                            <MoreHorizontal className="h-3.5 w-3.5" />
-                          </button>
-                        </Hint>
+                        <button
+                          type="button"
+                          aria-label="More ways to add"
+                          className="mr-2 rounded p-1 text-muted-foreground/50 hover:bg-muted hover:text-foreground"
+                        >
+                          <MoreHorizontal className="h-3.5 w-3.5" />
+                        </button>
                       }
                     />
                   </div>

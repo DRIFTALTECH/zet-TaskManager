@@ -3,10 +3,10 @@
  * Used by Dashboard (sortable) and list views.
  */
 
-import { useEffect, useState, type CSSProperties, type HTMLAttributes } from 'react';
+import { useEffect, useState, type CSSProperties, type HTMLAttributes, type ReactNode } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { CheckCircle2, CircleDot, RotateCcw, UserPlus2 } from 'lucide-react';
+import { CheckCircle2, ChevronRight, CircleDot, Loader2, RotateCcw, UserPlus2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import UserAvatar from '@/components/UserAvatar';
 import { useAppStore } from '@/stores/appStore';
@@ -18,6 +18,8 @@ import {
 } from '@/lib/due-date-utils';
 import type { Priority, Task } from '@/types';
 import { priorityTextClass } from '@/lib/priority-styles';
+import { AssigneeCell, DueDateCell, PriorityCell, type DashUser } from '@/components/dash/DashCells';
+import type { DashRowPatch } from '@/components/dash/DashTable';
 
 const CARD_SHADOW =
   'shadow-[0_1px_4px_rgba(0,0,0,0.10)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.14)] dark:shadow-[0_1px_4px_rgba(255,255,255,0.14)] dark:hover:shadow-[0_2px_8px_rgba(255,255,255,0.22)]';
@@ -42,10 +44,14 @@ export function BoardCardMetaPills({
   const fmt = (h: number) => (h >= 10 ? `${Math.round(h)}h` : `${Math.round(h * 10) / 10}h`);
   return (
     <div className="flex items-center gap-2 min-w-0 flex-1">
-      <span className={`text-[10px] font-semibold truncate w-[7.5rem] shrink-0 ${project ? projectNameColor(project.id) : 'text-transparent'}`}>
+      {/* Basis, not width: the slots line up while there is room and give way
+          when there is not, instead of pushing the hours pill off the card. */}
+      <span className={`text-[10px] font-semibold truncate min-w-0 shrink basis-[7.5rem] ${project ? projectNameColor(project.id) : 'text-transparent'}`}>
         {project?.name || '\u00a0'}
       </span>
-      <span className="h-5 w-[6.75rem] shrink-0 flex items-center min-w-0">
+      <span
+        className={`flex h-5 min-w-0 items-center ${sprintLabel ? 'shrink basis-[6.75rem]' : 'basis-0'}`}
+      >
         {sprintLabel ? (
           <span className="text-[10px] px-2 py-0.5 rounded-full border border-violet-500/25 bg-violet-500/10 text-violet-700 dark:text-violet-300 font-semibold truncate max-w-full">
             {sprintLabel}
@@ -53,7 +59,7 @@ export function BoardCardMetaPills({
         ) : null}
       </span>
       {hasEst || hasActual ? (
-        <span className="text-[10px] px-2 py-0.5 rounded-full border border-border/50 bg-muted/40 text-muted-foreground font-semibold tabular-nums shrink-0">
+        <span className="text-[10px] px-2 py-0.5 rounded-full border border-border/50 bg-muted/40 text-muted-foreground font-semibold tabular-nums shrink-0 whitespace-nowrap">
           {hasEst ? fmt(estimatedHours!) : '—'}
           {hasActual ? ` · ${fmt(actualHours!)}` : ''}
         </span>
@@ -103,6 +109,23 @@ export type TaskCardProps = {
   dragAttributes?: HTMLAttributes<HTMLElement>;
   dragListeners?: HTMLAttributes<HTMLElement>;
   isDragging?: boolean;
+  /**
+   * Given, the card's assignee, priority and due date become the same one-click
+   * editors the list rows use — a board card should not be a read-only copy of
+   * a row you can edit.
+   */
+  onEdit?: (patch: DashRowPatch) => void;
+  /** People assignable here; the popover offers only project members. */
+  members?: DashUser[];
+  /** Subtasks sitting in this task's column; shown under a toggle on the card. */
+  subtasks?: Task[];
+  expanded?: boolean;
+  onToggleExpand?: () => void;
+  onSubtaskClick?: (task: Task) => void;
+  /** Draws one subtask card; the board passes its own so they stay draggable. */
+  renderSubtask?: (task: Task) => ReactNode;
+  /** A request for this task is in flight. */
+  busy?: boolean;
 };
 
 export function TaskCard({
@@ -119,6 +142,14 @@ export function TaskCard({
   dragAttributes,
   dragListeners,
   isDragging = false,
+  onEdit,
+  members = [],
+  subtasks = [],
+  expanded = false,
+  onToggleExpand,
+  onSubtaskClick,
+  renderSubtask,
+  busy = false,
 }: TaskCardProps) {
   const { users, projects, currentUser, activeTimers, startTimer, stopTimer } = useAppStore();
   const taskProject = projects.find(p => p.id === task.projectId);
@@ -202,18 +233,33 @@ export function TaskCard({
       }`}
     >
       <div
-        className={`rounded-xl border border-border/70 bg-card p-3 flex flex-col transition-shadow ${CARD_SHADOW}`}
+        className={`relative rounded-xl border border-border/70 bg-card p-3 flex flex-col transition-shadow ${CARD_SHADOW} ${
+          busy ? 'pointer-events-none' : ''
+        }`}
       >
+        {/* Says the move is happening. Without it a slow request looks like a
+            drag that did nothing, and people drag again. */}
+        {busy && (
+          <span className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-card/70">
+            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+          </span>
+        )}
         <div className="flex items-center justify-between gap-2 mb-1.5">
           {/* Labelled the way a story card is, rather than by a reference number. */}
           <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
             <CircleDot className="h-3 w-3 text-primary" /> Task
           </span>
-          <span className={`shrink-0 text-[10px] font-semibold ${priorityTextClass[priority]}`}>
-            {priority}
-          </span>
+          {onEdit ? (
+            <span className="shrink-0" onClick={e => e.stopPropagation()}>
+              <PriorityCell priority={priority} onChange={p => onEdit({ priority: p })} />
+            </span>
+          ) : (
+            <span className={`shrink-0 text-[10px] font-semibold ${priorityTextClass[priority]}`}>
+              {priority}
+            </span>
+          )}
         </div>
-        <h4 className="text-[13px] font-semibold leading-snug mb-1.5 text-foreground line-clamp-2 shrink-0">{task.title}</h4>
+        <h4 className="text-[13px] font-semibold leading-snug mb-1.5 text-foreground line-clamp-2 shrink-0 break-words">{task.title}</h4>
         {userStoryTitle && (
           <span className="mb-2 inline-flex max-w-full items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border border-border/50 bg-muted/40 text-muted-foreground font-semibold truncate">
             {userStoryTitle}
@@ -227,14 +273,24 @@ export function TaskCard({
           />
           <div className="flex items-end justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
-              <div className="flex -space-x-1.5 shrink-0">
-                {assigneeList.slice(0, 3).map(u => (
-                  <UserAvatar key={u.id} name={u.name} avatar={u.avatar} size="xs" className="ring-2 ring-card" />
-                ))}
-                {assigneeList.length === 0 && (
-                  <UserPlus2 className="h-3.5 w-3.5 text-muted-foreground/40" />
-                )}
-              </div>
+              {onEdit ? (
+                <span className="group shrink-0" onClick={e => e.stopPropagation()}>
+                  <AssigneeCell
+                    assigneeIds={taskAssigneeIds(task)}
+                    members={members}
+                    onChange={ids => onEdit({ assigneeIds: ids })}
+                  />
+                </span>
+              ) : (
+                <div className="flex -space-x-1.5 shrink-0">
+                  {assigneeList.slice(0, 3).map(u => (
+                    <UserAvatar key={u.id} name={u.name} avatar={u.avatar} size="xs" className="ring-2 ring-card" />
+                  ))}
+                  {assigneeList.length === 0 && (
+                    <UserPlus2 className="h-3.5 w-3.5 text-muted-foreground/40" />
+                  )}
+                </div>
+              )}
             </div>
             <div className="flex items-center justify-end gap-2 shrink-0">
               {showTimer && (
@@ -261,15 +317,50 @@ export function TaskCard({
                   </button>
                 )
               )}
-              {task.dueDate?.trim() ? (
+              {onEdit ? (
+                <span className="group shrink-0" onClick={e => e.stopPropagation()}>
+                  <DueDateCell
+                    dueDate={task.dueDate ?? ''}
+                    isDone={isDoneLane}
+                    onChange={iso => onEdit({ dueDate: iso })}
+                  />
+                </span>
+              ) : task.dueDate?.trim() ? (
                 <span className={`text-[11px] font-mono ${dueBucketDateTextClass(dueBucket, isDoneLane)}`}>
                   {formatDate(task.dueDate)}
                 </span>
               ) : null}
             </div>
           </div>
+          {subtasks.length > 0 && (
+            <button
+              type="button"
+              className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+              onClick={e => { e.stopPropagation(); onToggleExpand?.(); }}
+            >
+              <ChevronRight className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+              {subtasks.length} {subtasks.length === 1 ? 'subtask' : 'subtasks'}
+            </button>
+          )}
         </div>
       </div>
+      {/* Cards of their own, indented under the task — the same shape a story
+          uses for its tasks, so a subtask reads as work, not as a list item. */}
+      {expanded && subtasks.length > 0 && (
+        <div className="mt-1.5 ml-2 space-y-1.5 border-l-2 border-border/60 pl-2">
+          {subtasks.map(st =>
+            renderSubtask
+              ? renderSubtask(st)
+              : (
+                <TaskCard
+                  key={st.id}
+                  task={st}
+                  onClick={() => onSubtaskClick?.(st)}
+                />
+              ),
+          )}
+        </div>
+      )}
     </div>
   );
 }

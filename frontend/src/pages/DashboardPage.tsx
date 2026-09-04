@@ -67,6 +67,9 @@ import {
 import { UNASSIGNED_FILTER_ID, isTopLevelTask, isTaskConfirmed, isStoryConfirmed, storyAssigneeIds, normalizePriority, rollupStoryHours, isDoneBoardStatus } from '@/lib/task-utils';
 import UserAvatar from '@/components/UserAvatar';
 import { Hint } from '@/components/ui/hint';
+import { Loader2 } from 'lucide-react';
+import { useBusyIds } from '@/hooks/useBusyIds';
+import { AssigneeCell, DueDateCell, PriorityCell, type DashUser } from '@/components/dash/DashCells';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { api } from '@/lib/api';
 import { promptActualHours } from '@/components/ActualHoursDialog';
@@ -90,7 +93,10 @@ function parseStoryDragId(id: string) {
 }
 function statusColId(status: string, columns: KanbanColumn[], doneColumnId: string) {
   const id = status === 'completed' ? doneColumnId : (status || 'backlog');
-  return columns.some(c => c.id === id) ? id : 'backlog';
+  if (columns.some(c => c.id === id)) return id;
+  // Never point at a column that is not on the board: a card whose column does
+  // not exist is rendered by nobody and simply disappears.
+  return columns.some(c => c.id === 'backlog') ? 'backlog' : (columns[0]?.id ?? 'backlog');
 }
 const CARD_SHADOW =
   'shadow-[0_1px_4px_rgba(0,0,0,0.10)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.14)] dark:shadow-[0_1px_4px_rgba(255,255,255,0.14)] dark:hover:shadow-[0_2px_8px_rgba(255,255,255,0.22)]';
@@ -102,7 +108,7 @@ interface BoardTaskCard {
 }
 
 function StoryBoardCard({
-  story, tasks, totalTasks, childStories = [], renderChildStory, expanded, onToggleExpand, onClick, onTaskClick, onAddTask, users,
+  story, tasks, totalTasks, childStories = [], renderChildStory, onEdit, onEditTask, subtasksOf, expandedTaskIds, onToggleTaskExpand, members = [], busy = false, busyIds, expanded, onToggleExpand, onClick, onTaskClick, onAddTask, users,
   showProjectPill, isManager, doneColumnId,
   dragRef, dragStyle, dragAttributes, dragListeners, isDragging,
 }: {
@@ -115,6 +121,20 @@ function StoryBoardCard({
   childStories?: UserStory[];
   /** Draws one sub-story; the panel passes its own renderer so nesting recurses. */
   renderChildStory?: (story: UserStory) => ReactNode;
+  /** Given, the card's cells edit in place, exactly as the list rows do. */
+  onEdit?: (patch: DashRowPatch) => void;
+  /** Same for the tasks drawn inside this card. */
+  onEditTask?: (task: Task, patch: DashRowPatch) => void;
+  /** Subtasks of a task drawn inside this card, and which of them are open. */
+  subtasksOf?: (taskId: string) => Task[];
+  expandedTaskIds?: Set<string>;
+  onToggleTaskExpand?: (taskId: string) => void;
+  /** People assignable to this story's project. */
+  members?: DashUser[];
+  /** A request for this story is in flight. */
+  busy?: boolean;
+  /** Ids in flight, for the tasks drawn inside this card. */
+  busyIds?: Set<string>;
   expanded: boolean;
   onToggleExpand: () => void;
   onClick: () => void;
@@ -141,7 +161,16 @@ function StoryBoardCard({
       style={{ ...dragStyle, opacity: isDragging ? 0 : 1 }}
       className="touch-none select-none"
     >
-      <div className={`rounded-xl border border-border/70 bg-card p-3 flex flex-col transition-shadow ${CARD_SHADOW}`}>
+      <div
+        className={`relative rounded-xl border border-border/70 bg-card p-3 flex flex-col transition-shadow ${CARD_SHADOW} ${
+          busy ? 'pointer-events-none' : ''
+        }`}
+      >
+        {busy && (
+          <span className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-card/70">
+            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+          </span>
+        )}
         <div
           {...dragAttributes}
           {...dragListeners}
@@ -155,9 +184,15 @@ function StoryBoardCard({
             <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
               <BookOpen className="h-3 w-3 text-primary" /> Story
             </span>
-            <span className={`text-[10px] font-semibold ${priorityTextClass[priority]}`}>{priority}</span>
+            {onEdit ? (
+              <span className="shrink-0" onClick={e => e.stopPropagation()}>
+                <PriorityCell priority={priority} onChange={p => onEdit({ priority: p })} />
+              </span>
+            ) : (
+              <span className={`text-[10px] font-semibold ${priorityTextClass[priority]}`}>{priority}</span>
+            )}
           </div>
-          <h4 className="text-[13px] font-semibold leading-snug text-foreground line-clamp-2">{story.title}</h4>
+          <h4 className="text-[13px] font-semibold leading-snug text-foreground line-clamp-2 break-words">{story.title}</h4>
           <div className="mt-1.5 flex items-center justify-between gap-2">
             <BoardCardMetaPills
               projectId={story.projectId}
@@ -167,15 +202,33 @@ function StoryBoardCard({
             />
           </div>
           <div className="mt-1.5 flex items-end justify-between gap-2">
-            <div className="flex -space-x-1.5 shrink-0">
-              {assignees.slice(0, 3).map(u => (
-                <UserAvatar key={u.id} name={u.name} avatar={u.avatar} size="xs" className="ring-2 ring-card" />
-              ))}
-              {assignees.length === 0 && (
-                <UserPlus2 className="h-3.5 w-3.5 text-muted-foreground/40" />
-              )}
-            </div>
-            {story.dueDate?.trim() ? (
+            {onEdit ? (
+              <span className="group shrink-0" onClick={e => e.stopPropagation()}>
+                <AssigneeCell
+                  assigneeIds={aids}
+                  members={members}
+                  onChange={ids => onEdit({ assigneeIds: ids })}
+                />
+              </span>
+            ) : (
+              <div className="flex -space-x-1.5 shrink-0">
+                {assignees.slice(0, 3).map(u => (
+                  <UserAvatar key={u.id} name={u.name} avatar={u.avatar} size="xs" className="ring-2 ring-card" />
+                ))}
+                {assignees.length === 0 && (
+                  <UserPlus2 className="h-3.5 w-3.5 text-muted-foreground/40" />
+                )}
+              </div>
+            )}
+            {onEdit ? (
+              <span className="group shrink-0" onClick={e => e.stopPropagation()}>
+                <DueDateCell
+                  dueDate={story.dueDate ?? ''}
+                  isDone={false}
+                  onChange={iso => onEdit({ dueDate: iso })}
+                />
+              </span>
+            ) : story.dueDate?.trim() ? (
               <span className="text-[11px] font-mono text-muted-foreground/75 shrink-0">{listDate(story.dueDate)}</span>
             ) : null}
           </div>
@@ -214,6 +267,23 @@ function StoryBoardCard({
               task={t}
               onClick={() => onTaskClick(t)}
               showProjectPill={showProjectPill}
+              onEdit={onEditTask ? patch => onEditTask(t, patch) : undefined}
+              members={members}
+              busy={busyIds?.has(t.id)}
+              subtasks={subtasksOf?.(t.id) ?? []}
+              expanded={!!expandedTaskIds?.has(t.id)}
+              onToggleExpand={() => onToggleTaskExpand?.(t.id)}
+              onSubtaskClick={onTaskClick}
+              renderSubtask={st => (
+                <SortableTaskCard
+                  key={st.id}
+                  task={st}
+                  onClick={() => onTaskClick(st)}
+                  showProjectPill={showProjectPill}
+                  onEdit={onEditTask ? patch => onEditTask(st, patch) : undefined}
+                  members={members}
+                />
+              )}
             />
           ))}
         </div>
@@ -241,6 +311,8 @@ function SortableStoryCard(props: Omit<Parameters<typeof StoryBoardCard>[0], 'dr
 
 function KanbanColumnPanel({
   column, taskCards, stories, storyTasksById, storyTaskTotals, childStoriesById,
+  subtasksByTask, expandedTaskIds, onToggleTaskExpand, busyIds,
+  onEditStory, onEditTask, membersForProject,
   onTaskClick, onStoryClick, onStoryTaskClick,
   expandedStoryIds, onToggleStoryExpand, onNewTask, onNewStory, onAddStoryTask, isDropTarget, isManager,
   isDoneColumn, onSetDoneColumn, onRenameColumn, onDeleteColumn, onSetColor, showProjectPill,
@@ -256,6 +328,16 @@ function KanbanColumnPanel({
   storyTaskTotals: Record<string, number>;
   /** Sub-stories per parent, already scoped to the stories in view. */
   childStoriesById: Record<string, UserStory[]>;
+  /** Entity ids with a request in flight. */
+  busyIds?: Set<string>;
+  /** Subtasks per task, and which cards are open. */
+  subtasksByTask: Record<string, Task[]>;
+  expandedTaskIds: Set<string>;
+  onToggleTaskExpand: (taskId: string) => void;
+  /** One-click cell edits, the same ones the list rows offer. */
+  onEditStory: (story: UserStory, patch: DashRowPatch) => void;
+  onEditTask: (task: Task, patch: DashRowPatch) => void;
+  membersForProject: (projectId: string) => DashUser[];
   onTaskClick: (t: Task) => void;
   onStoryClick: (s: UserStory) => void;
   onStoryTaskClick: (t: Task) => void;
@@ -286,6 +368,31 @@ function KanbanColumnPanel({
     );
 
   /**
+   * Every draggable id this column actually renders, once each.
+   *
+   * A sortable id may appear in one context only: registering the whole board's
+   * subtasks in every column made dnd-kit resolve drags against the wrong node,
+   * which showed up as cards refusing to move and rows going missing.
+   */
+  const sortableIds = () => {
+    const ids: string[] = [];
+    const walkStory = (story: UserStory) => {
+      ids.push(storyDragId(story.id));
+      for (const t of storyTasksById[story.id] ?? []) {
+        ids.push(t.id);
+        for (const st of subtasksByTask[t.id] ?? []) ids.push(st.id);
+      }
+      childStoriesInColumn(story.id).forEach(walkStory);
+    };
+    stories.forEach(walkStory);
+    for (const card of taskCards) {
+      ids.push(card.task.id);
+      for (const st of subtasksByTask[card.task.id] ?? []) ids.push(st.id);
+    }
+    return [...new Set(ids)];
+  };
+
+  /**
    * Draws a story and, under it, the sub-stories and tasks that share its
    * column. A sub-story whose status moved on is a card of its own elsewhere,
    * exactly like a task that moved on — the board and the list agree.
@@ -300,6 +407,14 @@ function KanbanColumnPanel({
         totalTasks={(storyTaskTotals[story.id] ?? 0) + kids.length}
         childStories={kids}
         renderChildStory={renderStory}
+        onEdit={patch => onEditStory(story, patch)}
+        busy={busyIds?.has(story.id)}
+        busyIds={busyIds}
+        onEditTask={onEditTask}
+        subtasksOf={id => subtasksByTask[id] ?? []}
+        expandedTaskIds={expandedTaskIds}
+        onToggleTaskExpand={onToggleTaskExpand}
+        members={membersForProject(story.projectId)}
         expanded={expandedStoryIds.has(story.id)}
         onToggleExpand={() => onToggleStoryExpand(story.id)}
         onClick={() => onStoryClick(story)}
@@ -332,18 +447,17 @@ function KanbanColumnPanel({
         </div>
         <div className="flex items-center gap-0.5">
           <AddWorkMenu
+            hint="Add a story or task"
             onTask={onNewTask}
             onStory={onNewStory}
             trigger={
-              <Hint label="Add a story or task">
-                <button
-                  type="button"
-                  aria-label="Add a story or task"
-                  className="p-1 rounded-lg hover:bg-muted/60 text-muted-foreground/50 hover:text-muted-foreground transition-colors"
-                >
-                  <Plus className="h-4 w-4" />
-                </button>
-              </Hint>
+              <button
+                type="button"
+                aria-label="Add a story or task"
+                className="p-1 rounded-lg hover:bg-muted/60 text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
             }
           />
           <DropdownMenu>
@@ -400,12 +514,7 @@ function KanbanColumnPanel({
 
       <div className={`space-y-2 flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain rounded-xl px-1.5 pt-2 pb-2 ${colorTokens.surface}`}>
         <SortableContext
-          items={[
-            ...stories.map(s => storyDragId(s.id)),
-            ...stories.flatMap(s => (childStoriesInColumn(s.id)).map(c => storyDragId(c.id))),
-            ...stories.flatMap(s => (storyTasksById[s.id] ?? []).map(t => t.id)),
-            ...taskCards.map(c => c.task.id),
-          ]}
+          items={sortableIds()}
           strategy={verticalListSortingStrategy}
         >
           {stories.map(story => renderStory(story))}
@@ -416,6 +525,23 @@ function KanbanColumnPanel({
               userStoryTitle={storyTitle}
               onClick={() => onTaskClick(task)}
               showProjectPill={showProjectPill}
+              onEdit={patch => onEditTask(task, patch)}
+              members={membersForProject(task.projectId)}
+              busy={busyIds?.has(task.id)}
+              subtasks={subtasksByTask[task.id] ?? []}
+              expanded={expandedTaskIds.has(task.id)}
+              onToggleExpand={() => onToggleTaskExpand(task.id)}
+              onSubtaskClick={onTaskClick}
+              renderSubtask={st => (
+                <SortableTaskCard
+                  key={st.id}
+                  task={st}
+                  onClick={() => onTaskClick(st)}
+                  showProjectPill={showProjectPill}
+                  onEdit={patch => onEditTask(st, patch)}
+                  members={membersForProject(st.projectId)}
+                />
+              )}
             />
           ))}
         </SortableContext>
@@ -520,6 +646,7 @@ const DashboardPage = () => {
   [kanbanColumns]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
+  const { busyIds, withBusy, busy } = useBusyIds();
 
   const collisionDetection = useCallback<CollisionDetection>(args => {
     const pointer = pointerWithin(args);
@@ -527,20 +654,34 @@ const DashboardPage = () => {
     return rectIntersection(args);
   }, []);
 
-  const userProjects = useMemo(
-    () => (currentUser ? projects.filter(p => currentUser.projectIds.includes(p.id)) : []),
-    [currentUser, projects],
-  );
+  /**
+   * Projects this person works in.
+   *
+   * A superadmin sees everything by design but is not a member of anything, so
+   * scoping strictly by membership left them with no projects — and therefore
+   * no tasks, no stories, an empty dashboard on a database full of work.
+   */
+  const userProjects = useMemo(() => {
+    if (!currentUser) return [];
+    if (currentUser.role === 'superadmin') return projects;
+    return projects.filter(p => currentUser.projectIds.includes(p.id));
+  }, [currentUser, projects]);
   const isManager = currentUser?.role === 'manager' || currentUser?.role === 'superadmin';
   const isAllProjects = selectedProjectId === 'all';
   const projectSelected = isAllProjects || (!!selectedProjectId && userProjects.some(p => p.id === selectedProjectId));
+  /**
+   * Every task in scope, subtasks included.
+   *
+   * The tree needs the whole set: it promotes only top-level tasks to rows of
+   * their own and reads the rest as children. Filtering subtasks out here left
+   * `childTasksOf` nothing to find, so a task with subtasks showed no expander
+   * in the list and nothing on its board card.
+   */
   const scopedTasks = useMemo(() => {
     if (!projectSelected) return [];
-    const base = isAllProjects
+    return isAllProjects
       ? tasks.filter(t => userProjects.some(p => p.id === t.projectId))
       : tasks.filter(t => t.projectId === selectedProjectId);
-    // Nested story subtasks stay under their parent — never as top-level cards.
-    return base.filter(isTopLevelTask);
   }, [projectSelected, isAllProjects, tasks, userProjects, selectedProjectId]);
 
   const [dashPriorityFilter, setDashPriorityFilter] = useState<Set<Priority>>(() => new Set());
@@ -567,6 +708,16 @@ const DashboardPage = () => {
     return saved === 'board' || saved === 'list' ? saved : 'list';
   });
   const [expandedStoryIds, setExpandedStoryIds] = useState<Set<string>>(() => new Set());
+  /** Board cards showing their subtasks. */
+  const [expandedTaskIds, setExpandedTaskIds] = useState<Set<string>>(() => new Set());
+  const toggleTaskExpanded = useCallback((taskId: string) => {
+    setExpandedTaskIds(prev => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  }, []);
   // List view: one expansion set for every depth (story, task, subtask) and one
   // collapse set covering both project bands and groups. The board keeps its own
   // story expansion because a card expands in place there.
@@ -737,6 +888,27 @@ const DashboardPage = () => {
     return m;
   }, [storyNodes]);
 
+  /**
+   * Subtasks per task, from anywhere in the tree.
+   *
+   * The board only ever read the top two levels, so a task's subtasks were
+   * invisible there — the card said nothing and they had no card of their own.
+   */
+  const subtasksByTask = useMemo(() => {
+    const m: Record<string, Task[]> = {};
+    const walk = (nodes: DashNode[]) => {
+      for (const n of nodes) {
+        if (n.type !== 'story') {
+          const kids = n.children.map(c => c.task!).filter(Boolean);
+          if (kids.length > 0) m[n.entityId] = kids;
+        }
+        walk(n.children);
+      }
+    };
+    walk(dashTree);
+    return m;
+  }, [dashTree]);
+
   const dashGroups = useMemo(
     () => groupDashNodes(dashTree, dashGroupBy, { columns: boardColumns, doneColumnId, users }),
     [dashTree, dashGroupBy, boardColumns, doneColumnId, users],
@@ -835,6 +1007,8 @@ const DashboardPage = () => {
       }
     }
     return out;
+    // A subtask never gets a card of its own here: it is drawn on its task's
+    // card, so listing it again would show the same work twice.
   }, [orphanTasks, storyTasksById, awayTaskIds, filteredStories]);
 
   const taskCardsForColumn = (colId: string) =>
@@ -914,6 +1088,10 @@ const DashboardPage = () => {
     const { active, over } = event;
     setActiveId(null); setActiveType(null); setOverColumnId(null);
     setMascotDrag(false, false);
+    // Whatever this drag turns out to be, the card it touches is working until
+    // the request settles.
+    const activeEntityId = parseStoryDragId(String(active.id)) ?? String(active.id);
+    await withBusy(activeEntityId, async () => {
     if (!over) return;
     const dragType = (active.data.current?.type as ActiveDrag | undefined)
       ?? (parseStoryDragId(active.id as string) ? 'story' : 'task');
@@ -942,9 +1120,37 @@ const DashboardPage = () => {
       const sid = parseStoryDragId(activeIdStr) ?? (active.data.current?.storyId as string | undefined);
       if (!sid) return;
       const story = dashStories.find(s => s.id === sid);
-      if (!story || statusColId(story.status, boardColumns, doneColumnId) === targetCol) return;
+      if (!story) return;
+
+      // Dropped on another story's card: nest it there.
+      const hostId = parseStoryDragId(overIdStr);
+      if (hostId && hostId !== sid) {
+        const host = dashStories.find(x => x.id === hostId);
+        if (!host) return;
+        if (host.projectId !== story.projectId) {
+          toast.error('Move it to the same project first');
+          return;
+        }
+        try {
+          const updated = await api.patchUserStory(sid, { parentStoryId: hostId });
+          upsertUserStory(updated);
+          toast.success(`Moved into "${host.title}"`);
+        } catch (e) {
+          toast.error(e instanceof Error ? e.message : 'Could not move that story');
+        }
+        return;
+      }
+
+      // Dropped on a column: outside every story, so it stops being a sub-story.
+      const leftParent = !!story.parentStoryId;
+      const sameColumn = statusColId(story.status, boardColumns, doneColumnId) === targetCol;
+      if (sameColumn && !leftParent) return;
       try {
-        const updated = await api.patchUserStory(sid, { status: targetCol });
+        const updated = await api.patchUserStory(sid, {
+          ...(sameColumn ? {} : { status: targetCol }),
+          ...(leftParent ? { parentStoryId: '' } : {}),
+        });
+        if (leftParent) toast.success('Moved out on its own');
         upsertUserStory(updated);
         setSelectedStory(prev => (prev?.id === updated.id ? updated : prev));
         if (updated.status === 'completed' || updated.status === 'done' || updated.status === doneColumnId) {
@@ -959,9 +1165,28 @@ const DashboardPage = () => {
     try {
       const dragged = tasks.find(t => t.id === activeIdStr);
       if (!dragged) return;
-      // Dropped back where it started (including onto its own story card): no
-      // request, no prompt, no "moved" animation.
-      if (statusColId(dragged.status, boardColumns, doneColumnId) === targetCol) return;
+
+      // Dropped on a story card: that is how a task joins a story, and the only
+      // way it ever does.
+      const dropStoryId = parseStoryDragId(overIdStr);
+      if (dropStoryId) {
+        if (dragged.userStoryId === dropStoryId) return;
+        const host = dashStories.find(x => x.id === dropStoryId);
+        if (!host) return;
+        if (host.projectId !== dragged.projectId) {
+          toast.error('Move it to the same project first');
+          return;
+        }
+        await updateTask(activeIdStr, { userStoryId: dropStoryId, parentTaskId: null });
+        toast.success(`Moved into "${host.title}"`);
+        return;
+      }
+
+      // Dropped on a column instead: that is outside every story, so the task
+      // leaves the one it was in rather than staying a member somewhere else.
+      const leftStory = !!(dragged.userStoryId || dragged.parentTaskId);
+      const sameColumn = statusColId(dragged.status, boardColumns, doneColumnId) === targetCol;
+      if (sameColumn && !leftStory) return;
 
       const enteringDone =
         isDoneBoardStatus(targetCol, doneColumnId)
@@ -979,8 +1204,13 @@ const DashboardPage = () => {
       if (isDoneBoardStatus(targetCol, doneColumnId) && activeTimers[activeIdStr]) {
         await stopTimer(activeIdStr);
       }
-      await moveTask(activeIdStr, targetCol, hours);
+      if (leftStory) {
+        await updateTask(activeIdStr, { userStoryId: null, parentTaskId: null });
+      }
+      if (!sameColumn) await moveTask(activeIdStr, targetCol, hours);
+      if (leftStory) toast.success('Moved out on its own');
     } catch { toast.error('Could not move task'); }
+    });
   };
 
   const handleDragCancel = () => {
@@ -1231,16 +1461,36 @@ const DashboardPage = () => {
     if (failed) toast.error(`Could not delete ${failed} of them`);
   };
 
+  /** Board cards edit through the same path the list rows do. */
+  const editTaskCell = (task: Task, patch: DashRowPatch) => {
+    void handleEditRow(
+      { entityId: task.id, type: 'task', projectId: task.projectId, task } as DashRow,
+      patch,
+    );
+  };
+  const editStoryCell = (story: UserStory, patch: DashRowPatch) => {
+    void handleEditRow(
+      { entityId: story.id, type: 'story', projectId: story.projectId, story } as DashRow,
+      patch,
+    );
+  };
+
   const handleEditRow = async (row: DashRow, patch: DashRowPatch) => {
+    await withBusy(row.entityId, async () => {
     try {
       if (row.story) {
+        // A story only ever belongs to another story, so detaching means going
+        // back to the top level.
+        const leavingParent = patch.detach && !!row.story.parentStoryId;
         const updated = await api.patchUserStory(row.entityId, {
           ...(patch.title !== undefined ? { title: patch.title } : {}),
           ...(patch.assigneeIds !== undefined ? { assigneeIds: patch.assigneeIds } : {}),
           ...(patch.status !== undefined ? { status: patch.status } : {}),
           ...(patch.priority !== undefined ? { priority: patch.priority } : {}),
           ...(patch.dueDate !== undefined ? { dueDate: patch.dueDate || null } : {}),
+          ...(leavingParent ? { parentStoryId: '' } : {}),
         });
+        if (leavingParent) toast.success('Moved out on its own');
         upsertUserStory(updated);
         setSelectedStory(prev => (prev?.id === updated.id ? updated : prev));
         if (patch.status !== undefined && isDoneBoardStatus(updated.status, doneColumnId)) {
@@ -1249,6 +1499,12 @@ const DashboardPage = () => {
         return;
       }
       if (!row.task) return;
+      // A task belongs to a story, or sits under another task, only because
+      // someone put it there. Dropped outside, it keeps neither.
+      const leftParent = !!patch.detach && !!(row.task.userStoryId || row.task.parentTaskId);
+      if (leftParent) {
+        await updateTask(row.entityId, { userStoryId: null, parentTaskId: null });
+      }
       if (patch.status !== undefined) {
         const next = patch.status;
         if (isDoneBoardStatus(next, doneColumnId) && !isDoneBoardStatus(row.task.status, doneColumnId)) {
@@ -1256,20 +1512,25 @@ const DashboardPage = () => {
           if (hours === null) return;
           if (activeTimers[row.entityId]) await stopTimer(row.entityId);
           await moveTask(row.entityId, next, hours);
+          if (leftParent) toast.success('Moved out on its own');
           return;
         }
         await moveTask(row.entityId, next);
+        if (leftParent) toast.success('Moved out on its own');
         return;
       }
-      await updateTask(row.entityId, {
+      const rest = {
         ...(patch.title !== undefined ? { title: patch.title } : {}),
         ...(patch.assigneeIds !== undefined ? { assigneeIds: patch.assigneeIds } : {}),
         ...(patch.priority !== undefined ? { priority: patch.priority } : {}),
         ...(patch.dueDate !== undefined ? { dueDate: patch.dueDate } : {}),
-      });
+      };
+      if (Object.keys(rest).length > 0) await updateTask(row.entityId, rest);
+      if (leftParent) toast.success('Moved out on its own');
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Could not save that change');
     }
+    });
   };
   /**
    * Inline create from the list: title plus whatever the group implies, and
@@ -1339,19 +1600,28 @@ const DashboardPage = () => {
    * Dropping a row on a group applies whatever that grouping represents, so the
    * gesture means the same thing in every grouping instead of only in Status.
    */
+  /**
+   * Dropping on a group is dropping outside every parent, so it also breaks the
+   * item free: a task that leaves its story is an independent task, and a
+   * sub-story dropped on a group goes back to the top level. Membership is only
+   * ever what someone put there on purpose.
+   */
   const handleDropRow = (row: DashRow, groupKey: string) => {
+    const detach = true;
     if (dashGroupBy === 'status') {
-      void handleEditRow(row, { status: groupKey });
+      void handleEditRow(row, { status: groupKey, detach });
       return;
     }
     if (dashGroupBy === 'priority') {
-      void handleEditRow(row, { priority: groupKey as Priority });
+      void handleEditRow(row, { priority: groupKey as Priority, detach });
       return;
     }
     if (dashGroupBy === 'assignee') {
       const ids = groupKey === UNASSIGNED_FILTER_ID ? [] : [groupKey];
-      void handleEditRow(row, { assigneeIds: ids });
+      void handleEditRow(row, { assigneeIds: ids, detach });
+      return;
     }
+    void handleEditRow(row, { detach });
   };
 
   const clearDashFilters = () => {
@@ -1364,7 +1634,14 @@ const DashboardPage = () => {
   };
 
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={pageEnter} className="p-3 sm:p-4 h-full flex flex-col overflow-hidden">
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={pageEnter} className="relative p-3 sm:p-4 h-full flex flex-col overflow-hidden">
+      {/* One line across the top while anything is saving. A move on a slow
+          connection is otherwise indistinguishable from a click that missed. */}
+      {busy && (
+        <span className="pointer-events-none absolute inset-x-0 top-0 z-50 h-0.5 overflow-hidden bg-primary/20">
+          <span className="block h-full w-1/3 animate-dash-progress bg-primary" />
+        </span>
+      )}
       <div className="mb-3 shrink-0 flex flex-col gap-2">
         <div className="flex items-center gap-3 min-w-0">
           <h1 className="text-lg font-bold text-foreground truncate">{selectedProjectName}</h1>
@@ -1374,14 +1651,14 @@ const DashboardPage = () => {
               onClick={() => setView('list')}
               className={`inline-flex items-center gap-1.5 rounded-md px-2.5 text-xs font-medium ${dashView === 'list' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
             >
-              <List className="h-3.5 w-3.5" /> Tasks List
+              <List className="h-3.5 w-3.5" /> List
             </button>
             <button
               type="button"
               onClick={() => setView('board')}
               className={`inline-flex items-center gap-1.5 rounded-md px-2.5 text-xs font-medium ${dashView === 'board' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
             >
-              <Columns className="h-3.5 w-3.5" /> Progress Board
+              <Columns className="h-3.5 w-3.5" /> Board
             </button>
           </div>
         </div>
@@ -1452,6 +1729,7 @@ const DashboardPage = () => {
               onReparentRow={(row, parent) => { void handleReparentRow(row, parent); }}
               onDeleteRows={rows => { void handleDeleteRows(rows); }}
               onConvertRow={row => { void handleConvertRow(row); }}
+              busyIds={busyIds}
               onAddStory={groupKey => openCreateStory(groupKey || undefined)}
               groupKeyIsStatus={dashGroupBy === 'status'}
             />
@@ -1471,6 +1749,13 @@ const DashboardPage = () => {
                 storyTasksById={nestedStoryTasks}
                 storyTaskTotals={storyTaskTotals}
                 childStoriesById={childStoriesById}
+                subtasksByTask={subtasksByTask}
+                busyIds={busyIds}
+                expandedTaskIds={expandedTaskIds}
+                onToggleTaskExpand={toggleTaskExpanded}
+                onEditStory={editStoryCell}
+                onEditTask={editTaskCell}
+                membersForProject={membersForProject}
                 onTaskClick={setSelectedTask}
                 onStoryClick={setSelectedStory}
                 onStoryTaskClick={setSelectedTask}

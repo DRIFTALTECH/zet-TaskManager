@@ -157,56 +157,6 @@ def _migrate_user_story_parent() -> None:
         pass
 
 
-def _migrate_story_status_from_tasks() -> None:
-    """One-off: lift stories that were left in Backlog while their tasks moved on.
-
-    Stories only started following their tasks when that rule was added, so every
-    story created before it still sits wherever it was last put by hand. Runs
-    once — a story deliberately pushed back to Backlog must stay there, so this
-    cannot be allowed to re-run on every boot.
-    """
-    db = get_database()
-    if not (_table_exists(db, "user_stories") and _table_exists(db, "tasks")):
-        return
-    import crud.settings as settings_crud
-
-    flag = "story_status_backfill_v1"
-    try:
-        if settings_crud.get(db, flag):
-            return
-    except Exception:
-        return  # app_settings not ready yet; try again next boot
-
-    working = "('backlog', 'done', 'completed')"
-    try:
-        rows = db.read(
-            f"""
-            SELECT s.id AS story_id,
-                   (SELECT t.status FROM tasks t
-                     WHERE t.user_story_id = s.id AND t.status NOT IN {working}
-                     LIMIT 1) AS task_status
-            FROM user_stories s
-            WHERE s.status = 'backlog'
-            """
-        )
-        now = datetime.now(timezone.utc).isoformat()
-        moved = 0
-        for row in rows:
-            status = (row.get("task_status") or "").strip()
-            if not status:
-                continue
-            db.write(
-                "UPDATE user_stories SET status = %s, updated_at = %s WHERE id = %s",
-                (status, now, row["story_id"]),
-            )
-            moved += 1
-        settings_crud.set(db, flag, "done")
-        if moved:
-            log.info("Backfilled %s user story statuses from their tasks", moved)
-    except Exception:
-        log.warning("Story status backfill skipped", exc_info=True)
-
-
 def _migrate_clients() -> None:
     db = get_database()
     _create_table_if_missing(
@@ -605,30 +555,45 @@ def _migrate_kanban_color() -> None:
         db.write("UPDATE kanban_columns SET color = %s WHERE id = %s", (color, kid))
 
 
+def _step(fn) -> None:
+    """Run one startup step; a database that refuses it must not stop the boot.
+
+    The service connects as a least-privilege role that may be denied DDL, and a
+    denial used to escape `init_db()` and take the whole process down — the app
+    then looked like it had lost everyone's data when in fact it had never
+    started. A skipped migration costs one feature; a dead service costs all of
+    them. The owner applies what was skipped with
+    `scripts/bootstrap_aurora.sql`.
+    """
+    try:
+        fn()
+    except Exception as exc:
+        log.warning("Startup step %s skipped: %s", getattr(fn, "__name__", fn), exc)
+
+
 def init_db() -> None:
     # Bootstrap creates base tables. On existing DBs, CREATE TABLE IF NOT EXISTS is a
     # no-op — new columns are NOT added there. Hierarchy columns/indexes come next.
-    _run_bootstrap()
-    _migrate_submitted_dates()
-    _migrate_task_min_log_minutes()
-    _migrate_task_sprint()
-    _migrate_task_estimated_hours()
-    _migrate_timesheet_entry_task_link()
-    _migrate_clients()
-    _migrate_skills()
-    _migrate_user_stories()
-    _migrate_user_story_section_optional()
-    _migrate_user_story_board_fields()
-    _migrate_forecast_visibility()
-    _migrate_pat_expiry()
-    _migrate_temp_task_assignees()
-    _migrate_kanban_color()
-    _migrate_user_story_parent()
-    _migrate_story_status_from_tasks()
-    _seed_kanban()
+    _step(_run_bootstrap)
+    _step(_migrate_submitted_dates)
+    _step(_migrate_task_min_log_minutes)
+    _step(_migrate_task_sprint)
+    _step(_migrate_task_estimated_hours)
+    _step(_migrate_timesheet_entry_task_link)
+    _step(_migrate_clients)
+    _step(_migrate_skills)
+    _step(_migrate_user_stories)
+    _step(_migrate_user_story_section_optional)
+    _step(_migrate_user_story_board_fields)
+    _step(_migrate_forecast_visibility)
+    _step(_migrate_pat_expiry)
+    _step(_migrate_temp_task_assignees)
+    _step(_migrate_kanban_color)
+    _step(_migrate_user_story_parent)
+    _step(_seed_kanban)
     from logic.audit import purge_old_audit_logs
 
-    purge_old_audit_logs(get_database())
+    _step(lambda: purge_old_audit_logs(get_database()))
 
 
 def new_id(prefix: str) -> str:

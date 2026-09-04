@@ -952,14 +952,14 @@ const ProjectDetailPage = () => {
                   onClick={() => setWorkView('list')}
                   className={`inline-flex items-center gap-1.5 rounded-md px-2.5 text-xs font-medium ${workView === 'list' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                 >
-                  <List className="h-3.5 w-3.5" /> Tasks List
+                  <List className="h-3.5 w-3.5" /> List
                 </button>
                 <button
                   type="button"
                   onClick={() => setWorkView('board')}
                   className={`inline-flex items-center gap-1.5 rounded-md px-2.5 text-xs font-medium ${workView === 'board' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                 >
-                  <Columns className="h-3.5 w-3.5" /> Progress Board
+                  <Columns className="h-3.5 w-3.5" /> Board
                 </button>
               </div>
               <AddWorkMenu

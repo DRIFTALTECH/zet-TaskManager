@@ -298,7 +298,11 @@ export function statusColumnId(
   doneColumnId: string,
 ): string {
   const id = status === 'completed' ? doneColumnId : status || 'backlog';
-  return columns.some(c => c.id === id) ? id : 'backlog';
+  if (columns.some(c => c.id === id)) return id;
+  // Fall back to a column that exists. Returning a hard-coded 'backlog' hid the
+  // card entirely on a board whose columns were renamed or replaced: it matched
+  // no column, so nothing rendered it anywhere.
+  return columns.some(c => c.id === 'backlog') ? 'backlog' : (columns[0]?.id ?? 'backlog');
 }
 
 /**
@@ -319,8 +323,11 @@ function splitForStatus(
   for (const child of node.children) {
     const split = splitForStatus(child, ctx);
     const childCol = statusColumnId(child.status, ctx.columns, ctx.doneColumnId);
-    // Keeps whatever stayed under it; the row itself is now independent.
-    if (childCol === own) kept.push(split.placed);
+    // A subtask always travels with its task: it is a breakdown of that work,
+    // not a row that stands on its own, and lifting it out left the task with
+    // nothing to expand. Only a story's own children are placed by status.
+    const staysPut = node.type !== 'story' || childCol === own;
+    if (staysPut) kept.push(split.placed);
     else hoisted.push(split.placed);
     hoisted.push(...split.hoisted);
   }

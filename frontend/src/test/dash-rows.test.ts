@@ -135,7 +135,7 @@ describe('groupDashNodes status grouping', () => {
     expect(groups.find(g => g.key === 'backlog')!.nodes[0].children).toEqual([]);
   });
 
-  it('a lifted task keeps the subtasks that share its status', () => {
+  it('a lifted task takes all of its subtasks with it', () => {
     const story = {
       ...node('story', 'backlog', [node('t1', 'done', [node('s1', 'done'), node('s2', 'backlog')])]),
       type: 'story' as const,
@@ -145,9 +145,10 @@ describe('groupDashNodes status grouping', () => {
     const backlog = groups.find(g => g.key === 'backlog')!;
 
     expect(done.nodes.map(n => n.rowId)).toEqual(['t1']);
-    expect(done.nodes[0].children.map(n => n.rowId)).toEqual(['s1']);
-    // The odd one out lands in its own group rather than following its parent.
-    expect(backlog.nodes.map(n => n.rowId)).toEqual(['story', 's2']);
+    // A subtask is a breakdown of its task, not a row that stands alone, so it
+    // follows the task whatever its own status says.
+    expect(done.nodes[0].children.map(n => n.rowId)).toEqual(['s1', 's2']);
+    expect(backlog.nodes.map(n => n.rowId)).toEqual(['story']);
   });
 
   it('treats completed the same as the done column', () => {
@@ -211,5 +212,55 @@ describe('buildDashTree story nesting', () => {
     // still reachable, each exactly once, and nothing recurses forever.
     const ids = flattenDashNodes(nodes, new Set(['story:a', 'story:b'])).map(r => r.entityId);
     expect(ids.sort()).toEqual(['a', 'b']);
+  });
+});
+
+describe('subtasks in the tree', () => {
+  it('gives a task with subtasks something to expand', () => {
+    const parent = task({ id: 't1', title: 'Parent' });
+    const child = task({ id: 't2', title: 'Child', parentTaskId: 't1' });
+    const rows = flattenDashNodes(buildDashTree([], [parent, child]), new Set(['task:t1']));
+
+    const parentRow = rows.find(r => r.entityId === 't1')!;
+    expect(parentRow.hasChildren).toBe(true);
+    expect(parentRow.childCount).toBe(1);
+    // Expanded, the subtask is a row of its own one level in.
+    expect(rows.map(r => r.entityId)).toEqual(['t1', 't2']);
+    expect(rows.find(r => r.entityId === 't2')!.depth).toBe(1);
+  });
+
+  it('hides the subtask again when the parent is collapsed', () => {
+    const parent = task({ id: 't1' });
+    const child = task({ id: 't2', parentTaskId: 't1' });
+    const rows = flattenDashNodes(buildDashTree([], [parent, child]), new Set());
+    expect(rows.map(r => r.entityId)).toEqual(['t1']);
+    expect(rows[0].hasChildren).toBe(true);
+  });
+});
+
+describe('subtasks reach the tree from a flat task list', () => {
+  it('nests a subtask under its parent and keeps it off the top level', () => {
+    const parent = task({ id: 't1', title: 'Parent' });
+    const child = task({ id: 't2', title: 'Child', parentTaskId: 't1' });
+    // The page hands over every task it has, subtasks included.
+    const nodes = buildDashTree([], [parent, child]);
+
+    expect(nodes.map(n => n.entityId)).toEqual(['t1']);
+    expect(nodes[0].children.map(n => n.entityId)).toEqual(['t2']);
+    expect(nodes[0].children[0].type).toBe('subtask');
+  });
+
+  it('finds subtasks of a task that belongs to a story', () => {
+    const story = {
+      id: 's1', projectId: 'p1', title: 'S', description: '', acceptanceCriteria: '',
+      priority: 'Medium', status: 'backlog', reporterId: 'u1', createdAt: '', updatedAt: '',
+    } as UserStory;
+    const parent = task({ id: 't1', userStoryId: 's1' });
+    const child = task({ id: 't2', parentTaskId: 't1', userStoryId: 's1' });
+
+    const nodes = buildDashTree([story], [parent, child]);
+    const storyNode = nodes.find(n => n.entityId === 's1')!;
+    expect(storyNode.children.map(n => n.entityId)).toEqual(['t1']);
+    expect(storyNode.children[0].children.map(n => n.entityId)).toEqual(['t2']);
   });
 });

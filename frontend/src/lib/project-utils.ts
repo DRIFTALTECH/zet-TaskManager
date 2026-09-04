@@ -9,7 +9,14 @@ export function projectPickerLabel(p: Project): string {
  * Default header/dashboard selection: always the aggregate "all projects" board when the user
  * belongs to any project, so we never land on a single project by default.
  */
-export function defaultSelectedProjectIdForUser(projects: Project[], userProjectIds: string[]): string | null {
+export function defaultSelectedProjectIdForUser(
+  projects: Project[],
+  userProjectIds: string[],
+  role?: string,
+): string | null {
+  // A superadmin belongs to no project but sees them all; keying the default off
+  // membership alone dropped them on "Select a project" with nothing to select.
+  if (role === 'superadmin') return projects.length > 0 ? 'all' : null;
   const mine = projects.filter(p => userProjectIds.includes(p.id));
   if (mine.length === 0) return null;
   return 'all';

@@ -144,9 +144,8 @@ async function refetchUsersProjects(get: () => AppState, set: (p: Partial<AppSta
 }
 
 /**
- * A task's status can drag its story with it (see `_sync_story_status_from_tasks`
- * on the server), so pull the story back after any status write — otherwise the
- * story row keeps rendering under its old group until the next full sync.
+ * A story's own status never changes with its tasks, but its progress and task
+ * counts do — so pull it back after a task write to keep those honest.
  */
 async function refreshLinkedStory(task: Task) {
   const storyId = task.userStoryId;
@@ -199,7 +198,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         clients,
         tasks,
         kanbanColumns,
-        selectedProjectId: defaultSelectedProjectIdForUser(projects, me.projectIds),
+        selectedProjectId: defaultSelectedProjectIdForUser(projects, me.projectIds, me.role),
         activeTimers: timersToMap(activeTimerRows),
       });
     } catch (e) {
@@ -252,7 +251,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         projects,
         tasks,
         kanbanColumns,
-        selectedProjectId: defaultSelectedProjectIdForUser(projects, user.projectIds),
+        selectedProjectId: defaultSelectedProjectIdForUser(projects, user.projectIds, user.role),
         activeTimers: timersToMap(activeTimerRows),
         hydrated: true,
       });
@@ -289,7 +288,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       projects,
       tasks,
       kanbanColumns,
-      selectedProjectId: defaultSelectedProjectIdForUser(projects, user.projectIds),
+      selectedProjectId: defaultSelectedProjectIdForUser(projects, user.projectIds, user.role),
       hydrated: true,
     });
     return user;
