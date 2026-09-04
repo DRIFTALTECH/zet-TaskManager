@@ -133,9 +133,10 @@ def test_user_story_crud_and_progress(client, register):
     assert edited["acceptanceCriteria"] == "Must work"
     assert edited["sectionId"] == sid
     assert edited["estimatedHours"] == 4
+    # Moving the story moved its work with it — one piece of work, one column.
     r = client.get(f"/tasks/{parent['id']}", headers=token)
     assert r.status_code == 200, r.text
-    assert r.json()["status"] == "backlog"
+    assert r.json()["status"] == "in_progress"
 
     r = client.post(
         "/tasks",

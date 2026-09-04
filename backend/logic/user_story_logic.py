@@ -295,6 +295,35 @@ def _set_story_parent(db: Db, s, raw_parent_id: str, user_id: str) -> None:
     s.parent_story_id = parent.id
 
 
+def _cascade_story_status(db: Db, story_id: str, status: str, seen: set[str] | None = None) -> None:
+    """Move a story's whole subtree to the status the story just took.
+
+    A story dragged to another column takes its tasks, their subtasks and any
+    sub-stories with it: it is one piece of work, and half of it left behind in
+    the old column is nobody's idea of a move.
+    """
+    seen = seen if seen is not None else set()
+    if story_id in seen:
+        return
+    seen.add(story_id)
+
+    for t in tasks_crud.list_for_user_story(db, story_id):
+        if (t.status or "") == status:
+            continue
+        t.status = status
+        if status == "done":
+            t.is_started = False
+            t.started_at = None
+        tasks_crud.update_task(db, t)
+
+    for child in stories_crud.list_children(db, story_id):
+        if (child.status or "") != status:
+            child.status = status
+            child.updated_at = datetime.now(timezone.utc).isoformat()
+            stories_crud.update(db, child)
+        _cascade_story_status(db, child.id, status, seen)
+
+
 def _move_story_to_project(db: Db, s, new_project_id: str, user_id: str) -> None:
     """Re-home a story and everything hanging off it.
 
@@ -353,6 +382,8 @@ def patch_story(db: Db, user_id: str, story_id: str, body: UserStoryPatch) -> Us
         s.status = body.status
         if _is_done(body.status):
             _complete_linked_tasks(db, story_id)
+        else:
+            _cascade_story_status(db, story_id, body.status)
     if body.assigneeIds is not None:
         aids = _resolve_assignee_ids(
             db, s.project_id, assignee_ids=body.assigneeIds, assignee_id=None

@@ -108,7 +108,7 @@ interface BoardTaskCard {
 }
 
 function StoryBoardCard({
-  story, tasks, totalTasks, childStories = [], renderChildStory, onEdit, onEditTask, subtasksOf, expandedTaskIds, onToggleTaskExpand, members = [], busy = false, busyIds, expanded, onToggleExpand, onClick, onTaskClick, onAddTask, users,
+  story, tasks, totalTasks, childStories = [], renderChildStory, onEdit, onEditTask, subtasksOf, expandedTaskIds, onToggleTaskExpand, members = [], busy = false, busyIds, awaySubtaskIds, expanded, onToggleExpand, onClick, onTaskClick, onAddTask, users,
   showProjectPill, isManager, doneColumnId,
   dragRef, dragStyle, dragAttributes, dragListeners, isDragging,
 }: {
@@ -135,6 +135,8 @@ function StoryBoardCard({
   busy?: boolean;
   /** Ids in flight, for the tasks drawn inside this card. */
   busyIds?: Set<string>;
+  /** Subtasks drawn in their own column instead of on this card. */
+  awaySubtaskIds?: Set<string>;
   expanded: boolean;
   onToggleExpand: () => void;
   onClick: () => void;
@@ -311,7 +313,7 @@ function SortableStoryCard(props: Omit<Parameters<typeof StoryBoardCard>[0], 'dr
 
 function KanbanColumnPanel({
   column, taskCards, stories, storyTasksById, storyTaskTotals, childStoriesById,
-  subtasksByTask, expandedTaskIds, onToggleTaskExpand, busyIds,
+  subtasksByTask, awaySubtaskIds, expandedTaskIds, onToggleTaskExpand, busyIds,
   onEditStory, onEditTask, membersForProject,
   onTaskClick, onStoryClick, onStoryTaskClick,
   expandedStoryIds, onToggleStoryExpand, onNewTask, onNewStory, onAddStoryTask, isDropTarget, isManager,
@@ -332,6 +334,7 @@ function KanbanColumnPanel({
   busyIds?: Set<string>;
   /** Subtasks per task, and which cards are open. */
   subtasksByTask: Record<string, Task[]>;
+  awaySubtaskIds: Set<string>;
   expandedTaskIds: Set<string>;
   onToggleTaskExpand: (taskId: string) => void;
   /** One-click cell edits, the same ones the list rows offer. */
@@ -410,8 +413,9 @@ function KanbanColumnPanel({
         onEdit={patch => onEditStory(story, patch)}
         busy={busyIds?.has(story.id)}
         busyIds={busyIds}
+        awaySubtaskIds={awaySubtaskIds}
         onEditTask={onEditTask}
-        subtasksOf={id => subtasksByTask[id] ?? []}
+        subtasksOf={id => (subtasksByTask[id] ?? []).filter(st => !awaySubtaskIds?.has(st.id))}
         expandedTaskIds={expandedTaskIds}
         onToggleTaskExpand={onToggleTaskExpand}
         members={membersForProject(story.projectId)}
@@ -528,7 +532,7 @@ function KanbanColumnPanel({
               onEdit={patch => onEditTask(task, patch)}
               members={membersForProject(task.projectId)}
               busy={busyIds?.has(task.id)}
-              subtasks={subtasksByTask[task.id] ?? []}
+              subtasks={(subtasksByTask[task.id] ?? []).filter(st => !awaySubtaskIds.has(st.id))}
               expanded={expandedTaskIds.has(task.id)}
               onToggleExpand={() => onToggleTaskExpand(task.id)}
               onSubtaskClick={onTaskClick}
@@ -648,11 +652,26 @@ const DashboardPage = () => {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
   const { busyIds, withBusy, busy } = useBusyIds();
 
+  /**
+   * A card only takes something in when you drop on the card itself.
+   *
+   * Cards and their column both sit under the cursor, and the rectangle
+   * fallback matched a card whenever the drag overlay merely overlapped one —
+   * so a drop meant for the column filed the item inside a story instead.
+   * Anywhere that is not a card is the column, which means "outside".
+   */
   const collisionDetection = useCallback<CollisionDetection>(args => {
+    const isColumn = (id: string) => boardColumns.some(c => c.id === id);
     const pointer = pointerWithin(args);
-    if (pointer.length > 0) return pointer;
-    return rectIntersection(args);
-  }, []);
+    if (pointer.length > 0) {
+      const onCard = pointer.find(c => String(c.id).startsWith(STORY_DRAG_PREFIX));
+      if (onCard) return [onCard];
+      const onColumn = pointer.find(c => isColumn(String(c.id)));
+      return onColumn ? [onColumn] : pointer;
+    }
+    const columnsOnly = args.droppableContainers.filter(c => isColumn(String(c.id)));
+    return rectIntersection({ ...args, droppableContainers: columnsOnly });
+  }, [boardColumns]);
 
   /**
    * Projects this person works in.
@@ -964,20 +983,41 @@ const DashboardPage = () => {
     return m;
   }, [filteredStories, colOf]);
 
-  /** Children whose status has taken them out of their story's column. */
-  const awayTaskIds = useMemo(() => {
+  /** A subtask whose status has taken it out of its task's column. */
+  const awaySubtaskIds = useMemo(() => {
+    const parentCol = new Map<string, string>();
+    const walk = (nodes: DashNode[]) => {
+      for (const n of nodes) {
+        if (n.type !== 'story') parentCol.set(n.entityId, colOf(n.status));
+        walk(n.children);
+      }
+    };
+    walk(dashTree);
     const out = new Set<string>();
-    for (const [sid, kids] of Object.entries(storyTasksById)) {
-      for (const t of kids) {
-        if (colOf(t.status) !== storyColumnById[sid]) out.add(t.id);
+    for (const [parentId, kids] of Object.entries(subtasksByTask)) {
+      for (const kid of kids) {
+        if (colOf(kid.status) !== parentCol.get(parentId)) out.add(kid.id);
       }
     }
     return out;
-  }, [storyTasksById, storyColumnById, colOf]);
+  }, [dashTree, subtasksByTask, colOf]);
+
+  /** A story task whose status has taken it out of its story's column. */
+  const awayTaskIds = useMemo(() => {
+    const storyCol = new Map(filteredStories.map(st => [st.id, colOf(st.status)]));
+    const out = new Set<string>();
+    for (const [sid, kids] of Object.entries(storyTasksById)) {
+      for (const t of kids) {
+        if (colOf(t.status) !== storyCol.get(sid)) out.add(t.id);
+      }
+    }
+    return out;
+  }, [storyTasksById, filteredStories, colOf]);
 
   /**
-   * A story card lists the children still in its column. One that moved on is a
-   * card of its own in the column its status names, and belongs to nobody there.
+   * A story card lists the tasks still in its column; one that moved on is a
+   * card in the column its own status names. A task's subtasks are a breakdown
+   * of that task and always stay on its card.
    */
   const nestedStoryTasks = useMemo(() => {
     const m: Record<string, Task[]> = {};
@@ -1006,10 +1046,13 @@ const DashboardPage = () => {
         if (awayTaskIds.has(task.id)) out.push({ task, storyTitle: titleOf.get(sid) });
       }
     }
+    for (const kids of Object.values(subtasksByTask)) {
+      for (const kid of kids) {
+        if (awaySubtaskIds.has(kid.id)) out.push({ task: kid });
+      }
+    }
     return out;
-    // A subtask never gets a card of its own here: it is drawn on its task's
-    // card, so listing it again would show the same work twice.
-  }, [orphanTasks, storyTasksById, awayTaskIds, filteredStories]);
+  }, [orphanTasks, storyTasksById, awayTaskIds, filteredStories, subtasksByTask, awaySubtaskIds]);
 
   const taskCardsForColumn = (colId: string) =>
     boardTaskCards.filter(c => colOf(c.task.status) === colId);
@@ -1151,6 +1194,7 @@ const DashboardPage = () => {
           ...(leftParent ? { parentStoryId: '' } : {}),
         });
         if (leftParent) toast.success('Moved out on its own');
+        if (!sameColumn) await syncTasks();
         upsertUserStory(updated);
         setSelectedStory(prev => (prev?.id === updated.id ? updated : prev));
         if (updated.status === 'completed' || updated.status === 'done' || updated.status === doneColumnId) {
@@ -1493,9 +1537,8 @@ const DashboardPage = () => {
         if (leavingParent) toast.success('Moved out on its own');
         upsertUserStory(updated);
         setSelectedStory(prev => (prev?.id === updated.id ? updated : prev));
-        if (patch.status !== undefined && isDoneBoardStatus(updated.status, doneColumnId)) {
-          await syncTasks();
-        }
+        // Its tasks and sub-stories moved with it on the server.
+        if (patch.status !== undefined) await syncTasks();
         return;
       }
       if (!row.task) return;
@@ -1750,6 +1793,7 @@ const DashboardPage = () => {
                 storyTaskTotals={storyTaskTotals}
                 childStoriesById={childStoriesById}
                 subtasksByTask={subtasksByTask}
+                awaySubtaskIds={awaySubtaskIds}
                 busyIds={busyIds}
                 expandedTaskIds={expandedTaskIds}
                 onToggleTaskExpand={toggleTaskExpanded}

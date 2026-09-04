@@ -89,6 +89,7 @@ describe('groupDashNodes status grouping', () => {
   const columns = [
     { id: 'backlog', label: 'Backlog' },
     { id: 'in_progress', label: 'In Progress' },
+    { id: 'in_review', label: 'In Review' },
     { id: 'done', label: 'Done' },
   ];
   const ctx = { columns, doneColumnId: 'done', users: [] };
@@ -113,49 +114,49 @@ describe('groupDashNodes status grouping', () => {
     } as DashNode;
   }
 
-  it('puts every child in the group its own status names', () => {
+  it("places a story's task in the group its own status names", () => {
     const story = {
-      ...node('story', 'in_progress', [node('t1', 'backlog'), node('t2', 'in_progress'), node('t3', 'done')]),
+      ...node('story', 'in_progress', [node('t1', 'in_review'), node('t2', 'in_progress')]),
       type: 'story' as const,
     };
     const groups = groupDashNodes([story], 'status', ctx);
     const at = (key: string) => groups.find(g => g.key === key)!;
 
+    // What the board has always done: a task that reached In Review is shown
+    // there, not filed under the story's own status.
     expect(at('in_progress').nodes.map(n => n.rowId)).toEqual(['story']);
     expect(at('in_progress').nodes[0].children.map(n => n.rowId)).toEqual(['t2']);
-    expect(at('backlog').nodes.map(n => n.rowId)).toEqual(['t1']);
-    expect(at('done').nodes.map(n => n.rowId)).toEqual(['t3']);
+    expect(at('in_review').nodes.map(n => n.rowId)).toEqual(['t1']);
   });
 
-  it('leaves a lifted row standing on its own', () => {
-    const story = { ...node('story', 'backlog', [node('t1', 'done')]), type: 'story' as const };
-    const groups = groupDashNodes([story], 'status', ctx);
-    expect(groups.find(g => g.key === 'done')!.nodes.map(n => n.rowId)).toEqual(['t1']);
-    // The story keeps its own row and simply stops listing that task.
-    expect(groups.find(g => g.key === 'backlog')!.nodes[0].children).toEqual([]);
+  it('shows a moved subtask in the group its own status names', () => {
+    const parent = node('t1', 'backlog', [node('s1', 'done'), node('s2', 'backlog')]);
+    const groups = groupDashNodes([parent], 'status', ctx);
+
+    // The one still holding its task's status stays nested; the moved one is a
+    // row of its own, exactly like a task.
+    expect(groups.find(g => g.key === 'backlog')!.nodes[0].children.map(n => n.rowId))
+      .toEqual(['s2']);
+    expect(groups.find(g => g.key === 'done')!.nodes.map(n => n.rowId)).toEqual(['s1']);
   });
 
-  it('a lifted task takes all of its subtasks with it', () => {
+  it('a lifted task keeps the subtasks that share its status', () => {
     const story = {
-      ...node('story', 'backlog', [node('t1', 'done', [node('s1', 'done'), node('s2', 'backlog')])]),
+      ...node('story', 'backlog', [node('t1', 'done', [node('s1', 'done'), node('s2', 'in_progress')])]),
       type: 'story' as const,
     };
     const groups = groupDashNodes([story], 'status', ctx);
     const done = groups.find(g => g.key === 'done')!;
-    const backlog = groups.find(g => g.key === 'backlog')!;
 
     expect(done.nodes.map(n => n.rowId)).toEqual(['t1']);
-    // A subtask is a breakdown of its task, not a row that stands alone, so it
-    // follows the task whatever its own status says.
-    expect(done.nodes[0].children.map(n => n.rowId)).toEqual(['s1', 's2']);
-    expect(backlog.nodes.map(n => n.rowId)).toEqual(['story']);
+    expect(done.nodes[0].children.map(n => n.rowId)).toEqual(['s1']);
+    expect(groups.find(g => g.key === 'in_progress')!.nodes.map(n => n.rowId)).toEqual(['s2']);
   });
 
-  it('treats completed the same as the done column', () => {
-    const story = { ...node('story', 'backlog', [node('t1', 'completed')]), type: 'story' as const };
-    const groups = groupDashNodes([story], 'status', ctx);
-    expect(groups.find(g => g.key === 'done')!.nodes.map(n => n.rowId)).toEqual(['t1']);
-    expect(groups.find(g => g.key === 'backlog')!.nodes[0].children).toEqual([]);
+  it('buckets an item with no parent by its own status', () => {
+    const groups = groupDashNodes([node('freed', 'done')], 'status', ctx);
+    expect(groups.find(g => g.key === 'done')!.nodes.map(n => n.rowId)).toEqual(['freed']);
+    expect(groups.find(g => g.key === 'backlog')!.nodes).toEqual([]);
   });
 
   it('keeps a child nested when it shares its parent status', () => {

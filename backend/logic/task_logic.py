@@ -264,7 +264,7 @@ def create_task(db: Db, current_user_id: str, body: TaskCreate) -> TaskOut:
         due_date=due,
         sprint=(body.sprint or "").strip(),
         priority=body.priority,
-        status=(body.status or "").strip()[:80] or "backlog",
+        status=_status_for_new_task(db, body),
         is_started=False,
         approved_by_manager=False,
         time_tracked=0,
@@ -277,6 +277,32 @@ def create_task(db: Db, current_user_id: str, body: TaskCreate) -> TaskOut:
     )
     assignees_crud.set_assignees(db, tid, assignee_ids)
     return to_task_out(db, t, current_user_id)
+
+
+def _status_for_new_task(db: Db, body: TaskCreate) -> str:
+    """What column a new task starts in.
+
+    An explicit status wins. Otherwise it starts wherever its container already
+    is: a subtask added to a task that is In Progress belongs beside its siblings
+    there, not alone in Backlog — which is what made freshly created work look
+    like it had been moved out.
+    """
+    asked = (body.status or "").strip()[:80]
+    if asked:
+        return asked
+    parent_id = (body.parentTaskId or "").strip()
+    if parent_id:
+        parent = tasks_crud.get_by_id(db, parent_id)
+        if parent and (parent.status or "").strip():
+            return parent.status
+    story_id = (body.userStoryId or "").strip()
+    if story_id:
+        from crud import user_stories as stories_crud
+
+        story = stories_crud.get_by_id(db, story_id)
+        if story and (story.status or "").strip():
+            return story.status
+    return "backlog"
 
 
 def _date_or_none(value: str | None) -> str | None:
@@ -304,6 +330,24 @@ def _set_actual_hours(db: Db, task_id: str, user_id: str, hours: float | None) -
     task = tasks_crud.get_by_id(db, task_id)
     if task:
         timesheet_logic.record_task_time(db, user_id, task, seconds, work_date)
+
+
+def _cascade_status_to_children(db: Db, task: Task, status: str) -> None:
+    """Move everything under a task to the status the task just took.
+
+    Dragging a task to another column moves that piece of work, and the pieces
+    it is made of go with it — leaving subtasks behind in the old column would
+    split one job across two places.
+    """
+    for child in tasks_crud.list_children(db, task.id):
+        if (child.status or "") == status:
+            continue
+        child.status = status
+        if status == "done":
+            child.is_started = False
+            child.started_at = None
+        tasks_crud.update_task(db, child)
+        _cascade_status_to_children(db, child, status)
 
 
 def _refresh_task(db: Db, task_id: str) -> Task:
@@ -412,6 +456,8 @@ def patch_task(db: Db, current_user_id: str, task_id: str, body: TaskPatch) -> T
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, "Subtasks cannot nest more than one level")
         t.parent_task_id = pid
     tasks_crud.update_task(db, t)
+    if body.status is not None:
+        _cascade_status_to_children(db, t, t.status)
     return to_task_out(db, t, current_user_id)
 
 
@@ -451,6 +497,7 @@ def move_task(db: Db, current_user_id: str, task_id: str, body: TaskMoveBody) ->
         t.is_started = False
         t.started_at = None
     tasks_crud.update_task(db, t)
+    _cascade_status_to_children(db, t, t.status)
     return to_task_out(db, t, current_user_id)
 
 
@@ -481,6 +528,7 @@ def reopen_completed_to_backlog(db: Db, current_user_id: str, task_id: str) -> T
     t.is_started = False
     t.started_at = None
     tasks_crud.update_task(db, t)
+    _cascade_status_to_children(db, t, t.status)
     return to_task_out(db, t, current_user_id)
 
 
@@ -500,6 +548,7 @@ def approve_task(db: Db, current_user_id: str, task_id: str, actual_hours: float
     t.approved_by_manager = True
     t.completed_at = date.today().isoformat()
     tasks_crud.update_task(db, t)
+    _cascade_status_to_children(db, t, t.status)
     return to_task_out(db, t, current_user_id)
 
 

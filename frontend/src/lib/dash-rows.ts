@@ -306,12 +306,12 @@ export function statusColumnId(
 }
 
 /**
- * Splits a node for status grouping.
+ * Everything sits in the group its own status names.
  *
- * A row belongs in the group its own status names — a Backlog task listed under
- * an In Progress story is exactly the confusion the groups exist to remove. So
- * children whose status differs are lifted out and bucketed on their own, as
- * independent rows. Children that agree with their parent stay nested.
+ * One rule at every level: a story's task that reached In Review is shown in In
+ * Review, and so is a subtask. Anything still holding its parent's status stays
+ * nested under it, which is the ordinary case — new work inherits the status of
+ * whatever it was added to, so nothing appears adrift until someone moves it.
  */
 function splitForStatus(
   node: DashNode,
@@ -323,11 +323,7 @@ function splitForStatus(
   for (const child of node.children) {
     const split = splitForStatus(child, ctx);
     const childCol = statusColumnId(child.status, ctx.columns, ctx.doneColumnId);
-    // A subtask always travels with its task: it is a breakdown of that work,
-    // not a row that stands on its own, and lifting it out left the task with
-    // nothing to expand. Only a story's own children are placed by status.
-    const staysPut = node.type !== 'story' || childCol === own;
-    if (staysPut) kept.push(split.placed);
+    if (childCol === own) kept.push(split.placed);
     else hoisted.push(split.placed);
     hoisted.push(...split.hoisted);
   }
@@ -335,8 +331,7 @@ function splitForStatus(
 }
 
 /**
- * Buckets nodes by group. Under `status` each row lands in the group its own
- * status names; under the other groupings children stay with their parent.
+ * Buckets top-level nodes, with each story's tasks placed by their own status.
  */
 export function groupDashNodes(
   nodes: DashNode[],

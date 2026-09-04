@@ -36,7 +36,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DashBulkBar } from '@/components/dash/DashBulkBar';
 import { columnColorTokens } from '@/lib/column-colors';
 import { projectNameColor } from '@/lib/project-utils';
-import { flattenDashNodes, type DashGroup, type DashRow } from '@/lib/dash-rows';
+import { flattenDashNodes, statusColumnId, type DashGroup, type DashRow } from '@/lib/dash-rows';
 import {
   AssigneeCell,
   DueDateCell,
@@ -118,7 +118,7 @@ function Row({
   /** Set only on top-level rows when more than one project is in view. */
   projectName?: string;
   withStatus: boolean;
-  /** The group this row is rendered under — drops compare it to decide intent. */
+  /** The group this row is drawn under, so an off-status child can say so. */
   groupKey: string;
   /** A request for this row is in flight. */
   busy?: boolean;
@@ -131,14 +131,14 @@ function Row({
   // draggable would swallow every one of their clicks.
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: row.rowId,
-    data: { row, groupKey },
+    data: { row },
   });
   // Stories and tasks can take children, so they are drop targets too: dropping a
   // task on a story files it under that story, a task on a task makes a subtask.
   const { setNodeRef: setDropRef, isOver } = useDroppable({
     id: `row:${row.rowId}`,
-    disabled: row.type === 'subtask',
-    data: { row, groupKey },
+    disabled: false,
+    data: { row },
   });
   // Renaming happens on the row. Opening the whole detail modal to change a
   // title is the slow path, and the pencil is where people reach for it first.
@@ -209,6 +209,23 @@ function Row({
         ) : (
           <span className="w-[1.375rem] shrink-0" />
         )}
+        {/* A child sits under its parent whatever its status, so the status has
+            to be said out loud or a finished task reads as still in Backlog. */}
+        {!withStatus && row.depth > 0 && (() => {
+          const own = statusColumnId(row.status, columns, doneColumnId);
+          if (own === groupKey) return null;
+          const col = columns.find(c => c.id === own);
+          const tone = columnColorTokens(col?.color);
+          return (
+            <span
+              title={`Status: ${col?.label ?? own}`}
+              className={`inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${tone.pill}`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} />
+              {col?.label ?? own}
+            </span>
+          );
+        })()}
         {busy ? (
           <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
         ) : row.type === 'subtask' ? (
@@ -495,7 +512,18 @@ function makeCollisionDetection(activeRowId: string | null): CollisionDetection 
   };
 }
 
-function GroupDropZone({ groupKey, children }: { groupKey: string; children: ReactNode }) {
+function GroupDropZone({
+  groupKey,
+  label,
+  dragging,
+  children,
+}: {
+  groupKey: string;
+  label: string;
+  /** Something is being dragged, so the group offers a target of its own. */
+  dragging: boolean;
+  children: ReactNode;
+}) {
   const { setNodeRef, isOver } = useDroppable({ id: groupKey });
   return (
     <div
@@ -504,6 +532,20 @@ function GroupDropZone({ groupKey, children }: { groupKey: string; children: Rea
         isOver ? 'bg-primary/5 ring-1 ring-inset ring-primary/30' : ''
       }`}
     >
+      {/* Dropping on a row files the item inside that row, so moving to a status
+          needs somewhere that is not a row. The gaps between cards are too thin
+          to aim at, so while a drag is on, the group offers a strip of its own. */}
+      {dragging && (
+        <div
+          className={`my-1 flex h-8 items-center justify-center rounded-lg border border-dashed text-[11px] font-medium transition-colors ${
+            isOver
+              ? 'border-primary bg-primary/10 text-primary'
+              : 'border-border/60 text-muted-foreground/60'
+          }`}
+        >
+          Drop here to move to {label}
+        </div>
+      )}
       {children}
     </div>
   );
@@ -665,20 +707,23 @@ export function DashTable({
     setDragging(null);
     const target = e.over?.id;
     if (!row || typeof target !== 'string') return;
+    // Dragging one of several ticked rows moves the whole selection: ticking
+    // five things and then moving them one at a time is not a selection.
+    const moving = selected.has(row.rowId) ? [...selected.values()] : [row];
+
+    // Released on a row means inside that row, wherever it sits. Anywhere else
+    // is the group, which means outside — one rule, no exceptions by type.
     if (target.startsWith('row:')) {
       const parent = (e.over?.data.current?.row as DashRow) ?? null;
-      const fromGroup = e.active.data.current?.groupKey as string | undefined;
-      const toGroup = e.over?.data.current?.groupKey as string | undefined;
-      // Landed in a different group: that is a move between groups, whatever row
-      // happened to be under the cursor.
-      if (toGroup && toGroup !== fromGroup) {
-        onDropRow(row, toGroup);
-        return;
+      if (!parent) return;
+      for (const item of moving) {
+        if (item.rowId !== parent.rowId) onReparentRow(item, parent);
       }
-      if (parent && parent.rowId !== row.rowId) onReparentRow(row, parent);
+      if (moving.length > 1) clearSelection();
       return;
     }
-    onDropRow(row, target);
+    for (const item of moving) onDropRow(item, target);
+    if (moving.length > 1) clearSelection();
   };
   if (groups.length === 0) {
     return (
@@ -703,7 +748,12 @@ export function DashTable({
         const tokens = columnColorTokens(group.color);
         const rows = open ? flattenDashNodes(group.nodes, expandedRowIds) : ([] as DashRow[]);
         return (
-          <GroupDropZone key={group.key} groupKey={group.key}>
+          <GroupDropZone
+            key={group.key}
+            groupKey={group.key}
+            label={group.label}
+            dragging={!!dragging}
+          >
             <div className="group/group flex items-center gap-2 px-2 py-1.5">
               <button
                 type="button"
@@ -833,8 +883,13 @@ export function DashTable({
     </div>
     <DragOverlay dropAnimation={null}>
       {dragging ? (
-        <div className="rounded-md border border-border/60 bg-card px-2.5 py-1.5 text-[13px] font-medium shadow-lg">
-          {dragging.title}
+        <div className="flex items-center gap-2 rounded-md border border-border/60 bg-card px-2.5 py-1.5 text-[13px] font-medium shadow-lg">
+          <span className="max-w-[18rem] truncate">{dragging.title}</span>
+          {selected.has(dragging.rowId) && selected.size > 1 && (
+            <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
+              +{selected.size - 1}
+            </span>
+          )}
         </div>
       ) : null}
     </DragOverlay>

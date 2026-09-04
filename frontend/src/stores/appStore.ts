@@ -531,7 +531,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     const t = await api.patchTask(id, patch);
     set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
     cacheFullTask(t);
-    if (updates.status !== undefined) await refreshLinkedStory(t);
+    if (updates.status !== undefined) {
+      if (get().tasks.some(x => x.parentTaskId === id)) await get().syncTasks();
+      await refreshLinkedStory(t);
+    }
     // Moved to a new section → Tasker "moved" animation.
     if (updates.sectionId !== undefined && prevTask && t.sectionId !== prevTask.sectionId) {
       get().emitAgentEvent('task_moved');
@@ -551,6 +554,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     const t = await api.moveTask(id, status, actualHours);
     set({ tasks: get().tasks.map(x => (x.id === id ? t : x)) });
     cacheFullTask(t);
+    // The server moves everything under a task with it, so the local copies of
+    // those children are now wrong; only a re-read tells us their new status.
+    if (get().tasks.some(x => x.parentTaskId === id)) await get().syncTasks();
     await refreshLinkedStory(t);
     get().emitAgentEvent('task_moved');
   },
