@@ -1,191 +1,97 @@
-"""CRUD for user_stories — all SQL for this table lives here."""
-from __future__ import annotations
+"""Every query for user stories. The rows live in `work_items`.
 
-import json
+A story is a work item with `type = 'story'`, so this module maps that shape
+back to the `UserStory` object its callers expect and their signatures are
+unchanged.
+
+WHAT DISAPPEARED
+    The old table could not be altered by the app's IAM role, so sprint, tags,
+    approval and the parent link were packed into `estimated_hours` as a JSON
+    blob prefixed "usb:" whenever the real columns were missing, and unpacked
+    again on the way out. `work_items` is created once, by the owner, with every
+    column present — so the packing, the unpacking, the two capability probes
+    and their module-level caches are all gone.
+"""
+from __future__ import annotations
 
 import realtime
 from crud._base import Db, fetch_all, fetch_one, row_to_model, rows_to_models
 from database.models import UserStory
-from db_wrapper.dialect import use_sqlite
 
-_BOARD_COLS = ("sprint", "tags_json", "approved_by_manager")
-_USB = "usb:"  # packed into estimated_hours when Aurora lacks board columns
-_has_board_cols: bool | None = None
-_has_parent_col: bool | None = None
+# Story-shaped projection of a work item. A story's parent is always another
+# story, so unlike a task there is nothing to disambiguate.
+_COLS = """
+    w.id, w.project_id, w.section_id, w.parent_id AS parent_story_id,
+    w.title, w.description, w.acceptance_criteria, w.priority, w.status,
+    w.assigned_to AS assignee_id, w.created_by AS reporter_id,
+    w.estimated_hours, w.story_points, w.start_date, w.due_date,
+    w.sprint, w.tags_json, w.approved_by_manager, w.created_at, w.updated_at
+"""
 
-
-def _story_has_board_cols(db: Db) -> bool:
-    """Aurora app_user cannot ALTER user_stories; extras exist only after an owner migration."""
-    global _has_board_cols
-    if _has_board_cols is not None:
-        return _has_board_cols
-    if use_sqlite():
-        rows = fetch_all(db, "PRAGMA table_info(user_stories)")
-        names = {r.get("name") for r in rows}
-    else:
-        rows = fetch_all(
-            db,
-            """
-            SELECT column_name FROM information_schema.columns
-            WHERE table_schema = 'public' AND table_name = 'user_stories'
-              AND column_name = ANY(%s)
-            """,
-            (list(_BOARD_COLS),),
-        )
-        names = {r["column_name"] for r in rows}
-    _has_board_cols = all(c in names for c in _BOARD_COLS)
-    return _has_board_cols
+_IS_STORY = "w.type = 'story'"
 
 
-def _story_has_parent_col(db: Db) -> bool:
-    """The parent link needs a column this role may not be allowed to add."""
-    global _has_parent_col
-    if _has_parent_col is not None:
-        return _has_parent_col
-    if use_sqlite():
-        rows = fetch_all(db, "PRAGMA table_info(user_stories)")
-        names = {r.get("name") for r in rows}
-    else:
-        rows = fetch_all(
-            db,
-            """
-            SELECT column_name FROM information_schema.columns
-            WHERE table_schema = 'public' AND table_name = 'user_stories'
-              AND column_name = 'parent_story_id'
-            """,
-        )
-        names = {r["column_name"] for r in rows}
-    _has_parent_col = "parent_story_id" in names
-    return _has_parent_col
+# Story-shaped relation for modules that write SQL of their own, substituted
+# wherever `user_stories` used to be named.
+STORY_RELATION = f"(SELECT {_COLS} FROM work_items w WHERE {_IS_STORY})"
 
 
-def _pack_board(sprint: str, tags_json: str, approved: bool, parent: str | None = None) -> str:
-    return _USB + json.dumps(
-        {
-            "sprint": sprint or "",
-            "tags": tags_json or "[]",
-            "ok": bool(approved),
-            "parent": parent or "",
-        },
-        separators=(",", ":"),
-    )
-
-
-def _unpack_board(raw: str | None) -> dict | None:
-    if not raw or not str(raw).startswith(_USB):
-        return None
-    try:
-        data = json.loads(raw[len(_USB):])
-    except json.JSONDecodeError:
-        return None
-    return data if isinstance(data, dict) else None
-
-
-def _board_vals(story: UserStory) -> tuple[str, str, bool, str | None]:
-    return (
-        getattr(story, "sprint", None) or "",
-        getattr(story, "tags_json", None) or "[]",
-        bool(getattr(story, "approved_by_manager", False)),
-        getattr(story, "parent_story_id", None) or None,
-    )
-
-
-def _hydrate(db: Db, stories: list[UserStory]) -> None:
-    if not stories or _story_has_board_cols(db):
-        return
-    for s in stories:
-        b = _unpack_board(getattr(s, "estimated_hours", None))
-        if not b:
-            continue
-        s.sprint = b.get("sprint") or ""
-        s.tags_json = b.get("tags") or "[]"
-        s.approved_by_manager = bool(b.get("ok"))
-        s.parent_story_id = b.get("parent") or None
+def _select(where: str = "", order: str = "ORDER BY w.created_at DESC") -> str:
+    clause = f"AND ({where})" if where else ""
+    return f"SELECT {_COLS} FROM work_items w WHERE {_IS_STORY} {clause} {order}"
 
 
 def get_by_id(db: Db, story_id: str) -> UserStory | None:
-    s = row_to_model(
-        UserStory,
-        fetch_one(db, "SELECT * FROM user_stories WHERE id = %s", (story_id,)),
-    )
-    if s:
-        _hydrate(db, [s])
-    return s
+    return row_to_model(UserStory, fetch_one(db, _select("w.id = %s", ""), (story_id,)))
 
 
 def list_all(db: Db) -> list[UserStory]:
-    rows = rows_to_models(
-        UserStory,
-        fetch_all(db, "SELECT * FROM user_stories ORDER BY created_at DESC"),
-    )
-    _hydrate(db, rows)
-    return rows
+    return rows_to_models(UserStory, fetch_all(db, _select()))
 
 
 def list_for_member_projects(db: Db, user_id: str) -> list[UserStory]:
     """Stories in any project the user is a member of — filtered in SQL via a join."""
-    rows = rows_to_models(
+    return rows_to_models(
         UserStory,
         fetch_all(
             db,
-            """
-            SELECT us.* FROM user_stories us
-            INNER JOIN project_members pm ON pm.project_id = us.project_id
-            WHERE pm.user_id = %s
-            ORDER BY us.created_at DESC
+            f"""
+            SELECT {_COLS} FROM work_items w
+            INNER JOIN project_members pm ON pm.project_id = w.project_id
+            WHERE {_IS_STORY} AND pm.user_id = %s
+            ORDER BY w.created_at DESC
             """,
             (user_id,),
         ),
     )
-    _hydrate(db, rows)
-    return rows
 
 
 def list_for_project(db: Db, project_id: str) -> list[UserStory]:
-    rows = rows_to_models(
-        UserStory,
-        fetch_all(
-            db,
-            "SELECT * FROM user_stories WHERE project_id = %s ORDER BY created_at DESC",
-            (project_id,),
-        ),
-    )
-    _hydrate(db, rows)
-    return rows
+    return rows_to_models(UserStory, fetch_all(db, _select("w.project_id = %s"), (project_id,)))
 
 
 def list_for_section(db: Db, section_id: str) -> list[UserStory]:
-    rows = rows_to_models(
-        UserStory,
-        fetch_all(
-            db,
-            "SELECT * FROM user_stories WHERE section_id = %s ORDER BY created_at DESC",
-            (section_id,),
-        ),
-    )
-    _hydrate(db, rows)
-    return rows
+    return rows_to_models(UserStory, fetch_all(db, _select("w.section_id = %s"), (section_id,)))
 
 
 def list_active_for_projects(db: Db, project_ids: list[str]) -> list[UserStory]:
     """Incomplete user stories in the given projects (same active filter as task forecast)."""
     if not project_ids:
         return []
-    rows = rows_to_models(
+    return rows_to_models(
         UserStory,
         fetch_all(
             db,
-            """
-            SELECT * FROM user_stories
-            WHERE project_id = ANY(%s)
-              AND LOWER(TRIM(status)) NOT IN ('completed', 'done', 'cancelled', 'archived', 'closed')
-            ORDER BY created_at DESC
-            """,
+            _select(
+                """
+                w.project_id = ANY(%s)
+                AND LOWER(TRIM(w.status)) NOT IN
+                    ('completed', 'done', 'cancelled', 'archived', 'closed')
+                """
+            ),
             (project_ids,),
         ),
     )
-    _hydrate(db, rows)
-    return rows
 
 
 def create(
@@ -212,128 +118,80 @@ def create(
     approved_by_manager: bool = False,
     parent_story_id: str | None = None,
 ) -> UserStory:
-    extras = _story_has_board_cols(db)
-    parent_col = _story_has_parent_col(db)
-    if extras:
-        db.write(
-            """
-            INSERT INTO user_stories (
-                id, project_id, section_id, title, description, acceptance_criteria,
-                priority, status, assignee_id, reporter_id, estimated_hours, story_points,
-                start_date, due_date, sprint, tags_json, approved_by_manager,
-                created_at, updated_at
-            ) VALUES (
-                %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s,
-                %s, %s
-            )
-            """,
-            (
-                story_id, project_id, section_id, title, description, acceptance_criteria,
-                priority, status, assignee_id, reporter_id, estimated_hours, story_points,
-                start_date, due_date, sprint or "", tags_json or "[]", bool(approved_by_manager),
-                created_at, updated_at,
-            ),
+    db.write(
+        """
+        INSERT INTO work_items (
+            id, type, parent_id, project_id, section_id, title, description,
+            priority, status, due_date, sprint, tags_json, estimated_hours,
+            approved_by_manager, created_by, created_at, updated_at,
+            assigned_to, assigned_by, is_started, started_at, completed_at,
+            time_tracked, min_log_minutes, custom_fields_json,
+            acceptance_criteria, story_points, start_date
+        ) VALUES (
+            %s, 'story', %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s, %s,
+            %s, %s, %s, %s,
+            %s, NULL, FALSE, NULL, NULL,
+            0, 1, '{}',
+            %s, %s, %s
         )
-        if parent_col and parent_story_id:
-            db.write(
-                "UPDATE user_stories SET parent_story_id = %s WHERE id = %s",
-                (parent_story_id, story_id),
-            )
-    else:
-        db.write(
-            """
-            INSERT INTO user_stories (
-                id, project_id, section_id, title, description, acceptance_criteria,
-                priority, status, assignee_id, reporter_id, estimated_hours, story_points,
-                start_date, due_date, created_at, updated_at
-            ) VALUES (
-                %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s
-            )
-            """,
-            (
-                story_id, project_id, section_id, title, description, acceptance_criteria,
-                priority, status, assignee_id, reporter_id,
-                _pack_board(sprint or "", tags_json or "[]", bool(approved_by_manager), parent_story_id),
-                story_points,
-                start_date, due_date, created_at, updated_at,
-            ),
-        )
-    realtime.bump("tasks")
+        """,
+        (
+            story_id, parent_story_id or None, project_id, section_id, title, description,
+            priority, status, due_date, sprint or "", tags_json or "[]", estimated_hours,
+            bool(approved_by_manager), reporter_id, created_at, updated_at,
+            assignee_id,
+            acceptance_criteria or "", story_points, start_date,
+        ),
+    )
+    realtime.bump("user_stories")
     return get_by_id(db, story_id)  # type: ignore[return-value]
 
 
 def update(db: Db, story: UserStory) -> UserStory:
-    sprint, tags_json, approved, parent = _board_vals(story)
-    if _story_has_board_cols(db):
-        db.write(
-            """
-            UPDATE user_stories SET
-                project_id = %s, section_id = %s, title = %s, description = %s,
-                acceptance_criteria = %s, priority = %s, status = %s,
-                assignee_id = %s, reporter_id = %s, estimated_hours = %s,
-                story_points = %s, start_date = %s, due_date = %s,
-                sprint = %s, tags_json = %s, approved_by_manager = %s, updated_at = %s
-            WHERE id = %s
-            """,
-            (
-                story.project_id, story.section_id, story.title, story.description,
-                story.acceptance_criteria, story.priority, story.status,
-                story.assignee_id, story.reporter_id, story.estimated_hours,
-                story.story_points, story.start_date, story.due_date,
-                sprint, tags_json, approved,
-                story.updated_at, story.id,
-            ),
-        )
-        if _story_has_parent_col(db):
-            db.write(
-                "UPDATE user_stories SET parent_story_id = %s WHERE id = %s",
-                (parent, story.id),
-            )
-    else:
-        db.write(
-            """
-            UPDATE user_stories SET
-                project_id = %s, section_id = %s, title = %s, description = %s,
-                acceptance_criteria = %s, priority = %s, status = %s,
-                assignee_id = %s, reporter_id = %s, estimated_hours = %s,
-                story_points = %s, start_date = %s, due_date = %s, updated_at = %s
-            WHERE id = %s
-            """,
-            (
-                story.project_id, story.section_id, story.title, story.description,
-                story.acceptance_criteria, story.priority, story.status,
-                story.assignee_id, story.reporter_id, _pack_board(sprint, tags_json, approved, parent),
-                story.story_points, story.start_date, story.due_date,
-                story.updated_at, story.id,
-            ),
-        )
-    realtime.bump("tasks")
+    db.write(
+        """
+        UPDATE work_items SET
+            parent_id = %s, project_id = %s, section_id = %s, title = %s,
+            description = %s, acceptance_criteria = %s, priority = %s,
+            status = %s, assigned_to = %s, created_by = %s,
+            estimated_hours = %s, story_points = %s, start_date = %s,
+            due_date = %s, sprint = %s, tags_json = %s,
+            approved_by_manager = %s, updated_at = %s
+        WHERE id = %s AND type = 'story'
+        """,
+        (
+            getattr(story, "parent_story_id", None) or None,
+            story.project_id,
+            story.section_id,
+            story.title,
+            story.description,
+            story.acceptance_criteria or "",
+            story.priority,
+            story.status,
+            getattr(story, "assignee_id", None),
+            story.reporter_id,
+            getattr(story, "estimated_hours", None),
+            getattr(story, "story_points", None),
+            getattr(story, "start_date", None),
+            story.due_date,
+            getattr(story, "sprint", "") or "",
+            getattr(story, "tags_json", None) or "[]",
+            bool(getattr(story, "approved_by_manager", False)),
+            story.updated_at,
+            story.id,
+        ),
+    )
+    realtime.bump("user_stories")
     return get_by_id(db, story.id)  # type: ignore[return-value]
 
 
 def delete(db: Db, story_id: str) -> None:
-    # Tasks keep rows; FK ON DELETE SET NULL clears user_story_id.
-    db.write("DELETE FROM user_stories WHERE id = %s", (story_id,))
-    realtime.bump("tasks")
+    db.write("DELETE FROM work_items WHERE id = %s AND type = 'story'", (story_id,))
+    realtime.bump("user_stories")
 
 
 def list_children(db: Db, parent_story_id: str) -> list[UserStory]:
-    """Stories sitting directly under this one."""
-    if _story_has_parent_col(db):
-        rows = rows_to_models(
-            UserStory,
-            fetch_all(
-                db,
-                "SELECT * FROM user_stories WHERE parent_story_id = %s ORDER BY created_at",
-                (parent_story_id,),
-            ),
-        )
-        _hydrate(db, rows)
-        return rows
-    # Packed mode: the link lives inside estimated_hours, so it cannot be queried.
-    rows = [s for s in list_all(db) if getattr(s, "parent_story_id", None) == parent_story_id]
-    return rows
+    return rows_to_models(
+        UserStory, fetch_all(db, _select("w.parent_id = %s"), (parent_story_id,))
+    )

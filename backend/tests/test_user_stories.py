@@ -361,35 +361,9 @@ def test_generate_tasks_uses_chain_b(client, manager, monkeypatch):
     assert body["tasks"][0]["subtasks"][0]["title"] == "Write tests"
 
 
-def test_sprint_persists_via_sidecar_when_board_cols_missing(client, manager, monkeypatch):
-    """Aurora app_user cannot ALTER user_stories — sprint must still survive GET after PATCH."""
-    monkeypatch.setattr("crud.user_stories._has_board_cols", False)
-    monkeypatch.setattr("crud.user_stories._story_has_board_cols", lambda _db: False)
 
-    _user, headers = manager
-    from conftest import make_project, make_user_story
-
-    proj = make_project(client, headers, name="Sidecar sprint")
-    sec = client.post(f"/projects/{proj['id']}/sections", json={"name": "S1"}, headers=headers)
-    assert sec.status_code == 200, sec.text
-    sid = sec.json()["sections"][0]["id"]
-    story = make_user_story(client, headers, proj["id"], sid, title="Needs sprint")
-
-    r = client.patch(
-        f"/user-stories/{story['id']}",
-        headers=headers,
-        json={"sprint": "Sprint 12", "tags": ["board"]},
-    )
-    assert r.status_code == 200, r.text
-    assert r.json()["sprint"] == "Sprint 12"
-    assert r.json()["tags"] == ["board"]
-
-    r = client.get("/user-stories", headers=headers)
-    assert r.status_code == 200, r.text
-    listed = next(s for s in r.json() if s["id"] == story["id"])
-    assert listed["sprint"] == "Sprint 12"
-    assert listed["tags"] == ["board"]
-
-    r = client.get(f"/user-stories/{story['id']}", headers=headers)
-    assert r.status_code == 200, r.text
-    assert r.json()["sprint"] == "Sprint 12"
+# test_sprint_persists_via_sidecar_when_board_cols_missing was removed with the
+# sidecar itself. It covered packing sprint, tags and the parent link into
+# estimated_hours as a JSON blob, which existed only because the app's IAM role
+# could not add columns to user_stories. work_items is created by the owner with
+# every column present, so there is no fallback left to test.

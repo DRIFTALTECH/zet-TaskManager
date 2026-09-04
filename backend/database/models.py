@@ -223,7 +223,7 @@ class TaskTimerRun(Base):
     __tablename__ = "task_timer_runs"
 
     user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, nullable=False)
-    task_id = Column(String, ForeignKey("tasks.id", ondelete="CASCADE"), primary_key=True, nullable=False)
+    task_id = Column(String, ForeignKey("work_items.id", ondelete="CASCADE"), primary_key=True, nullable=False)
     started_at = Column(String, nullable=False)  # ISO-8601 UTC timestamp
 
 
@@ -231,7 +231,7 @@ class TaskTimeLog(Base):
     __tablename__ = "task_time_logs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    task_id = Column(String, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False)
+    task_id = Column(String, ForeignKey("work_items.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
     log_date = Column(String, nullable=False)
     seconds = Column(Integer, nullable=False, default=0)
@@ -281,7 +281,7 @@ class TimesheetEntry(Base):
     section_id = Column(String, ForeignKey("sections.id"), nullable=False)
     # Set when the row came from a task (timer stop, or the hours entered at Done).
     # NULL for hand-written rows and Clockify imports.
-    task_id = Column(String, ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, index=True)
+    task_id = Column(String, ForeignKey("work_items.id", ondelete="SET NULL"), nullable=True, index=True)
     description = Column(Text, nullable=False, default="")
     time_from = Column(String, nullable=False)
     time_to = Column(String, nullable=False)
@@ -295,7 +295,7 @@ class TaskFeedback(Base):
     __tablename__ = "task_feedback"
 
     id = Column(String, primary_key=True)
-    task_id = Column(String, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    task_id = Column(String, ForeignKey("work_items.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
     message = Column(Text, nullable=False)
     created_at = Column(String, nullable=False)
@@ -309,7 +309,7 @@ class UserStoryFeedback(Base):
 
     id = Column(String, primary_key=True)
     user_story_id = Column(
-        String, ForeignKey("user_stories.id", ondelete="CASCADE"), nullable=False, index=True
+        String, ForeignKey("work_items.id", ondelete="CASCADE"), nullable=False, index=True
     )
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
     message = Column(Text, nullable=False)
@@ -321,7 +321,7 @@ class TaskChecklist(Base):
     __tablename__ = "task_checklists"
 
     id = Column(String, primary_key=True)
-    task_id = Column(String, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    task_id = Column(String, ForeignKey("work_items.id", ondelete="CASCADE"), nullable=False, index=True)
     title = Column(String, nullable=False)
     priority = Column(String, nullable=False, default="Medium")
     is_done = Column(Boolean, nullable=False, default=False)
@@ -334,7 +334,7 @@ class TaskAttachment(Base):
     __tablename__ = "task_attachments"
 
     id = Column(String, primary_key=True)
-    task_id = Column(String, ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    task_id = Column(String, ForeignKey("work_items.id", ondelete="CASCADE"), nullable=False, index=True)
     filename = Column(String, nullable=False)          # original user filename
     stored_name = Column(String, nullable=False)       # UUID-based filename on disk
     content_type = Column(String, nullable=False, default="application/octet-stream")
@@ -350,7 +350,7 @@ class UserStoryAttachment(Base):
 
     id = Column(String, primary_key=True)
     user_story_id = Column(
-        String, ForeignKey("user_stories.id", ondelete="CASCADE"), nullable=False, index=True
+        String, ForeignKey("work_items.id", ondelete="CASCADE"), nullable=False, index=True
     )
     filename = Column(String, nullable=False)
     stored_name = Column(String, nullable=False)
@@ -474,3 +474,110 @@ class ForecastVisibility(Base):
     hidden = Column(Boolean, nullable=False, default=False)
     hidden_at = Column(String, nullable=True)
     restored_at = Column(String, nullable=True)
+
+
+# ---------------------------------------------------------------------------
+# Unified work items
+#
+# `tasks` and `user_stories` are the same shape at two altitudes: of the twenty
+# story columns, sixteen have a task twin, and the three join tables (assignees,
+# feedback, attachments) are identical but for the name of their foreign key.
+# The split also spreads one tree over three parent columns — user_story_id,
+# parent_task_id, parent_story_id — so no single query can walk it, and it makes
+# "this is really a story" a physical row move (see logic/convert_logic.py)
+# rather than a field change.
+#
+# `work_items` collapses all of that: one row per piece of work, `type` saying
+# which kind it is, one `parent_id` for the whole tree. Columns only one kind
+# can hold stay nullable and are guarded in logic — a story never carries
+# tracked time, a task never carries story points.
+#
+# These tables are additive. Nothing reads them until the cutover; the old
+# tables stay in place and authoritative until then.
+# ---------------------------------------------------------------------------
+
+WORK_ITEM_TYPES = ("story", "task")
+
+
+class WorkItem(Base):
+    __tablename__ = "work_items"
+
+    id = Column(String, primary_key=True)
+    # "story" | "task". A subtask is NOT a third type — it is a task whose
+    # parent is a task. Depth is a property of the edge, not of the row.
+    type = Column(String, nullable=False, index=True)
+    # The whole hierarchy, in one column: story→story, story→task, task→task.
+    parent_id = Column(
+        String, ForeignKey("work_items.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    project_id = Column(String, ForeignKey("projects.id"), nullable=False, index=True)
+    section_id = Column(String, ForeignKey("sections.id"), nullable=True, index=True)
+
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=False, default="")
+    priority = Column(String, nullable=False, default="Medium")
+    status = Column(String, nullable=False, default="backlog")
+    due_date = Column(String, nullable=True)
+    sprint = Column(String, nullable=False, default="")
+    tags_json = Column(Text, nullable=False, default="[]")
+    estimated_hours = Column(String, nullable=True)
+    approved_by_manager = Column(Boolean, nullable=False, default=False)
+    created_by = Column(String, ForeignKey("users.id"), nullable=True)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=True)
+
+    # Task-only — NULL on a story.
+    # Denormalized primary assignee. Not derived from work_item_assignees: an
+    # unassigned task stores its creator here as a placeholder, so the two are
+    # deliberately not the same thing.
+    assigned_to = Column(String, ForeignKey("users.id"), nullable=True)
+    assigned_by = Column(String, ForeignKey("users.id"), nullable=True)
+    is_started = Column(Boolean, nullable=False, default=False)
+    started_at = Column(String, nullable=True)
+    completed_at = Column(String, nullable=True)
+    time_tracked = Column(Integer, nullable=False, default=0)
+    min_log_minutes = Column(Integer, nullable=False, default=1)
+    custom_fields_json = Column(Text, nullable=False, default="{}")
+
+    # Story-only — NULL on a task.
+    acceptance_criteria = Column(Text, nullable=False, default="")
+    story_points = Column(String, nullable=True)
+    start_date = Column(String, nullable=True)
+
+
+class WorkItemAssignee(Base):
+    __tablename__ = "work_item_assignees"
+
+    work_item_id = Column(
+        String, ForeignKey("work_items.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    position = Column(Integer, nullable=False, default=0)
+
+
+class WorkItemFeedback(Base):
+    __tablename__ = "work_item_feedback"
+
+    id = Column(String, primary_key=True)
+    work_item_id = Column(
+        String, ForeignKey("work_items.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    message = Column(Text, nullable=False, default="")
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=True)
+
+
+class WorkItemAttachment(Base):
+    __tablename__ = "work_item_attachments"
+
+    id = Column(String, primary_key=True)
+    work_item_id = Column(
+        String, ForeignKey("work_items.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    filename = Column(String, nullable=False)
+    stored_name = Column(String, nullable=False)
+    content_type = Column(String, nullable=False, default="")
+    size_bytes = Column(Integer, nullable=False, default=0)
+    uploaded_by = Column(String, ForeignKey("users.id"), nullable=True)
+    created_at = Column(String, nullable=False)

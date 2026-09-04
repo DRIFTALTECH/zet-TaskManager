@@ -15,6 +15,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from crud.tasks import TASK_RELATION  # noqa: E402
 from database.database import get_database  # noqa: E402
 
 
@@ -40,19 +41,24 @@ def main() -> None:
         who = rows[0]["id"]
         print(f"user: {rows[0]['name']} ({who})")
 
+    # Tasks and stories are both rows in work_items now. Counting the old
+    # `tasks` table would report zero and send someone hunting for a data loss
+    # that never happened, so these read the same task-shaped view the app does.
     print("\nRows still in the database:")
     for label, sql, params in (
-        ("tasks", "SELECT COUNT(*) AS n FROM tasks", ()),
-        ("  top-level", "SELECT COUNT(*) AS n FROM tasks WHERE parent_task_id IS NULL", ()),
-        ("  subtasks", "SELECT COUNT(*) AS n FROM tasks WHERE parent_task_id IS NOT NULL", ()),
-        ("  in a story", "SELECT COUNT(*) AS n FROM tasks WHERE user_story_id IS NOT NULL", ()),
-        ("user_stories", "SELECT COUNT(*) AS n FROM user_stories", ()),
+        ("tasks", f"SELECT COUNT(*) AS n FROM {TASK_RELATION} t", ()),
+        ("  top-level", f"SELECT COUNT(*) AS n FROM {TASK_RELATION} t WHERE t.parent_task_id IS NULL", ()),
+        ("  subtasks", f"SELECT COUNT(*) AS n FROM {TASK_RELATION} t WHERE t.parent_task_id IS NOT NULL", ()),
+        ("  in a story", f"SELECT COUNT(*) AS n FROM {TASK_RELATION} t WHERE t.user_story_id IS NOT NULL", ()),
+        ("user_stories", "SELECT COUNT(*) AS n FROM work_items WHERE type = 'story'", ()),
         ("projects", "SELECT COUNT(*) AS n FROM projects", ()),
     ):
         print(f"  {label:<14} {db.read(sql, params)[0]['n']}")
 
     if who:
-        n = db.read("SELECT COUNT(*) AS n FROM tasks WHERE created_by = %s", (who,))[0]["n"]
+        n = db.read(
+            f"SELECT COUNT(*) AS n FROM {TASK_RELATION} t WHERE t.created_by = %s", (who,)
+        )[0]["n"]
         print(f"  created by them  {n}")
 
     print(f"\nDeletes and conversions in the audit log (last {args.days} days):")
@@ -62,8 +68,9 @@ def main() -> None:
         FROM audit_logs a
         LEFT JOIN users u ON u.id = a.user_id
         WHERE a.action IN (
-            'task.deleted', 'user_story.deleted',
-            'task.converted_to_story', 'user_story.converted_to_task'
+            'task.deleted', 'user_story.deleted', 'story.deleted',
+            'task.converted_to_story', 'user_story.converted_to_task',
+            'work_item.type_changed'
         )
         ORDER BY a.created_at DESC
         LIMIT 100

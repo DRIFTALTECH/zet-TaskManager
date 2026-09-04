@@ -8,8 +8,8 @@ def list_user_ids_ordered(db: Db, user_story_id: str) -> list[str]:
     rows = fetch_all(
         db,
         """
-        SELECT user_id FROM user_story_assignees
-        WHERE user_story_id = %s
+        SELECT user_id FROM work_item_assignees
+        WHERE work_item_id = %s
         ORDER BY position ASC, user_id ASC
         """,
         (user_story_id,),
@@ -23,8 +23,8 @@ def map_user_ids_for_stories(db: Db, story_ids: list[str]) -> dict[str, list[str
     rows = fetch_all(
         db,
         """
-        SELECT user_story_id, user_id FROM user_story_assignees
-        WHERE user_story_id = ANY(%s)
+        SELECT work_item_id AS user_story_id, user_id FROM work_item_assignees
+        WHERE work_item_id = ANY(%s)
         ORDER BY position ASC, user_id ASC
         """,
         (story_ids,),
@@ -40,8 +40,8 @@ def is_assignee(db: Db, user_story_id: str, user_id: str) -> bool:
         fetch_one(
             db,
             """
-            SELECT user_story_id FROM user_story_assignees
-            WHERE user_story_id = %s AND user_id = %s
+            SELECT work_item_id FROM work_item_assignees
+            WHERE work_item_id = %s AND user_id = %s
             """,
             (user_story_id, user_id),
         )
@@ -50,11 +50,11 @@ def is_assignee(db: Db, user_story_id: str, user_id: str) -> bool:
 
 
 def set_assignees(db: Db, user_story_id: str, user_ids: list[str]) -> None:
-    db.write("DELETE FROM user_story_assignees WHERE user_story_id = %s", (user_story_id,))
+    db.write("DELETE FROM work_item_assignees WHERE work_item_id = %s", (user_story_id,))
     for pos, uid in enumerate(user_ids):
         db.write(
             """
-            INSERT INTO user_story_assignees (user_story_id, user_id, position)
+            INSERT INTO work_item_assignees (work_item_id, user_id, position)
             VALUES (%s, %s, %s)
             """,
             (user_story_id, uid, pos),

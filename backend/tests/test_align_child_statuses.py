@@ -35,7 +35,10 @@ def _drift(task_id: str, status: str) -> None:
     from database.database import SessionLocal
     db = SessionLocal()
     try:
-        db.write("UPDATE tasks SET status = %s WHERE id = %s", (status, task_id))
+        db.write(
+            "UPDATE work_items SET status = %s WHERE id = %s AND type = 'task'",
+            (status, task_id),
+        )
         db.commit()
     finally:
         db.close()

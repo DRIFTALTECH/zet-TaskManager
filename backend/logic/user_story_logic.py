@@ -296,19 +296,25 @@ def _set_story_parent(db: Db, s, raw_parent_id: str, user_id: str) -> None:
 
 
 def _cascade_story_status(db: Db, story_id: str, status: str, seen: set[str] | None = None) -> None:
-    """Move a story's whole subtree to the status the story just took.
+    """Move a story's subtree to the status the story just took.
 
-    A story dragged to another column takes its tasks, their subtasks and any
-    sub-stories with it: it is one piece of work, and half of it left behind in
-    the old column is nobody's idea of a move.
+    A story dragged to another column takes the work still inside it. Work that
+    had already been moved elsewhere is no longer inside: moving it out is what
+    ended the relationship, so it is not dragged back in now. In practice every
+    task still carrying this story's id shares its status, because diverging is
+    what detaches them.
     """
     seen = seen if seen is not None else set()
     if story_id in seen:
         return
     seen.add(story_id)
 
+    finishing = _is_done(status)
     for t in tasks_crud.list_for_user_story(db, story_id):
         if (t.status or "") == status:
+            continue
+        # Finished work stays finished; moving the story does not reopen it.
+        if not finishing and _is_done(t.status or ""):
             continue
         t.status = status
         if status == "done":
@@ -317,6 +323,8 @@ def _cascade_story_status(db: Db, story_id: str, status: str, seen: set[str] | N
         tasks_crud.update_task(db, t)
 
     for child in stories_crud.list_children(db, story_id):
+        if not finishing and _is_done(child.status or ""):
+            continue
         if (child.status or "") != status:
             child.status = status
             child.updated_at = datetime.now(timezone.utc).isoformat()

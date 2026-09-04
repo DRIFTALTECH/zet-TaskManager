@@ -29,9 +29,9 @@ def existing_project_ids(db: Db, project_ids: list[str]) -> set[str]:
 
 
 def user_has_work(db: Db, user_id: str) -> bool:
-    if fetch_one(db, "SELECT id FROM tasks WHERE assigned_to = %s LIMIT 1", (user_id,)):
+    if fetch_one(db, "SELECT id FROM work_items WHERE type = 'task' AND assigned_to = %s LIMIT 1", (user_id,)):
         return True
-    if fetch_one(db, "SELECT task_id FROM task_assignees WHERE user_id = %s LIMIT 1", (user_id,)):
+    if fetch_one(db, "SELECT work_item_id FROM work_item_assignees WHERE user_id = %s LIMIT 1", (user_id,)):
         return True
     if fetch_one(db, "SELECT id FROM timesheet_entries WHERE user_id = %s LIMIT 1", (user_id,)):
         return True
@@ -63,12 +63,12 @@ def reassign_and_delete_user(db: Db, victim: User, reassign_to: str | None) -> N
 
         # Composite-unique tables: merge to avoid PK/unique collisions
         db.write(
-            """DELETE FROM task_assignees WHERE user_id = %s AND task_id IN (
-                SELECT task_id FROM task_assignees WHERE user_id = %s
+            """DELETE FROM work_item_assignees WHERE user_id = %s AND work_item_id IN (
+                SELECT work_item_id FROM work_item_assignees WHERE user_id = %s
             )""",
             (v, t),
         )
-        db.write("UPDATE task_assignees SET user_id = %s WHERE user_id = %s", (t, v))
+        db.write("UPDATE work_item_assignees SET user_id = %s WHERE user_id = %s", (t, v))
 
         db.write(
             """UPDATE task_time_logs SET seconds = seconds + COALESCE((

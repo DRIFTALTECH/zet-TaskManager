@@ -332,6 +332,9 @@ def _set_actual_hours(db: Db, task_id: str, user_id: str, hours: float | None) -
         timesheet_logic.record_task_time(db, user_id, task, seconds, work_date)
 
 
+_FINISHED = frozenset({"done", "completed"})
+
+
 def _cascade_status_to_children(db: Db, task: Task, status: str) -> None:
     """Move everything under a task to the status the task just took.
 
@@ -339,8 +342,12 @@ def _cascade_status_to_children(db: Db, task: Task, status: str) -> None:
     it is made of go with it — leaving subtasks behind in the old column would
     split one job across two places.
     """
+    finishing = status.lower() in _FINISHED
     for child in tasks_crud.list_children(db, task.id):
         if (child.status or "") == status:
+            continue
+        # Finished work is not dragged back open by its parent moving.
+        if not finishing and (child.status or "").lower() in _FINISHED:
             continue
         child.status = status
         if status == "done":
@@ -454,6 +461,14 @@ def patch_task(db: Db, current_user_id: str, task_id: str, body: TaskPatch) -> T
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid parentTaskId")
             if getattr(parent, "parent_task_id", None):
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, "Subtasks cannot nest more than one level")
+            # The depth rule has two sides: a task that already has subtasks
+            # would drag them to level three, which the create path refuses and
+            # this one used to let through.
+            if tasks_crud.list_children(db, t.id):
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    "Move its subtasks out before nesting this task",
+                )
         t.parent_task_id = pid
     tasks_crud.update_task(db, t)
     if body.status is not None:

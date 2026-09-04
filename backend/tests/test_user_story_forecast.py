@@ -142,7 +142,10 @@ def test_task_and_user_story_forecasts_do_not_overlap(client, manager):
     assert "Story only item" in story_titles
     assert "Task only item" not in story_titles
 
-    # Section name should be present for recognition
+    # A story's section is optional, so the forecast row names it when there is
+    # one and leaves it empty when there is not. The assertion used to say a
+    # story never has a section name, while the story it was checking had been
+    # created inside one.
     story_rows = [
         t
         for emp in story_fc.get("employees", [])
@@ -150,5 +153,28 @@ def test_task_and_user_story_forecasts_do_not_overlap(client, manager):
         if t["title"] == "Story only item"
     ]
     assert story_rows
-    # Stories are project-scoped; section lives on tasks, not the story.
-    assert not story_rows[0].get("sectionName")
+    assert story_rows[0].get("sectionName") == "S"
+
+    loose = client.post(
+        "/user-stories",
+        json={
+            "projectId": pid,
+            "title": "Story in no section",
+            "description": "",
+            "acceptanceCriteria": "",
+            "priority": "Medium",
+            "assigneeId": mgr["id"],
+            "dueDate": due,
+        },
+        headers=mh,
+    )
+    assert loose.status_code == 200, loose.text
+    loose_fc = client.get("/analytics/forecast/user-stories", headers=mh).json()
+    loose_rows = [
+        t
+        for emp in loose_fc.get("employees", [])
+        for t in emp.get("tasks", [])
+        if t["title"] == "Story in no section"
+    ]
+    assert loose_rows
+    assert not loose_rows[0].get("sectionName")

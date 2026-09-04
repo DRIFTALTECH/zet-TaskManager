@@ -6,8 +6,8 @@ def list_user_ids_ordered(db: Db, task_id: str) -> list[str]:
     rows = fetch_all(
         db,
         """
-        SELECT user_id FROM task_assignees
-        WHERE task_id = %s
+        SELECT user_id FROM work_item_assignees
+        WHERE work_item_id = %s
         ORDER BY position ASC, user_id ASC
         """,
         (task_id,),
@@ -25,8 +25,8 @@ def map_user_ids_for_tasks(db: Db, task_ids: list[str]) -> dict[str, list[str]]:
     rows = fetch_all(
         db,
         """
-        SELECT task_id, user_id FROM task_assignees
-        WHERE task_id = ANY(%s)
+        SELECT work_item_id AS task_id, user_id FROM work_item_assignees
+        WHERE work_item_id = ANY(%s)
         ORDER BY position ASC, user_id ASC
         """,
         (task_ids,),
@@ -42,8 +42,8 @@ def is_assignee(db: Db, task_id: str, user_id: str) -> bool:
         fetch_one(
             db,
             """
-            SELECT task_id FROM task_assignees
-            WHERE task_id = %s AND user_id = %s
+            SELECT work_item_id FROM work_item_assignees
+            WHERE work_item_id = %s AND user_id = %s
             """,
             (task_id, user_id),
         )
@@ -52,10 +52,10 @@ def is_assignee(db: Db, task_id: str, user_id: str) -> bool:
 
 
 def set_assignees(db: Db, task_id: str, user_ids: list[str]) -> None:
-    db.write("DELETE FROM task_assignees WHERE task_id = %s", (task_id,))
+    db.write("DELETE FROM work_item_assignees WHERE work_item_id = %s", (task_id,))
     for pos, uid in enumerate(user_ids):
         db.write(
-            "INSERT INTO task_assignees (task_id, user_id, position) VALUES (%s, %s, %s)",
+            "INSERT INTO work_item_assignees (work_item_id, user_id, position) VALUES (%s, %s, %s)",
             (task_id, uid, pos),
         )
     realtime.bump("tasks")
@@ -65,6 +65,6 @@ def insert_assignees_quiet(db: Db, task_id: str, user_ids: list[str]) -> None:
     """Insert assignees for a brand-new task. No DELETE, no realtime bump."""
     for pos, uid in enumerate(user_ids):
         db.write(
-            "INSERT INTO task_assignees (task_id, user_id, position) VALUES (%s, %s, %s)",
+            "INSERT INTO work_item_assignees (work_item_id, user_id, position) VALUES (%s, %s, %s)",
             (task_id, uid, pos),
         )

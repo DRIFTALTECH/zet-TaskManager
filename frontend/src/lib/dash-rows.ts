@@ -306,32 +306,13 @@ export function statusColumnId(
 }
 
 /**
- * Everything sits in the group its own status names.
+ * Buckets top-level nodes. Children stay under the parent they belong to.
  *
- * One rule at every level: a story's task that reached In Review is shown in In
- * Review, and so is a subtask. Anything still holding its parent's status stays
- * nested under it, which is the ordinary case — new work inherits the status of
- * whatever it was added to, so nothing appears adrift until someone moves it.
- */
-function splitForStatus(
-  node: DashNode,
-  ctx: GroupContext,
-): { placed: DashNode; hoisted: DashNode[] } {
-  const own = statusColumnId(node.status, ctx.columns, ctx.doneColumnId);
-  const kept: DashNode[] = [];
-  const hoisted: DashNode[] = [];
-  for (const child of node.children) {
-    const split = splitForStatus(child, ctx);
-    const childCol = statusColumnId(child.status, ctx.columns, ctx.doneColumnId);
-    if (childCol === own) kept.push(split.placed);
-    else hoisted.push(split.placed);
-    hoisted.push(...split.hoisted);
-  }
-  return { placed: { ...node, children: kept }, hoisted };
-}
-
-/**
- * Buckets top-level nodes, with each story's tasks placed by their own status.
+ * A story keeps the work inside it whatever status each piece holds — the row
+ * says its own status instead. Sorting children into groups by status emptied
+ * their parents, which is why stories and tasks had nothing left to expand.
+ * Dragging something out of its parent is what makes it a row of its own, and
+ * that clears the link, which lands it here as a top-level node.
  */
 export function groupDashNodes(
   nodes: DashNode[],
@@ -349,15 +330,10 @@ export function groupDashNodes(
     // information, and it gives you somewhere to add the first item.
     const buckets = new Map<string, DashNode[]>(ctx.columns.map(c => [c.id, []]));
     const fallback = ctx.columns[0]?.id;
-    const place = (node: DashNode) => {
+    for (const node of nodes) {
       const id = statusColumnId(node.status, ctx.columns, ctx.doneColumnId);
       const bucket = buckets.get(id) ?? (fallback ? buckets.get(fallback) : undefined);
       bucket?.push(node);
-    };
-    for (const node of nodes) {
-      const { placed, hoisted } = splitForStatus(node, ctx);
-      place(placed);
-      hoisted.forEach(place);
     }
     return ctx.columns.map(c => {
       const group = buckets.get(c.id) ?? [];

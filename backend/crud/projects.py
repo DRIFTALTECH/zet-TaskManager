@@ -124,7 +124,10 @@ def delete_project(db: Db, project_id: str) -> None:
     feedback, checklists, attachments, timer runs) DO cascade on task delete via
     their ondelete=CASCADE FKs (SQLite foreign_keys pragma is enabled)."""
     db.write("DELETE FROM timesheet_entries WHERE project_id = %s", (project_id,))
-    db.write("DELETE FROM tasks WHERE project_id = %s", (project_id,))
+    # Subtasks and story children first, so a self-referencing parent_id is
+    # never left dangling mid-delete.
+    db.write("DELETE FROM work_items WHERE project_id = %s AND parent_id IS NOT NULL", (project_id,))
+    db.write("DELETE FROM work_items WHERE project_id = %s", (project_id,))
     db.write("DELETE FROM sections WHERE project_id = %s", (project_id,))
     db.write("DELETE FROM project_members WHERE project_id = %s", (project_id,))
     db.write("DELETE FROM projects WHERE id = %s", (project_id,))

@@ -45,7 +45,7 @@ def add_seconds(db: Db, task_id: str, log_date: str, seconds: int, user_id: str)
             (task_id, user_id, log_date, seconds),
         )
     total = sum_seconds_for_task(db, task_id)
-    db.write("UPDATE tasks SET time_tracked = %s WHERE id = %s", (total, task_id))
+    db.write("UPDATE work_items SET time_tracked = %s WHERE id = %s AND type = 'task'", (total, task_id))
     realtime.bump("tasks")
     return row_to_model(
         TaskTimeLog,
@@ -110,9 +110,9 @@ def time_log_maps_for_user(
 
 def recompute_task_total(db: Db, task_id: str) -> int:
     total = sum_seconds_for_task(db, task_id)
-    task_exists = fetch_one(db, "SELECT id FROM tasks WHERE id = %s", (task_id,))
+    task_exists = fetch_one(db, "SELECT id FROM work_items WHERE id = %s AND type = 'task'", (task_id,))
     if task_exists:
-        db.write("UPDATE tasks SET time_tracked = %s WHERE id = %s", (total, task_id))
+        db.write("UPDATE work_items SET time_tracked = %s WHERE id = %s AND type = 'task'", (total, task_id))
     return total
 
 

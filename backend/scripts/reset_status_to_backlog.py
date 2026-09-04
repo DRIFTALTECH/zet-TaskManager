@@ -67,11 +67,11 @@ def main() -> None:
     # table is empty.
     scope, scope_params = ("", [])
     if args.project:
-        scope, scope_params = " WHERE project_id = %s", [args.project]
-    total = db.read(f"SELECT COUNT(*) AS n FROM tasks{scope}", tuple(scope_params))[0]["n"]
+        scope, scope_params = " AND project_id = %s", [args.project]
+    total = db.read(f"SELECT COUNT(*) AS n FROM work_items WHERE type = 'task'{scope}", tuple(scope_params))[0]["n"]
     print(f"\nTasks in scope: {total}")
     for r in sorted(
-        db.read(f"SELECT status, COUNT(*) AS n FROM tasks{scope} GROUP BY status", tuple(scope_params)),
+        db.read(f"SELECT status, COUNT(*) AS n FROM work_items WHERE type = 'task'{scope} GROUP BY status", tuple(scope_params)),
         key=lambda r: -r["n"],
     ):
         print(f"  {r['status'] or '(empty)':<16} {r['n']}")
@@ -81,7 +81,7 @@ def main() -> None:
 
     where, params = _where(args, user_id)
 
-    task_rows = db.read(f"SELECT status, COUNT(*) AS n FROM tasks WHERE {where} GROUP BY status", tuple(params))
+    task_rows = db.read(f"SELECT status, COUNT(*) AS n FROM work_items WHERE type = 'task' AND {where} GROUP BY status", tuple(params))
     print("\nTasks that would move to backlog:")
     for r in sorted(task_rows, key=lambda r: -r["n"]):
         print(f"  {r['status'] or '(empty)':<16} {r['n']}")
@@ -93,7 +93,7 @@ def main() -> None:
         # Stories carry no created_by; scope them by project only.
         s_where, s_params = _where(argparse.Namespace(**{**vars(args)}), None)
         story_rows = db.read(
-            f"SELECT status, COUNT(*) AS n FROM user_stories WHERE {s_where} GROUP BY status",
+            f"SELECT status, COUNT(*) AS n FROM work_items WHERE type = 'story' AND {s_where} GROUP BY status",
             tuple(s_params),
         )
         print("\nStories that would move to backlog:")
@@ -109,10 +109,10 @@ def main() -> None:
         print("\nNothing to do.")
         return
 
-    db.write(f"UPDATE tasks SET status = %s WHERE {where}", tuple([TARGET, *params]))
+    db.write(f"UPDATE work_items SET status = %s WHERE type = 'task' AND {where}", tuple([TARGET, *params]))
     if args.stories:
         s_where, s_params = _where(argparse.Namespace(**{**vars(args)}), None)
-        db.write(f"UPDATE user_stories SET status = %s WHERE {s_where}", tuple([TARGET, *s_params]))
+        db.write(f"UPDATE work_items SET status = %s WHERE type = 'story' AND {s_where}", tuple([TARGET, *s_params]))
     db.commit()
     print(f"\nMoved {total_tasks} task(s)" + (f" and {total_stories} story(ies)" if args.stories else "") + " to backlog.")
 

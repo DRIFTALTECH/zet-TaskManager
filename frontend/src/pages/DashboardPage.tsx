@@ -82,6 +82,14 @@ const DONE_COL_KEY = 'tm_done_col';
 const VIEW_KEY = 'tm_dash_view';
 const GROUP_KEY = 'tm_dash_group';
 const STORY_DRAG_PREFIX = 'story:';
+/**
+ * What the API takes to mean "remove this link".
+ *
+ * `null` reads as "field absent, leave it alone" on the server, so every
+ * detach that sent null reported success and changed nothing — the task stayed
+ * in the story it was just dragged out of.
+ */
+const CLEAR_LINK = '';
 type DashView = 'list' | 'board';
 type ActiveDrag = 'task' | 'column' | 'story';
 
@@ -108,7 +116,7 @@ interface BoardTaskCard {
 }
 
 function StoryBoardCard({
-  story, tasks, totalTasks, childStories = [], renderChildStory, onEdit, onEditTask, subtasksOf, expandedTaskIds, onToggleTaskExpand, members = [], busy = false, busyIds, awaySubtaskIds, expanded, onToggleExpand, onClick, onTaskClick, onAddTask, users,
+  story, tasks, totalTasks, childStories = [], renderChildStory, onEdit, onEditTask, subtasksOf, expandedTaskIds, onToggleTaskExpand, members = [], busy = false, busyIds, expanded, onToggleExpand, onClick, onTaskClick, onAddTask, users,
   showProjectPill, isManager, doneColumnId,
   dragRef, dragStyle, dragAttributes, dragListeners, isDragging,
 }: {
@@ -135,8 +143,6 @@ function StoryBoardCard({
   busy?: boolean;
   /** Ids in flight, for the tasks drawn inside this card. */
   busyIds?: Set<string>;
-  /** Subtasks drawn in their own column instead of on this card. */
-  awaySubtaskIds?: Set<string>;
   expanded: boolean;
   onToggleExpand: () => void;
   onClick: () => void;
@@ -313,7 +319,7 @@ function SortableStoryCard(props: Omit<Parameters<typeof StoryBoardCard>[0], 'dr
 
 function KanbanColumnPanel({
   column, taskCards, stories, storyTasksById, storyTaskTotals, childStoriesById,
-  subtasksByTask, awaySubtaskIds, expandedTaskIds, onToggleTaskExpand, busyIds,
+  subtasksByTask, expandedTaskIds, onToggleTaskExpand, busyIds,
   onEditStory, onEditTask, membersForProject,
   onTaskClick, onStoryClick, onStoryTaskClick,
   expandedStoryIds, onToggleStoryExpand, onNewTask, onNewStory, onAddStoryTask, isDropTarget, isManager,
@@ -334,7 +340,6 @@ function KanbanColumnPanel({
   busyIds?: Set<string>;
   /** Subtasks per task, and which cards are open. */
   subtasksByTask: Record<string, Task[]>;
-  awaySubtaskIds: Set<string>;
   expandedTaskIds: Set<string>;
   onToggleTaskExpand: (taskId: string) => void;
   /** One-click cell edits, the same ones the list rows offer. */
@@ -413,9 +418,8 @@ function KanbanColumnPanel({
         onEdit={patch => onEditStory(story, patch)}
         busy={busyIds?.has(story.id)}
         busyIds={busyIds}
-        awaySubtaskIds={awaySubtaskIds}
         onEditTask={onEditTask}
-        subtasksOf={id => (subtasksByTask[id] ?? []).filter(st => !awaySubtaskIds?.has(st.id))}
+        subtasksOf={id => subtasksByTask[id] ?? []}
         expandedTaskIds={expandedTaskIds}
         onToggleTaskExpand={onToggleTaskExpand}
         members={membersForProject(story.projectId)}
@@ -532,7 +536,7 @@ function KanbanColumnPanel({
               onEdit={patch => onEditTask(task, patch)}
               members={membersForProject(task.projectId)}
               busy={busyIds?.has(task.id)}
-              subtasks={(subtasksByTask[task.id] ?? []).filter(st => !awaySubtaskIds.has(st.id))}
+              subtasks={subtasksByTask[task.id] ?? []}
               expanded={expandedTaskIds.has(task.id)}
               onToggleExpand={() => onToggleTaskExpand(task.id)}
               onSubtaskClick={onTaskClick}
@@ -651,27 +655,6 @@ const DashboardPage = () => {
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
   const { busyIds, withBusy, busy } = useBusyIds();
-
-  /**
-   * A card only takes something in when you drop on the card itself.
-   *
-   * Cards and their column both sit under the cursor, and the rectangle
-   * fallback matched a card whenever the drag overlay merely overlapped one —
-   * so a drop meant for the column filed the item inside a story instead.
-   * Anywhere that is not a card is the column, which means "outside".
-   */
-  const collisionDetection = useCallback<CollisionDetection>(args => {
-    const isColumn = (id: string) => boardColumns.some(c => c.id === id);
-    const pointer = pointerWithin(args);
-    if (pointer.length > 0) {
-      const onCard = pointer.find(c => String(c.id).startsWith(STORY_DRAG_PREFIX));
-      if (onCard) return [onCard];
-      const onColumn = pointer.find(c => isColumn(String(c.id)));
-      return onColumn ? [onColumn] : pointer;
-    }
-    const columnsOnly = args.droppableContainers.filter(c => isColumn(String(c.id)));
-    return rectIntersection({ ...args, droppableContainers: columnsOnly });
-  }, [boardColumns]);
 
   /**
    * Projects this person works in.
@@ -983,49 +966,8 @@ const DashboardPage = () => {
     return m;
   }, [filteredStories, colOf]);
 
-  /** A subtask whose status has taken it out of its task's column. */
-  const awaySubtaskIds = useMemo(() => {
-    const parentCol = new Map<string, string>();
-    const walk = (nodes: DashNode[]) => {
-      for (const n of nodes) {
-        if (n.type !== 'story') parentCol.set(n.entityId, colOf(n.status));
-        walk(n.children);
-      }
-    };
-    walk(dashTree);
-    const out = new Set<string>();
-    for (const [parentId, kids] of Object.entries(subtasksByTask)) {
-      for (const kid of kids) {
-        if (colOf(kid.status) !== parentCol.get(parentId)) out.add(kid.id);
-      }
-    }
-    return out;
-  }, [dashTree, subtasksByTask, colOf]);
-
-  /** A story task whose status has taken it out of its story's column. */
-  const awayTaskIds = useMemo(() => {
-    const storyCol = new Map(filteredStories.map(st => [st.id, colOf(st.status)]));
-    const out = new Set<string>();
-    for (const [sid, kids] of Object.entries(storyTasksById)) {
-      for (const t of kids) {
-        if (colOf(t.status) !== storyCol.get(sid)) out.add(t.id);
-      }
-    }
-    return out;
-  }, [storyTasksById, filteredStories, colOf]);
-
-  /**
-   * A story card lists the tasks still in its column; one that moved on is a
-   * card in the column its own status names. A task's subtasks are a breakdown
-   * of that task and always stay on its card.
-   */
-  const nestedStoryTasks = useMemo(() => {
-    const m: Record<string, Task[]> = {};
-    for (const [sid, kids] of Object.entries(storyTasksById)) {
-      m[sid] = kids.filter(t => !awayTaskIds.has(t.id));
-    }
-    return m;
-  }, [storyTasksById, awayTaskIds]);
+  /** A story card lists every task it owns, and a task card every subtask. */
+  const nestedStoryTasks = storyTasksById;
 
   const storyTaskTotals = useMemo(() => {
     const m: Record<string, number> = {};
@@ -1038,21 +980,12 @@ const DashboardPage = () => {
    * status has moved them out of their story's column. A task's status is its
    * own, so it sits in that column and the story card lists it as a reference.
    */
-  const boardTaskCards = useMemo<BoardTaskCard[]>(() => {
-    const out: BoardTaskCard[] = orphanTasks.map(task => ({ task }));
-    const titleOf = new Map(filteredStories.map(st => [st.id, st.title]));
-    for (const [sid, kids] of Object.entries(storyTasksById)) {
-      for (const task of kids) {
-        if (awayTaskIds.has(task.id)) out.push({ task, storyTitle: titleOf.get(sid) });
-      }
-    }
-    for (const kids of Object.values(subtasksByTask)) {
-      for (const kid of kids) {
-        if (awaySubtaskIds.has(kid.id)) out.push({ task: kid });
-      }
-    }
-    return out;
-  }, [orphanTasks, storyTasksById, awayTaskIds, filteredStories, subtasksByTask, awaySubtaskIds]);
+  const boardTaskCards = useMemo<BoardTaskCard[]>(
+    // Only work that belongs to nothing gets a card of its own; the rest is
+    // drawn on the card of whatever it sits in.
+    () => orphanTasks.map(task => ({ task })),
+    [orphanTasks],
+  );
 
   const taskCardsForColumn = (colId: string) =>
     boardTaskCards.filter(c => colOf(c.task.status) === colId);
@@ -1094,6 +1027,81 @@ const DashboardPage = () => {
     setRenameColName(col.label);
     setRenameColOpen(true);
   };
+
+  /**
+   * Drop ids nested inside the dragged card — its subtasks, and for a story its
+   * tasks and sub-stories all the way down.
+   *
+   * Offering one of these as a host asks the server to make an item its own
+   * ancestor, so they are never drop targets. Without this you can drop a story
+   * onto a card it already contains.
+   */
+  const descendantDropIds = useCallback((activeIdStr: string): Set<string> => {
+    const out = new Set<string>();
+    const walkTask = (taskId: string) => {
+      for (const st of subtasksByTask[taskId] ?? []) {
+        if (out.has(st.id)) continue;
+        out.add(st.id);
+        walkTask(st.id);
+      }
+    };
+    const walkStory = (sid: string) => {
+      for (const t of storyTasksById[sid] ?? []) {
+        if (out.has(t.id)) continue;
+        out.add(t.id);
+        walkTask(t.id);
+      }
+      for (const child of childStoriesById[sid] ?? []) {
+        const cid = storyDragId(child.id);
+        if (out.has(cid)) continue;
+        out.add(cid);
+        walkStory(child.id);
+      }
+    };
+    const storyId = parseStoryDragId(activeIdStr);
+    if (storyId) walkStory(storyId);
+    else walkTask(activeIdStr);
+    return out;
+  }, [subtasksByTask, storyTasksById, childStoriesById]);
+
+  /**
+   * A card takes something in when you drop on the card itself — story or task
+   * alike, which is the rule the list view has always used. Anywhere that is
+   * not a card is the column, which means "outside".
+   *
+   * Cards and their column both sit under the cursor, and the rectangle
+   * fallback matched a card whenever the drag overlay merely overlapped one —
+   * so a drop meant for the column filed the item inside a story instead. Only
+   * a pointer genuinely inside a card counts as a card.
+   */
+  const collisionDetection = useCallback<CollisionDetection>(args => {
+    const typeOf = new Map(
+      args.droppableContainers.map(
+        c => [String(c.id), c.data.current?.type as string | undefined] as const,
+      ),
+    );
+    const isColumn = (id: string) => typeOf.get(id) === 'column';
+    const columnsOnly = () => args.droppableContainers.filter(c => isColumn(String(c.id)));
+    // A column only ever reorders against other columns. Letting a card win
+    // here returned an id no column matched, so the drop was dropped.
+    if (args.active.data.current?.type === 'column') {
+      return rectIntersection({ ...args, droppableContainers: columnsOnly() });
+    }
+    const activeIdStr = String(args.active.id);
+    const forbidden = descendantDropIds(activeIdStr);
+    const isHost = (id: string) => {
+      const t = typeOf.get(id);
+      return (t === 'story' || t === 'task') && id !== activeIdStr && !forbidden.has(id);
+    };
+    const pointer = pointerWithin(args);
+    if (pointer.length > 0) {
+      const onCard = pointer.find(c => isHost(String(c.id)));
+      if (onCard) return [onCard];
+      const onColumn = pointer.find(c => isColumn(String(c.id)));
+      return onColumn ? [onColumn] : pointer;
+    }
+    return rectIntersection({ ...args, droppableContainers: columnsOnly() });
+  }, [descendantDropIds]);
 
   const resolveOverCol = (overId: string): string | null => {
     if (boardColumns.some(c => c.id === overId)) return overId;
@@ -1184,6 +1192,14 @@ const DashboardPage = () => {
         return;
       }
 
+      // Dropped on a task's card. A story never lives inside a task, and the
+      // fall-through treated that as a drop on the task's column — so aiming at
+      // a card silently changed the story's status instead.
+      if (!hostId && over.data.current?.type === 'task') {
+        toast.error('A story cannot go inside a task');
+        return;
+      }
+
       // Dropped on a column: outside every story, so it stops being a sub-story.
       const leftParent = !!story.parentStoryId;
       const sameColumn = statusColId(story.status, boardColumns, doneColumnId) === targetCol;
@@ -1210,19 +1226,48 @@ const DashboardPage = () => {
       const dragged = tasks.find(t => t.id === activeIdStr);
       if (!dragged) return;
 
-      // Dropped on a story card: that is how a task joins a story, and the only
-      // way it ever does.
+      // Dropped on a story card: that is how a task joins a story.
       const dropStoryId = parseStoryDragId(overIdStr);
       if (dropStoryId) {
-        if (dragged.userStoryId === dropStoryId) return;
+        if (dragged.userStoryId === dropStoryId && !dragged.parentTaskId) return;
         const host = dashStories.find(x => x.id === dropStoryId);
         if (!host) return;
         if (host.projectId !== dragged.projectId) {
           toast.error('Move it to the same project first');
           return;
         }
-        await updateTask(activeIdStr, { userStoryId: dropStoryId, parentTaskId: null });
+        // CLEAR_LINK, not null: null means "leave this alone" to the server.
+        await updateTask(activeIdStr, { userStoryId: dropStoryId, parentTaskId: CLEAR_LINK });
         toast.success(`Moved into "${host.title}"`);
+        return;
+      }
+
+      // Dropped on another task's card: that is how a subtask is made. The
+      // board had no branch for this at all, so the drop fell through to the
+      // column and the nesting never happened.
+      if (over.data.current?.type === 'task' && overIdStr !== activeIdStr) {
+        const host = tasks.find(t => t.id === overIdStr);
+        if (!host) return;
+        if (dragged.parentTaskId === host.id) return;
+        if (host.projectId !== dragged.projectId) {
+          toast.error('Move it to the same project first');
+          return;
+        }
+        if (host.parentTaskId) {
+          toast.error('Subtasks cannot nest more than one level');
+          return;
+        }
+        if ((subtasksByTask[dragged.id] ?? []).length > 0) {
+          toast.error('Move its subtasks out first');
+          return;
+        }
+        await updateTask(activeIdStr, {
+          parentTaskId: host.id,
+          // A subtask belongs to whatever story holds its parent, exactly as a
+          // subtask created from the card does.
+          userStoryId: host.userStoryId || CLEAR_LINK,
+        });
+        toast.success(`Moved under "${host.title}"`);
         return;
       }
 
@@ -1249,7 +1294,7 @@ const DashboardPage = () => {
         await stopTimer(activeIdStr);
       }
       if (leftStory) {
-        await updateTask(activeIdStr, { userStoryId: null, parentTaskId: null });
+        await updateTask(activeIdStr, { userStoryId: CLEAR_LINK, parentTaskId: CLEAR_LINK });
       }
       if (!sameColumn) await moveTask(activeIdStr, targetCol, hours);
       if (leftStory) toast.success('Moved out on its own');
@@ -1430,19 +1475,34 @@ const DashboardPage = () => {
     }
     try {
       if (row.type === 'story') {
+        if (parent.entityId === row.entityId) return;
         // A story nests only under another story. The server refuses a cycle, a
         // cross-project parent, or a chain deeper than it allows.
-        if (parent.type !== 'story' || parent.entityId === row.entityId) return;
+        if (parent.type !== 'story') {
+          toast.error('A story cannot go inside a task');
+          return;
+        }
         const updated = await api.patchUserStory(row.entityId, { parentStoryId: parent.entityId });
         upsertUserStory(updated);
         setSelectedStory(prev => (prev?.id === updated.id ? updated : prev));
       } else if (parent.type === 'story') {
-        await updateTask(row.entityId, { userStoryId: parent.entityId, parentTaskId: null });
+        await updateTask(row.entityId, { userStoryId: parent.entityId, parentTaskId: CLEAR_LINK });
       } else if (parent.type === 'task') {
         if (parent.entityId === row.entityId) return;
-        await updateTask(row.entityId, { parentTaskId: parent.entityId });
+        if (row.hasChildren) {
+          toast.error('Move its subtasks out first');
+          return;
+        }
+        await updateTask(row.entityId, {
+          parentTaskId: parent.entityId,
+          // A subtask belongs to whatever story holds its parent.
+          userStoryId: parent.task?.userStoryId || CLEAR_LINK,
+        });
       } else {
-        return; // a subtask cannot take children
+        // The parent is itself a subtask, and one level is the limit. Silence
+        // here read as a broken drag rather than a rule.
+        toast.error('Subtasks cannot nest more than one level');
+        return;
       }
       toast.success(`Moved under "${parent.title}"`);
     } catch (e) {
@@ -1546,7 +1606,7 @@ const DashboardPage = () => {
       // someone put it there. Dropped outside, it keeps neither.
       const leftParent = !!patch.detach && !!(row.task.userStoryId || row.task.parentTaskId);
       if (leftParent) {
-        await updateTask(row.entityId, { userStoryId: null, parentTaskId: null });
+        await updateTask(row.entityId, { userStoryId: CLEAR_LINK, parentTaskId: CLEAR_LINK });
       }
       if (patch.status !== undefined) {
         const next = patch.status;
@@ -1793,7 +1853,6 @@ const DashboardPage = () => {
                 storyTaskTotals={storyTaskTotals}
                 childStoriesById={childStoriesById}
                 subtasksByTask={subtasksByTask}
-                awaySubtaskIds={awaySubtaskIds}
                 busyIds={busyIds}
                 expandedTaskIds={expandedTaskIds}
                 onToggleTaskExpand={toggleTaskExpanded}

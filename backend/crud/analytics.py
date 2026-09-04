@@ -11,6 +11,8 @@ from database.models import (
     User,
 )
 
+from crud.tasks import TASK_ASSIGNEE_RELATION, TASK_RELATION
+from crud.user_stories import STORY_RELATION
 from crud._base import Db, fetch_all, fetch_one, row_to_model, rows_to_models
 
 _USER_COLS = """id, name, email, password_hash, role, avatar, job_title,
@@ -65,7 +67,7 @@ def list_all_sections(db: Db) -> list[Section]:
 
 
 def list_all_tasks(db: Db) -> list[Task]:
-    rows = fetch_all(db, f"SELECT {_TASK_COLS} FROM tasks")
+    rows = fetch_all(db, f"SELECT {_TASK_COLS} FROM {TASK_RELATION} tasks")
     return rows_to_models(Task, rows)
 
 
@@ -75,7 +77,7 @@ def list_all_project_members(db: Db) -> list[ProjectMember]:
 
 
 def list_all_task_assignees(db: Db) -> list[TaskAssignee]:
-    rows = fetch_all(db, "SELECT task_id, user_id, position FROM task_assignees")
+    rows = fetch_all(db, f"SELECT task_id, user_id, position FROM {TASK_ASSIGNEE_RELATION} ta")
     return rows_to_models(TaskAssignee, rows)
 
 
@@ -120,7 +122,7 @@ def latest_task_in_section_for_user(db: Db, section_id: str, user_id: str) -> Ta
         Task,
         fetch_one(
             db,
-            f"""SELECT {_TASK_COLS} FROM tasks
+            f"""SELECT {_TASK_COLS} FROM {TASK_RELATION} tasks
                 WHERE section_id = %s AND assigned_to = %s
                 ORDER BY created_at DESC LIMIT 1""",
             (section_id, user_id),
@@ -131,9 +133,9 @@ def latest_task_in_section_for_user(db: Db, section_id: str, user_id: str) -> Ta
 def tasks_for_user_assignee(db: Db, user_id: str) -> list[Task]:
     rows = fetch_all(
         db,
-        f"""SELECT {_TASK_COLS} FROM tasks t
+        f"""SELECT {_TASK_COLS} FROM {TASK_RELATION} t
             WHERE t.assigned_to = %s
-               OR t.id IN (SELECT task_id FROM task_assignees WHERE user_id = %s)
+               OR t.id IN (SELECT task_id FROM {TASK_ASSIGNEE_RELATION} ta WHERE ta.user_id = %s)
             ORDER BY due_date DESC""",
         (user_id, user_id),
     )
@@ -145,7 +147,7 @@ def latest_tasks_for_users(db: Db, user_ids: list[str]) -> list[Task]:
         return []
     rows = fetch_all(
         db,
-        f"""SELECT {_TASK_COLS} FROM tasks
+        f"""SELECT {_TASK_COLS} FROM {TASK_RELATION} tasks
             WHERE assigned_to = ANY(%s)""",
         (user_ids,),
     )
@@ -201,12 +203,12 @@ def list_project_members_for_projects(db: Db, project_ids: list[str]) -> list[Pr
 def list_active_tasks_counts_by_user(db: Db) -> dict[str, int]:
     rows = fetch_all(
         db,
-        """SELECT user_id, COUNT(DISTINCT task_id) AS active_count FROM (
-            SELECT id AS task_id, assigned_to AS user_id FROM tasks
+        f"""SELECT user_id, COUNT(DISTINCT task_id) AS active_count FROM (
+            SELECT id AS task_id, assigned_to AS user_id FROM {TASK_RELATION} tasks
             WHERE LOWER(TRIM(status)) NOT IN ('completed', 'done', 'cancelled', 'archived', 'closed')
             UNION ALL
-            SELECT task_id, user_id FROM task_assignees WHERE task_id IN (
-                SELECT id FROM tasks
+            SELECT task_id, user_id FROM {TASK_ASSIGNEE_RELATION} ta WHERE task_id IN (
+                SELECT id FROM {TASK_RELATION} tasks
                 WHERE LOWER(TRIM(status)) NOT IN ('completed', 'done', 'cancelled', 'archived', 'closed')
             )
         ) sub
@@ -219,7 +221,7 @@ def list_active_tasks_counts_by_user(db: Db) -> dict[str, int]:
 def list_tasks_for_overview(db: Db, start_date: str, end_date: str) -> list[Task]:
     rows = fetch_all(
         db,
-        f"""SELECT {_TASK_COLS} FROM tasks
+        f"""SELECT {_TASK_COLS} FROM {TASK_RELATION} tasks
             WHERE status NOT IN ('completed', 'cancelled')
                OR (status = 'completed' AND completed_at >= %s AND completed_at <= %s)""",
         (start_date, end_date),
@@ -232,7 +234,7 @@ def list_task_assignees_for_tasks(db: Db, task_ids: list[str]) -> list[TaskAssig
         return []
     rows = fetch_all(
         db,
-        "SELECT task_id, user_id, position FROM task_assignees WHERE task_id = ANY(%s)",
+        f"SELECT task_id, user_id, position FROM {TASK_ASSIGNEE_RELATION} ta WHERE task_id = ANY(%s)",
         (task_ids,),
     )
     return rows_to_models(TaskAssignee, rows)
@@ -241,7 +243,7 @@ def list_task_assignees_for_tasks(db: Db, task_ids: list[str]) -> list[TaskAssig
 def get_project_progress_stats(db: Db, today: str) -> list[dict]:
     rows = fetch_all(
         db,
-        """SELECT
+        f"""SELECT
             project_id,
             COUNT(*) as total_tasks,
             SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_tasks,
@@ -249,7 +251,7 @@ def get_project_progress_stats(db: Db, today: str) -> list[dict]:
             SUM(CASE WHEN status NOT IN ('completed', 'cancelled') AND due_date IS NOT NULL AND due_date < %s THEN 1 ELSE 0 END) as overdue_tasks,
             SUM(CASE WHEN status = 'in_progress' AND due_date IS NOT NULL AND due_date < %s THEN 1 ELSE 0 END) as blocked_tasks,
             SUM(CASE WHEN status NOT IN ('completed', 'cancelled') AND LOWER(TRIM(priority)) IN ('urgent', 'critical', 'high') THEN 1 ELSE 0 END) as high_priority_pending
-        FROM tasks
+        FROM {TASK_RELATION} tasks
         WHERE project_id IS NOT NULL
         GROUP BY project_id""",
         (today, today),
@@ -260,7 +262,7 @@ def get_project_progress_stats(db: Db, today: str) -> list[dict]:
 def get_attention_tasks(db: Db, today: str) -> list[Task]:
     rows = fetch_all(
         db,
-        f"""SELECT {_TASK_COLS} FROM tasks
+        f"""SELECT {_TASK_COLS} FROM {TASK_RELATION} tasks
             WHERE status NOT IN ('completed', 'cancelled')
               AND (
                  (due_date IS NOT NULL AND due_date <= %s)
@@ -274,7 +276,7 @@ def get_attention_tasks(db: Db, today: str) -> list[Task]:
 def list_active_tasks(db: Db) -> list[Task]:
     rows = fetch_all(
         db,
-        f"""SELECT {_TASK_COLS} FROM tasks
+        f"""SELECT {_TASK_COLS} FROM {TASK_RELATION} tasks
             WHERE LOWER(TRIM(status)) NOT IN ('completed', 'done', 'cancelled', 'archived', 'closed')""",
     )
     return rows_to_models(Task, rows)
@@ -283,7 +285,7 @@ def list_active_tasks(db: Db) -> list[Task]:
 def count_active_tasks(db: Db) -> int:
     row = fetch_one(
         db,
-        """SELECT COUNT(*) AS count FROM tasks
+        f"""SELECT COUNT(*) AS count FROM {TASK_RELATION} tasks
            WHERE LOWER(TRIM(status)) NOT IN ('completed', 'done', 'cancelled', 'archived', 'closed')""",
     )
     return row["count"] if row else 0
@@ -301,7 +303,7 @@ def list_tasks_for_projects(db: Db, project_ids: list[str]) -> list[Task]:
         return []
     rows = fetch_all(
         db,
-        f"""SELECT {_OVERVIEW_TASK_COLS} FROM tasks
+        f"""SELECT {_OVERVIEW_TASK_COLS} FROM {TASK_RELATION} tasks
             WHERE project_id = ANY(%s)
             ORDER BY
               CASE WHEN LOWER(TRIM(status)) IN ('completed', 'done') THEN 1 ELSE 0 END,
@@ -322,10 +324,10 @@ def list_tasks_for_assignee(db: Db, user_id: str, project_ids: list[str] | None 
               t.due_date, t.sprint, t.priority, t.status, t.is_started, t.started_at,
               t.completed_at, t.approved_by_manager, t.time_tracked, t.min_log_minutes,
               t.estimated_hours, t.created_at, '[]' AS tags_json, '{}' AS custom_fields_json"""
-    assigned = """(
+    assigned = f"""(
         t.assigned_to = %s
         OR EXISTS (
-            SELECT 1 FROM task_assignees ta
+            SELECT 1 FROM {TASK_ASSIGNEE_RELATION} ta
             WHERE ta.task_id = t.id AND ta.user_id = %s
         )
     )"""
@@ -336,7 +338,7 @@ def list_tasks_for_assignee(db: Db, user_id: str, project_ids: list[str] | None 
         rows = fetch_all(
             db,
             f"""SELECT {cols}
-                FROM tasks t
+                FROM {TASK_RELATION} t
                 WHERE {assigned}
                   AND t.project_id = ANY(%s)
                 {order}""",
@@ -346,7 +348,7 @@ def list_tasks_for_assignee(db: Db, user_id: str, project_ids: list[str] | None 
         rows = fetch_all(
             db,
             f"""SELECT {cols}
-                FROM tasks t
+                FROM {TASK_RELATION} t
                 WHERE {assigned}
                 {order}""",
             (user_id, user_id),
@@ -359,7 +361,7 @@ def list_user_story_titles(db: Db, story_ids: list[str]) -> dict[str, str]:
         return {}
     rows = fetch_all(
         db,
-        "SELECT id, title FROM user_stories WHERE id = ANY(%s)",
+        f"SELECT id, title FROM {STORY_RELATION} us WHERE id = ANY(%s)",
         (story_ids,),
     )
     return {r["id"]: r["title"] for r in rows}
@@ -371,8 +373,8 @@ def list_distinct_sprints(db: Db, project_ids: list[str]) -> list[dict]:
         return []
     rows = fetch_all(
         db,
-        """SELECT TRIM(sprint) AS sprint, COUNT(*) AS task_count
-           FROM tasks
+        f"""SELECT TRIM(sprint) AS sprint, COUNT(*) AS task_count
+           FROM {TASK_RELATION} tasks
            WHERE project_id = ANY(%s)
              AND TRIM(COALESCE(sprint, '')) <> ''
            GROUP BY TRIM(sprint)
@@ -391,7 +393,7 @@ def list_tasks_for_sprint(db: Db, sprint: str, project_ids: list[str]) -> list[T
         return []
     rows = fetch_all(
         db,
-        f"""SELECT {_OVERVIEW_TASK_COLS} FROM tasks
+        f"""SELECT {_OVERVIEW_TASK_COLS} FROM {TASK_RELATION} tasks
             WHERE project_id = ANY(%s)
               AND TRIM(COALESCE(sprint, '')) = %s
             ORDER BY

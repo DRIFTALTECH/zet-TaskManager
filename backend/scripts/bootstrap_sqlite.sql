@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS user_story_assignees (
 
 CREATE TABLE IF NOT EXISTS user_story_attachments (
     id VARCHAR PRIMARY KEY,
-    user_story_id VARCHAR NOT NULL REFERENCES user_stories (id) ON DELETE CASCADE,
+    user_story_id VARCHAR NOT NULL REFERENCES work_items (id) ON DELETE CASCADE,
     filename VARCHAR NOT NULL,
     stored_name VARCHAR NOT NULL,
     content_type VARCHAR NOT NULL DEFAULT 'application/octet-stream',
@@ -85,6 +85,86 @@ CREATE TABLE IF NOT EXISTS user_story_attachments (
     uploaded_by VARCHAR NOT NULL REFERENCES users (id),
     created_at VARCHAR NOT NULL
 );
+
+-- Unified work items. `tasks` and `user_stories` are the same shape at two
+-- altitudes, and the three join tables below existed twice, identical but for
+-- the name of their foreign key. One row per piece of work, `type` saying which
+-- kind, one `parent_id` for the whole tree (story->story, story->task,
+-- task->task). Columns only one kind can hold stay nullable and are guarded in
+-- logic: a story carries no tracked time, a task carries no story points.
+--
+-- Every task and story row lives here. The bootstrap splits on semicolons, so
+-- comments in this file must not contain one.
+CREATE TABLE IF NOT EXISTS work_items (
+    id VARCHAR PRIMARY KEY,
+    type VARCHAR NOT NULL,
+    parent_id VARCHAR REFERENCES work_items (id) ON DELETE SET NULL,
+    project_id VARCHAR NOT NULL REFERENCES projects (id),
+    section_id VARCHAR REFERENCES sections (id),
+    title VARCHAR NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    priority VARCHAR NOT NULL DEFAULT 'Medium',
+    status VARCHAR NOT NULL DEFAULT 'backlog',
+    due_date VARCHAR,
+    sprint VARCHAR NOT NULL DEFAULT '',
+    tags_json TEXT NOT NULL DEFAULT '[]',
+    estimated_hours VARCHAR,
+    approved_by_manager BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by VARCHAR REFERENCES users (id),
+    created_at VARCHAR NOT NULL,
+    updated_at VARCHAR,
+    assigned_to VARCHAR REFERENCES users (id),
+    assigned_by VARCHAR REFERENCES users (id),
+    is_started BOOLEAN NOT NULL DEFAULT FALSE,
+    started_at VARCHAR,
+    completed_at VARCHAR,
+    time_tracked INTEGER NOT NULL DEFAULT 0,
+    min_log_minutes INTEGER NOT NULL DEFAULT 1,
+    custom_fields_json TEXT NOT NULL DEFAULT '{}',
+    acceptance_criteria TEXT NOT NULL DEFAULT '',
+    story_points VARCHAR,
+    start_date VARCHAR,
+    CONSTRAINT ck_work_items_type CHECK (type IN ('story', 'task')),
+    -- A story never accrues execution state. Enforced here and not only in
+    -- logic: losing the two-table split loses the guarantee that a time log
+    -- could not point at a story in the first place.
+    CONSTRAINT ck_work_items_story_has_no_time CHECK (
+        type <> 'story' OR (time_tracked = 0 AND is_started = FALSE AND started_at IS NULL)
+    )
+);
+
+CREATE TABLE IF NOT EXISTS work_item_assignees (
+    work_item_id VARCHAR NOT NULL REFERENCES work_items (id) ON DELETE CASCADE,
+    user_id VARCHAR NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    position INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (work_item_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS work_item_feedback (
+    id VARCHAR PRIMARY KEY,
+    work_item_id VARCHAR NOT NULL REFERENCES work_items (id) ON DELETE CASCADE,
+    user_id VARCHAR NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    message TEXT NOT NULL DEFAULT '',
+    created_at VARCHAR NOT NULL,
+    updated_at VARCHAR
+);
+
+CREATE TABLE IF NOT EXISTS work_item_attachments (
+    id VARCHAR PRIMARY KEY,
+    work_item_id VARCHAR NOT NULL REFERENCES work_items (id) ON DELETE CASCADE,
+    filename VARCHAR NOT NULL,
+    stored_name VARCHAR NOT NULL,
+    content_type VARCHAR NOT NULL DEFAULT '',
+    size_bytes INTEGER NOT NULL DEFAULT 0,
+    uploaded_by VARCHAR REFERENCES users (id),
+    created_at VARCHAR NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_work_items_project ON work_items (project_id);
+CREATE INDEX IF NOT EXISTS ix_work_items_parent ON work_items (parent_id);
+CREATE INDEX IF NOT EXISTS ix_work_items_type ON work_items (type);
+CREATE INDEX IF NOT EXISTS ix_work_item_assignees_user ON work_item_assignees (user_id);
+CREATE INDEX IF NOT EXISTS ix_work_item_feedback_item ON work_item_feedback (work_item_id);
+CREATE INDEX IF NOT EXISTS ix_work_item_attachments_item ON work_item_attachments (work_item_id);
 
 CREATE TABLE IF NOT EXISTS tasks (
     id VARCHAR PRIMARY KEY,
@@ -122,14 +202,14 @@ CREATE TABLE IF NOT EXISTS task_assignees (
 
 CREATE TABLE IF NOT EXISTS task_timer_runs (
     user_id VARCHAR NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-    task_id VARCHAR NOT NULL REFERENCES tasks (id) ON DELETE CASCADE,
+    task_id VARCHAR NOT NULL REFERENCES work_items (id) ON DELETE CASCADE,
     started_at VARCHAR NOT NULL,
     PRIMARY KEY (user_id, task_id)
 );
 
 CREATE TABLE IF NOT EXISTS task_time_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    task_id VARCHAR NOT NULL REFERENCES tasks (id) ON DELETE CASCADE,
+    task_id VARCHAR NOT NULL REFERENCES work_items (id) ON DELETE CASCADE,
     user_id VARCHAR NOT NULL REFERENCES users (id),
     log_date VARCHAR NOT NULL,
     seconds INTEGER NOT NULL DEFAULT 0,
@@ -171,7 +251,7 @@ CREATE TABLE IF NOT EXISTS timesheet_entries (
 
 CREATE TABLE IF NOT EXISTS task_feedback (
     id VARCHAR PRIMARY KEY,
-    task_id VARCHAR NOT NULL REFERENCES tasks (id) ON DELETE CASCADE,
+    task_id VARCHAR NOT NULL REFERENCES work_items (id) ON DELETE CASCADE,
     user_id VARCHAR NOT NULL REFERENCES users (id),
     message TEXT NOT NULL,
     created_at VARCHAR NOT NULL,
@@ -180,7 +260,7 @@ CREATE TABLE IF NOT EXISTS task_feedback (
 
 CREATE TABLE IF NOT EXISTS task_checklists (
     id VARCHAR PRIMARY KEY,
-    task_id VARCHAR NOT NULL REFERENCES tasks (id) ON DELETE CASCADE,
+    task_id VARCHAR NOT NULL REFERENCES work_items (id) ON DELETE CASCADE,
     title VARCHAR NOT NULL,
     priority VARCHAR NOT NULL DEFAULT 'Medium',
     is_done BOOLEAN NOT NULL DEFAULT FALSE,
@@ -191,7 +271,7 @@ CREATE TABLE IF NOT EXISTS task_checklists (
 
 CREATE TABLE IF NOT EXISTS task_attachments (
     id VARCHAR PRIMARY KEY,
-    task_id VARCHAR NOT NULL REFERENCES tasks (id) ON DELETE CASCADE,
+    task_id VARCHAR NOT NULL REFERENCES work_items (id) ON DELETE CASCADE,
     filename VARCHAR NOT NULL,
     stored_name VARCHAR NOT NULL,
     content_type VARCHAR NOT NULL DEFAULT 'application/octet-stream',

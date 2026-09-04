@@ -882,3 +882,80 @@ class TeamsImportResult(BaseModel):
     skipped: int
     scrums: list[ScrumOut] = []
     message: str = ""
+
+
+# --- Unified work items -----------------------------------------------------
+# One shape for both kinds of work. Fields only one kind can hold are optional
+# and stay None on the other, so a client reads a story and a task off the same
+# row model instead of branching on which endpoint returned it.
+
+
+class WorkItemOut(BaseModel):
+    id: str
+    type: str  # "story" | "task"
+    parentId: str | None = None
+    projectId: str
+    sectionId: str | None = None
+    title: str
+    description: str = ""
+    priority: str
+    status: str
+    dueDate: str | None = None
+    sprint: str = ""
+    tags: list[str] = Field(default_factory=list)
+    estimatedHours: float | None = None
+    approvedByManager: bool = False
+    assigneeIds: list[str] = Field(default_factory=list)
+    createdBy: str | None = None
+    createdAt: str
+    updatedAt: str | None = None
+    # Task-only.
+    assignedBy: str | None = None
+    isStarted: bool = False
+    startedAt: str | None = None
+    completedAt: str | None = None
+    timeTracked: int = 0
+    minLogMinutes: int = 1
+    customFields: dict[str, str] | None = None
+    # Story-only.
+    acceptanceCriteria: str = ""
+    storyPoints: str | None = None
+    startDate: str | None = None
+
+
+class WorkItemCreate(BaseModel):
+    type: str
+    projectId: str
+    title: str
+    sectionId: str | None = None
+    parentId: str | None = None
+    description: str = ""
+    priority: str = "Medium"
+    status: str = "backlog"
+    dueDate: str | None = None
+    sprint: str = ""
+    tags: list[str] = Field(default_factory=list)
+    estimatedHours: float | None = None
+    assigneeIds: list[str] = Field(default_factory=list)
+    acceptanceCriteria: str = ""
+    storyPoints: str | None = None
+    startDate: str | None = None
+
+
+class WorkItemPatch(BaseModel):
+    # As elsewhere in this API, None means "not supplied, leave it alone".
+    # Removing a parent is an explicit empty string, never null.
+    title: str | None = None
+    description: str | None = None
+    sectionId: str | None = None
+    parentId: str | None = None
+    priority: str | None = None
+    status: str | None = None
+    dueDate: str | None = None
+    sprint: str | None = None
+    tags: list[str] | None = None
+    estimatedHours: float | None = None
+    assigneeIds: list[str] | None = None
+    acceptanceCriteria: str | None = None
+    storyPoints: str | None = None
+    startDate: str | None = None

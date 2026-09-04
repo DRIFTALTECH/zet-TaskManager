@@ -36,9 +36,17 @@ def main() -> None:
 
     scope, params = ("", [])
     if args.project:
-        scope, params = " WHERE project_id = %s", [args.project]
+        scope, params = " WHERE t.project_id = %s", [args.project]
 
-    tasks = db.read(f"SELECT id, parent_task_id, status, title FROM tasks{scope}", tuple(params))
+    # Same task-shaped projection the CRUD layer uses, so "subtask" means the
+    # same thing here as it does in the app: a task whose parent is a task.
+    # Reading parent_id raw would treat a task inside a story as a subtask.
+    from crud.tasks import TASK_RELATION
+
+    tasks = db.read(
+        f"SELECT id, parent_task_id, status, title FROM {TASK_RELATION} t{scope}",
+        tuple(params),
+    )
 
     children_of: dict[str, list[dict]] = {}
     for t in tasks:
@@ -75,7 +83,7 @@ def main() -> None:
         return
 
     for tid, _title, _was, want in task_fixes:
-        db.write("UPDATE tasks SET status = %s WHERE id = %s", (want, tid))
+        db.write("UPDATE work_items SET status = %s WHERE id = %s AND type = 'task'", (want, tid))
     db.commit()
     print(f"\nAligned {len(task_fixes)} subtask(s).")
 

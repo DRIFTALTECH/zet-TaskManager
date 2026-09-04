@@ -555,6 +555,125 @@ def _migrate_kanban_color() -> None:
         db.write("UPDATE kanban_columns SET color = %s WHERE id = %s", (color, kid))
 
 
+def _migrate_work_items() -> None:
+    """Create the unified work-item tables. Additive: nothing reads them yet.
+
+    `tasks` and `user_stories` stay in place and authoritative. The backfill is
+    a separate, explicit step (`scripts/migrate_to_work_items.py`) so that
+    creating the tables can never be confused with moving the data.
+    """
+    db = get_database()
+    _create_table_if_missing(
+        db,
+        "work_items",
+        """
+        CREATE TABLE IF NOT EXISTS work_items (
+            id TEXT PRIMARY KEY,
+            type TEXT NOT NULL,
+            parent_id TEXT REFERENCES work_items(id) ON DELETE SET NULL,
+            project_id TEXT NOT NULL,
+            section_id TEXT,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            priority TEXT NOT NULL DEFAULT 'Medium',
+            status TEXT NOT NULL DEFAULT 'backlog',
+            due_date TEXT,
+            sprint TEXT NOT NULL DEFAULT '',
+            tags_json TEXT NOT NULL DEFAULT '[]',
+            estimated_hours TEXT,
+            approved_by_manager BOOLEAN NOT NULL DEFAULT FALSE,
+            created_by TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT,
+            assigned_to TEXT,
+            assigned_by TEXT,
+            is_started BOOLEAN NOT NULL DEFAULT FALSE,
+            started_at TEXT,
+            completed_at TEXT,
+            time_tracked INTEGER NOT NULL DEFAULT 0,
+            min_log_minutes INTEGER NOT NULL DEFAULT 1,
+            custom_fields_json TEXT NOT NULL DEFAULT '{}',
+            acceptance_criteria TEXT NOT NULL DEFAULT '',
+            story_points TEXT,
+            start_date TEXT,
+            CONSTRAINT ck_work_items_type CHECK (type IN ('story', 'task')),
+            -- Merging the tables loses the guarantee that a time log could not
+            -- point at a story, so state it as a constraint instead.
+            CONSTRAINT ck_work_items_story_has_no_time CHECK (
+                type <> 'story' OR (time_tracked = 0 AND is_started = FALSE
+                                    AND started_at IS NULL)
+            )
+        )
+        """,
+    )
+    _create_table_if_missing(
+        db,
+        "work_item_assignees",
+        """
+        CREATE TABLE IF NOT EXISTS work_item_assignees (
+            work_item_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+            user_id TEXT NOT NULL,
+            position INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (work_item_id, user_id)
+        )
+        """,
+    )
+    _create_table_if_missing(
+        db,
+        "work_item_feedback",
+        """
+        CREATE TABLE IF NOT EXISTS work_item_feedback (
+            id TEXT PRIMARY KEY,
+            work_item_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+            user_id TEXT NOT NULL,
+            message TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT
+        )
+        """,
+    )
+    _create_table_if_missing(
+        db,
+        "work_item_attachments",
+        """
+        CREATE TABLE IF NOT EXISTS work_item_attachments (
+            id TEXT PRIMARY KEY,
+            work_item_id TEXT NOT NULL REFERENCES work_items(id) ON DELETE CASCADE,
+            filename TEXT NOT NULL,
+            stored_name TEXT NOT NULL,
+            content_type TEXT NOT NULL DEFAULT '',
+            size_bytes INTEGER NOT NULL DEFAULT 0,
+            uploaded_by TEXT,
+            created_at TEXT NOT NULL
+        )
+        """,
+    )
+    # Columns added after the table first shipped. CREATE TABLE IF NOT EXISTS is
+    # a no-op on a cluster that already has work_items, so a late column only
+    # ever arrives through an explicit ALTER.
+    for column, ddl in (
+        ("assigned_to", "VARCHAR"),
+        ("assigned_by", "VARCHAR"),
+        ("story_points", "VARCHAR"),
+        ("start_date", "VARCHAR"),
+        ("acceptance_criteria", "TEXT NOT NULL DEFAULT ''"),
+        ("updated_at", "VARCHAR"),
+    ):
+        _add_column_if_missing(db, "work_items", column, ddl)
+
+    # The board reads by project and walks by parent; both want an index.
+    for stmt in (
+        "CREATE INDEX IF NOT EXISTS ix_work_items_project ON work_items(project_id)",
+        "CREATE INDEX IF NOT EXISTS ix_work_items_parent ON work_items(parent_id)",
+        "CREATE INDEX IF NOT EXISTS ix_work_items_type ON work_items(type)",
+        "CREATE INDEX IF NOT EXISTS ix_work_item_assignees_user ON work_item_assignees(user_id)",
+    ):
+        try:
+            db.write(stmt)
+        except Exception as exc:
+            log.warning("Could not create index (%s)", exc)
+
+
 def _step(fn) -> None:
     """Run one startup step; a database that refuses it must not stop the boot.
 
@@ -590,6 +709,7 @@ def init_db() -> None:
     _step(_migrate_temp_task_assignees)
     _step(_migrate_kanban_color)
     _step(_migrate_user_story_parent)
+    _step(_migrate_work_items)
     _step(_seed_kanban)
     from logic.audit import purge_old_audit_logs
 
