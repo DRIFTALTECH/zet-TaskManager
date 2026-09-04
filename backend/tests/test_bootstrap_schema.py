@@ -43,3 +43,24 @@ def test_bootstrap_declares_every_model_table_and_column():
     assert not missing, (
         "scripts/bootstrap_aurora.sql is behind the models: " + ", ".join(missing)
     )
+
+
+def test_every_table_is_created_before_the_grants():
+    """A table declared after the GRANT block is unreadable by the service.
+
+    `GRANT ... ON ALL TABLES` applies to the tables that exist when it runs, and
+    ALTER DEFAULT PRIVILEGES only covers tables created afterwards by the role
+    that set it. work_items was originally declared at the end of this file,
+    below the grants, so the owner created it and the service could not read it:
+    every request died with "permission denied for table work_items".
+    """
+    sql = _SQL.read_text()
+    grant = sql.index("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES")
+    late = [
+        m.group(1)
+        for m in re.finditer(r"CREATE TABLE IF NOT EXISTS (\w+)", sql)
+        if m.start() > grant
+    ]
+    assert not late, (
+        "declared after the GRANT block, so app_user cannot read them: " + ", ".join(late)
+    )
