@@ -6,6 +6,7 @@
  * is a filter you forget you set, which is how an "empty" board usually happens.
  */
 import type { ReactNode } from 'react';
+import { CONTROL_H } from '@/lib/field-styles';
 import { ChevronDown, Search, X } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Input } from '@/components/ui/input';
@@ -16,7 +17,8 @@ import { NO_SPRINT_FILTER_ID, UNASSIGNED_FILTER_ID } from '@/lib/task-utils';
 import type { Priority } from '@/types';
 
 const TRIGGER =
-  'flex h-8 shrink-0 items-center justify-between gap-1.5 rounded-lg border border-border/70 bg-card/70 px-2.5 text-xs font-medium shadow-none focus:outline-none focus:ring-2 focus:ring-ring/40';
+  `flex ${CONTROL_H} shrink-0 items-center justify-between gap-1.5 rounded-lg border border-border/70 ` +
+  'bg-card/70 px-2 text-xs font-medium shadow-none focus:outline-none focus:ring-2 focus:ring-ring/40';
 
 export interface DashFilterOption {
   id: string;

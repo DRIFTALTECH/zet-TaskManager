@@ -513,6 +513,14 @@ export const api = {
     await request(`/user-stories/${storyId}/attachments/${attachmentId}`, { method: 'DELETE' });
   },
 
+  async fetchUserStoryAttachmentBlob(storyId: string, attachmentId: string): Promise<Blob> {
+    const res = await fetch(`${baseUrl()}/user-stories/${storyId}/attachments/${attachmentId}/download`, {
+      headers: headers(false),
+    });
+    if (!res.ok) throw new Error('Could not load attachment');
+    return res.blob();
+  },
+
   async downloadUserStoryAttachment(storyId: string, attachmentId: string, filename: string): Promise<void> {
     const res = await fetch(`${baseUrl()}/user-stories/${storyId}/attachments/${attachmentId}/download`, {
       headers: headers(false),

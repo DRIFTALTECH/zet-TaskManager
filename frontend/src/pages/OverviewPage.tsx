@@ -21,6 +21,8 @@ import { AnalyticsKpiCard, AnalyticsSection } from '@/components/analytics/analy
 import { ANALYTICS_LABELS } from '@/lib/analyticsLabels';
 import { healthScoreToCondition } from '@/lib/healthStatus';
 import { pageEnter } from '@/lib/motion';
+import PageHeader from '@/components/PageHeader';
+import { PAGE_SHELL_SCROLL, SEGMENT_BAR, SEGMENT_BTN } from '@/lib/page-styles';
 import { cn } from '@/lib/utils';
 import DateRangePicker from '@/components/DateRangePicker';
 import {
@@ -158,23 +160,18 @@ export default function OverviewPage() {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={pageEnter}
-      className="min-h-full flex flex-col"
+      className={PAGE_SHELL_SCROLL}
     >
       {/* Static header — title + one control row; only body data swaps per tab */}
-      <div className="shrink-0 px-4 sm:px-8 pt-6 sm:pt-7 pb-5 border-b border-border/30 bg-gradient-to-b from-muted/20 to-transparent">
-        <div className="max-w-[1400px] w-full mx-auto space-y-4">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">Overview</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>
-          </div>
-
+      <div className="shrink-0 max-w-[1400px] w-full mx-auto">
+        <PageHeader title="Overview" subtitle={subtitle}>
           <div className="flex flex-wrap items-center gap-2 min-w-0">
             <OverviewSectionTabs active={activeTab} />
 
             {activeTab === 'project' && (
               <>
                 <Select value={projectId} onValueChange={setProjectId}>
-                  <SelectTrigger className="h-9 w-auto min-w-[170px] max-w-[240px] text-sm">
+                  <SelectTrigger className="h-7 w-auto min-w-[170px] max-w-[240px] text-sm">
                     <SelectValue placeholder="Project" />
                   </SelectTrigger>
                   <SelectContent>
@@ -195,7 +192,7 @@ export default function OverviewPage() {
             {activeTab === 'task' && (
               <>
                 <Select value={effectiveTaskProjectId} onValueChange={setTaskProjectId}>
-                  <SelectTrigger className="h-9 w-auto min-w-[170px] max-w-[240px] text-sm">
+                  <SelectTrigger className="h-7 w-auto min-w-[170px] max-w-[240px] text-sm">
                     <SelectValue placeholder="Project" />
                   </SelectTrigger>
                   <SelectContent>
@@ -205,7 +202,7 @@ export default function OverviewPage() {
                     ))}
                   </SelectContent>
                 </Select>
-                <div className="inline-flex h-9 rounded-lg border border-border/70 bg-card/70 p-0.5">
+                <div className={SEGMENT_BAR}>
                   {([
                     ['all', 'All'],
                     ['active', 'Active'],
@@ -215,10 +212,7 @@ export default function OverviewPage() {
                       key={id}
                       type="button"
                       onClick={() => setTaskStatus(id)}
-                      className={cn(
-                        'rounded-md px-3 text-xs font-medium transition-colors',
-                        taskStatus === id ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground',
-                      )}
+                      className={SEGMENT_BTN(taskStatus === id)}
                     >
                       {label}
                     </button>
@@ -230,7 +224,7 @@ export default function OverviewPage() {
             {activeTab === 'user' && (
               <>
                 <Select value={effectiveUserId} onValueChange={setUserId}>
-                  <SelectTrigger className="h-9 w-auto min-w-[170px] max-w-[240px] text-sm">
+                  <SelectTrigger className="h-7 w-auto min-w-[170px] max-w-[240px] text-sm">
                     <SelectValue placeholder="Person" />
                   </SelectTrigger>
                   <SelectContent>
@@ -240,7 +234,7 @@ export default function OverviewPage() {
                   </SelectContent>
                 </Select>
                 <Select value={userProjectId} onValueChange={setUserProjectId}>
-                  <SelectTrigger className="h-9 w-auto min-w-[160px] max-w-[220px] text-sm">
+                  <SelectTrigger className="h-7 w-auto min-w-[160px] max-w-[220px] text-sm">
                     <SelectValue placeholder="Project" />
                   </SelectTrigger>
                   <SelectContent>
@@ -250,7 +244,7 @@ export default function OverviewPage() {
                     ))}
                   </SelectContent>
                 </Select>
-                <div className="inline-flex h-9 rounded-lg border border-border/70 bg-card/70 p-0.5">
+                <div className={SEGMENT_BAR}>
                   {([
                     ['all', 'All'],
                     ['active', 'Active'],
@@ -260,10 +254,7 @@ export default function OverviewPage() {
                       key={id}
                       type="button"
                       onClick={() => setUserStatus(id)}
-                      className={cn(
-                        'rounded-md px-3 text-xs font-medium transition-colors',
-                        userStatus === id ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground',
-                      )}
+                      className={SEGMENT_BTN(userStatus === id)}
                     >
                       {label}
                     </button>
@@ -279,7 +270,7 @@ export default function OverviewPage() {
                   onValueChange={setSprintName}
                   disabled={sprintOptions.length === 0}
                 >
-                  <SelectTrigger className="h-9 w-auto min-w-[170px] max-w-[260px] text-sm">
+                  <SelectTrigger className="h-7 w-auto min-w-[170px] max-w-[260px] text-sm">
                     <SelectValue placeholder={sprintOptions.length ? 'Select sprint' : 'No sprints yet'} />
                   </SelectTrigger>
                   <SelectContent>
@@ -291,7 +282,7 @@ export default function OverviewPage() {
                   </SelectContent>
                 </Select>
                 <Select value={sprintProjectId} onValueChange={setSprintProjectId}>
-                  <SelectTrigger className="h-9 w-auto min-w-[160px] max-w-[220px] text-sm">
+                  <SelectTrigger className="h-7 w-auto min-w-[160px] max-w-[220px] text-sm">
                     <SelectValue placeholder="Project" />
                   </SelectTrigger>
                   <SelectContent>
@@ -301,7 +292,7 @@ export default function OverviewPage() {
                     ))}
                   </SelectContent>
                 </Select>
-                <div className="inline-flex h-9 rounded-lg border border-border/70 bg-card/70 p-0.5">
+                <div className={SEGMENT_BAR}>
                   {([
                     ['all', 'All'],
                     ['active', 'Active'],
@@ -311,10 +302,7 @@ export default function OverviewPage() {
                       key={id}
                       type="button"
                       onClick={() => setSprintStatus(id)}
-                      className={cn(
-                        'rounded-md px-3 text-xs font-medium transition-colors',
-                        sprintStatus === id ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground',
-                      )}
+                      className={SEGMENT_BTN(sprintStatus === id)}
                     >
                       {label}
                     </button>
@@ -323,10 +311,10 @@ export default function OverviewPage() {
               </>
             )}
           </div>
-        </div>
+        </PageHeader>
       </div>
 
-      <div className="flex-1 p-4 sm:p-8 space-y-8 max-w-[1400px] w-full mx-auto">
+      <div className="flex-1 space-y-5 max-w-[1400px] w-full mx-auto">
       {activeTab === 'task' ? (
         <TaskOverviewPanel projectId={effectiveTaskProjectId} status={taskStatus} />
       ) : activeTab === 'user' ? (

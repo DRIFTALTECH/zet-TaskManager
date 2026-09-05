@@ -33,6 +33,10 @@ import { RowDescription } from '@/components/dash/RowDescription';
 import { Hint } from '@/components/ui/hint';
 import { WorkTypeSelect } from '@/components/dash/WorkTypeSelect';
 import { Checkbox } from '@/components/ui/checkbox';
+import { useAppStore } from '@/stores/appStore';
+import { ROW_SHADOW } from '@/lib/card-shadow';
+import { useElapsedTime } from '@/hooks/useElapsedTime';
+import { isTaskAssignedTo } from '@/lib/task-utils';
 import { DashBulkBar } from '@/components/dash/DashBulkBar';
 import { columnColorTokens } from '@/lib/column-colors';
 import { projectNameColor } from '@/lib/project-utils';
@@ -69,9 +73,15 @@ export interface DashRowPatch {
  * status group is a column of noise.
  */
 const cols = (withStatus: boolean) =>
-  withStatus
-    ? 'grid grid-cols-[minmax(0,1fr)_6rem_6rem_6rem_6rem_8rem] gap-3 items-center'
-    : 'grid grid-cols-[minmax(0,1fr)_6rem_6rem_6rem_6rem] gap-3 items-center';
+  // Columns appear as the screen allows. The fixed tracks add up to 24rem
+  // (32rem with status), which overflows a phone on their own, so a narrow
+  // screen keeps only the title and the due date and the rest are hidden in
+  // step with these templates.
+  'grid items-center gap-2 sm:gap-3 grid-cols-[minmax(0,1fr)_auto] ' +
+  'sm:grid-cols-[minmax(0,1fr)_6rem_6rem_6rem] ' +
+  (withStatus
+    ? 'lg:grid-cols-[minmax(0,1fr)_6rem_6rem_6rem_6rem_8rem]'
+    : 'lg:grid-cols-[minmax(0,1fr)_6rem_6rem_6rem_6rem]');
 
 const CELL = 'text-[13px]';
 
@@ -79,10 +89,56 @@ const CELL = 'text-[13px]';
  * The board's card, laid out as a row: same radius, same border weight, same
  * shadow values — so switching views does not feel like switching apps.
  */
-const ROW_CARD =
-  'rounded-lg border border-border/60 bg-card transition-shadow ' +
-  'shadow-[0_1px_2px_rgba(0,0,0,0.06)] hover:shadow-[0_1px_5px_rgba(0,0,0,0.10)] ' +
-  'dark:shadow-[0_1px_2px_rgba(255,255,255,0.08)] dark:hover:shadow-[0_1px_5px_rgba(255,255,255,0.14)]';
+const ROW_CARD = `rounded-lg border border-border/60 bg-card transition-shadow ${ROW_SHADOW}`;
+
+/**
+ * Start / Stop for a list row.
+ *
+ * The board card has always had this; the list had no way to start a timer at
+ * all, so tracking time meant switching views. Same rules as the card: only the
+ * people a task is assigned to can start it, and never once it is done.
+ */
+function RowTimer({ row }: { row: DashRow }) {
+  const currentUser = useAppStore(s => s.currentUser);
+  const activeTimers = useAppStore(s => s.activeTimers);
+  const startTimer = useAppStore(s => s.startTimer);
+  const stopTimer = useAppStore(s => s.stopTimer);
+  const task = row.task;
+  const isActive = !!activeTimers[row.entityId];
+  const elapsed = useElapsedTime(activeTimers[row.entityId] ?? null);
+
+  if (row.type === 'story' || !task) return null;
+  const isDone = row.status === 'completed' || row.status === 'done';
+  const canStart = !!currentUser && isTaskAssignedTo(task, currentUser.id) && !isDone;
+  if (isDone || (!canStart && !isActive)) return null;
+
+  return (
+    <span className="flex shrink-0 items-center gap-1.5" onClick={e => e.stopPropagation()}>
+      {isActive ? (
+        <>
+          <button
+            type="button"
+            className="rounded-lg bg-destructive/90 px-2 py-1 text-[11px] font-semibold text-destructive-foreground transition-colors hover:bg-destructive"
+            onClick={() => { void stopTimer(row.entityId); }}
+          >
+            Stop
+          </button>
+          {elapsed && (
+            <span className="font-mono text-[11px] tabular-nums text-muted-foreground">{elapsed}</span>
+          )}
+        </>
+      ) : (
+        <button
+          type="button"
+          className="rounded-lg bg-primary px-2 py-1 text-[11px] font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+          onClick={() => { void startTimer(row.entityId); }}
+        >
+          Start
+        </button>
+      )}
+    </span>
+  );
+}
 
 function Row({
   row,
@@ -160,7 +216,7 @@ function Row({
       onKeyDown={e => {
         if (e.key === 'Enter') onClick(row);
       }}
-      className={`${cols(withStatus)} ${CELL} ${ROW_CARD} group my-0.5 min-h-8 cursor-pointer px-2.5 py-0.5 ${
+      className={`${cols(withStatus)} ${CELL} ${ROW_CARD} group my-0.5 min-h-7 cursor-pointer px-2.5 py-0.5 ${
         selected ? 'border-primary/50 bg-primary/5' : ''
       } ${isOver && !isDragging ? 'ring-1 ring-primary/40' : ''} ${
         busy ? 'pointer-events-none opacity-60' : ''
@@ -274,7 +330,13 @@ function Row({
             {projectName}
           </span>
         )}
-        <span className={`ml-auto flex shrink-0 items-center gap-0.5 transition-opacity ${titleDraft !== null ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+        {/* One right-aligned group: the timer is always visible, the edit and
+            delete icons fade in on hover. Keeping them in a single ml-auto
+            wrapper means the icons stay put whether or not a row has a timer. */}
+        <span className="ml-auto flex shrink-0 items-center gap-1.5">
+        <RowTimer row={row} />
+
+        <span className={`flex shrink-0 items-center gap-0.5 transition-opacity ${titleDraft !== null ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
           {onAddChild && row.type === 'story' && (
             <Hint label="Add task">
               <button
@@ -317,13 +379,16 @@ function Row({
             </button>
           </Hint>
         </span>
+        </span>
       </div>
 
-      <AssigneeCell
-        assigneeIds={row.assigneeIds}
-        members={members}
-        onChange={ids => onEdit(row, { assigneeIds: ids })}
-      />
+      <span className="hidden sm:block">
+        <AssigneeCell
+          assigneeIds={row.assigneeIds}
+          members={members}
+          onChange={ids => onEdit(row, { assigneeIds: ids })}
+        />
+      </span>
 
       <DueDateCell
         dueDate={row.dueDate}
@@ -331,17 +396,23 @@ function Row({
         onChange={iso => onEdit(row, { dueDate: iso })}
       />
 
-      <PriorityCell priority={row.priority} onChange={p => onEdit(row, { priority: p })} />
+      <span className="hidden sm:block">
+        <PriorityCell priority={row.priority} onChange={p => onEdit(row, { priority: p })} />
+      </span>
 
-      <TimeCell estimatedHours={row.estimatedHours} actualHours={row.actualHours} />
+      <span className="hidden lg:block">
+        <TimeCell estimatedHours={row.estimatedHours} actualHours={row.actualHours} />
+      </span>
 
       {withStatus && (
-        <StatusCell
-          status={row.status}
-          columns={columns}
-          doneColumnId={doneColumnId}
-          onChange={status => onEdit(row, { status })}
-        />
+        <span className="hidden lg:block">
+          <StatusCell
+            status={row.status}
+            columns={columns}
+            doneColumnId={doneColumnId}
+            onChange={status => onEdit(row, { status })}
+          />
+        </span>
       )}
     </div>
   );
@@ -408,9 +479,11 @@ function ItemComposer({
     }
   };
 
+  // One step taller than a display row on purpose: this row holds live inputs,
+  // and 28px is tight to type into.
   return (
     <div
-      className="flex min-h-9 items-center gap-2 border-b border-border/30 px-2"
+      className="flex min-h-8 items-center gap-2 border-b border-border/30 px-2"
       style={{ paddingLeft: 8 + indent * 20 }}
     >
       <WorkTypeSelect value={kind} onChange={setKind} disabled={saving} />
@@ -557,11 +630,11 @@ function HeaderRow({ withStatus }: { withStatus: boolean }) {
       className={`${cols(withStatus)} px-3 pb-1 pt-1 text-[11px] font-medium text-muted-foreground/60`}
     >
       <span>Title</span>
-      <span>Assignee</span>
+      <span className="hidden sm:block">Assignee</span>
       <span>Due date</span>
-      <span>Priority</span>
-      <span title="Estimated · Actual">Est · Actual</span>
-      {withStatus && <span>Status</span>}
+      <span className="hidden sm:block">Priority</span>
+      <span className="hidden lg:block" title="Estimated · Actual">Est · Actual</span>
+      {withStatus && <span className="hidden lg:block">Status</span>}
     </div>
   );
 }

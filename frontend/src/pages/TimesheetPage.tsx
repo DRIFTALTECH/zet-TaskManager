@@ -134,7 +134,7 @@ function GroupRow({
   const hasChildren = node.children.length > 0;
 
   return (
-    <div className={cn(depth === 0 && 'rounded-2xl border border-border/30 overflow-hidden bg-card shadow-sm')}>
+    <div className={cn(depth === 0 && 'rounded-xl border border-border/40 overflow-hidden bg-card shadow-sm')}>
       <button
         type="button"
         onClick={() => onToggle(node.path)}
@@ -142,23 +142,23 @@ function GroupRow({
         className={cn(
           'w-full flex flex-wrap items-center justify-between gap-3 text-left transition-colors',
           depth === 0
-            ? 'px-7 py-4 bg-muted/10 hover:bg-muted/20 border-b border-border/20'
-            : 'px-5 py-2.5 hover:bg-muted/20 border-b border-border/15',
+            ? 'px-3.5 py-2 bg-muted/10 hover:bg-muted/20 border-b border-border/20'
+            : 'px-3 py-1.5 hover:bg-muted/20 border-b border-border/15',
         )}
-        style={depth > 0 ? { paddingLeft: `${1.75 + depth * 1.25}rem` } : undefined}
+        style={depth > 0 ? { paddingLeft: `${0.875 + depth * 1}rem` } : undefined}
       >
-        <div className="flex items-center gap-2.5 min-w-0">
-          <ChevronRight className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} />
-          <span className={cn('font-bold text-foreground truncate', depth === 0 ? 'text-base sm:text-lg' : 'text-sm')}>
+        <div className="flex items-center gap-2 min-w-0">
+          <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} />
+          <span className={cn('font-bold text-foreground truncate', depth === 0 ? 'text-sm' : 'text-[13px]')}>
             {node.title}
           </span>
-          <span className="text-xs text-muted-foreground/60 tabular-nums shrink-0">
+          <span className="text-[11px] text-muted-foreground/60 tabular-nums shrink-0">
             {node.entryCount} {node.entryCount === 1 ? 'entry' : 'entries'}
           </span>
         </div>
         <span className={cn(
-          'font-bold tabular-nums px-3.5 py-1.5 rounded-xl border shrink-0',
-          depth === 0 ? 'text-base' : 'text-sm',
+          'inline-flex h-7 items-center font-bold tabular-nums px-2.5 rounded-lg border shrink-0',
+          depth === 0 ? 'text-xs' : 'text-[11px]',
           node.seconds > 0
             ? 'bg-primary/10 text-primary border-primary/20'
             : 'text-muted-foreground/40 bg-muted/30 border-border/30',
@@ -228,12 +228,12 @@ function InlineEntryRow({
   const pickProjSec = (pid: string, sid: string) => {
     if (pid !== entry.projectId || sid !== entry.sectionId) void onPatch(entry.id, { projectId: pid, sectionId: sid });
   };
-  const timeInput = 'w-12 text-center rounded-md bg-muted/30 hover:bg-muted/50 focus:bg-background border border-transparent focus:border-primary/40 px-1 py-1 focus:outline-none transition-colors';
+  const timeInput = 'w-11 text-center rounded-md bg-muted/30 hover:bg-muted/50 focus:bg-background border border-transparent focus:border-primary/40 px-1 py-0.5 focus:outline-none transition-colors';
 
   return (
-    <li className="flex flex-col sm:flex-row sm:items-center gap-2.5 sm:gap-4 px-4 sm:px-5 py-3 sm:py-3.5 hover:bg-muted/20 transition-colors group">
+    <li className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3 px-3.5 py-1.5 hover:bg-muted/20 transition-colors group">
       {showDate && (
-        <span className="shrink-0 text-xs font-mono tabular-nums text-muted-foreground/60 w-[4.5rem]">
+        <span className="shrink-0 text-[11px] font-mono tabular-nums text-muted-foreground/60 w-[4.5rem]">
           {formatDisplayDate(entry.workDate)}
         </span>
       )}
@@ -246,11 +246,11 @@ function InlineEntryRow({
         placeholder="No description"
         readOnly={readOnly}
         disabled={readOnly}
-        className="min-w-0 flex-1 -mx-2 px-2 py-1 rounded-md bg-transparent hover:bg-muted/30 focus:bg-muted/40 border-0 text-sm sm:text-[15px] font-medium text-foreground placeholder:text-muted-foreground/40 placeholder:italic focus:outline-none focus:ring-0 transition-colors disabled:opacity-70"
+        className="min-w-0 flex-1 -mx-1.5 px-1.5 py-0.5 rounded-md bg-transparent hover:bg-muted/30 focus:bg-muted/40 border-0 text-[13px] font-medium text-foreground placeholder:text-muted-foreground/40 placeholder:italic focus:outline-none focus:ring-0 transition-colors disabled:opacity-70"
       />
 
       {/* Right cluster — project/section · time · duration · actions */}
-      <div className="flex items-center gap-2.5 sm:gap-4 shrink-0 flex-wrap sm:flex-nowrap">
+      <div className="flex items-center gap-2 sm:gap-3 shrink-0 flex-wrap sm:flex-nowrap">
         <ProjectSectionPicker
           projects={userProjects}
           projectId={entry.projectId}
@@ -259,10 +259,10 @@ function InlineEntryRow({
           onCreateSection={createSection}
           disabled={readOnly}
           align="end"
-          triggerClassName="border-0 bg-transparent shadow-none px-1.5 py-1 rounded-md hover:bg-muted/40 w-auto min-w-0 max-w-[240px] text-[13px] focus:ring-0"
+          triggerClassName="h-6 border-0 bg-transparent shadow-none px-1.5 py-0 rounded-md hover:bg-muted/40 w-auto min-w-0 max-w-[220px] text-xs focus:ring-0"
         />
 
-        <div className="flex items-center gap-1 font-mono text-[13px] tabular-nums text-foreground/70">
+        <div className="flex items-center gap-1 font-mono text-xs tabular-nums text-foreground/70">
           <input value={from} inputMode="numeric" maxLength={4}
             readOnly={readOnly}
             disabled={readOnly}
@@ -278,7 +278,7 @@ function InlineEntryRow({
             onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} className={timeInput} />
         </div>
 
-        <span className="text-base font-bold tabular-nums text-foreground shrink-0 w-[78px] text-right">
+        <span className="text-[13px] font-bold tabular-nums text-foreground shrink-0 w-[68px] text-right">
           {formatDuration(entry.seconds)}
         </span>
 
@@ -288,11 +288,11 @@ function InlineEntryRow({
           disabled={togglingBill || readOnly}
           title={entry.billable ? 'Billable — click to mark non-billable' : 'Non-billable — click to mark billable'}
           aria-pressed={entry.billable}
-          className={`flex items-center justify-center h-8 w-8 rounded-lg transition-colors disabled:opacity-50 shrink-0 ${
+          className={`flex items-center justify-center h-6 w-6 rounded-md transition-colors disabled:opacity-50 shrink-0 ${
             entry.billable ? 'text-emerald-500 hover:text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground/30 hover:text-muted-foreground/60'
           }`}
         >
-          <DollarSign className="h-4 w-4" />
+          <DollarSign className="h-3.5 w-3.5" />
         </button>
 
         {!readOnly && (
@@ -300,9 +300,9 @@ function InlineEntryRow({
           type="button"
           onClick={() => onDelete(entry)}
           title="Delete entry"
-          className="flex items-center justify-center h-8 w-8 rounded-lg text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
+          className="flex items-center justify-center h-6 w-6 rounded-md text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
         >
-          <Trash2 className="h-4 w-4" />
+          <Trash2 className="h-3.5 w-3.5" />
         </button>
         )}
       </div>
@@ -749,15 +749,15 @@ function TimesheetAIPanel({
       transition={snappy}
       className="border-b border-violet-500/20 bg-violet-500/5 overflow-hidden"
     >
-      <div className="px-5 py-4 space-y-3">
+      <div className="px-3.5 py-2.5 space-y-2.5">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-sm font-semibold text-violet-600 dark:text-violet-400">
-            <Sparkles className="h-4 w-4" />
+          <div className="flex items-center gap-2 text-[13px] font-semibold text-violet-600 dark:text-violet-400">
+            <Sparkles className="h-3.5 w-3.5" />
             Fill with AI — describe your day
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-muted/60 text-muted-foreground transition-colors">
-            <X className="h-4 w-4" />
+          <button onClick={onClose} className="flex h-6 w-6 items-center justify-center rounded-md hover:bg-muted/60 text-muted-foreground transition-colors">
+            <X className="h-3.5 w-3.5" />
           </button>
         </div>
 
@@ -771,14 +771,14 @@ function TimesheetAIPanel({
               onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void handleParse(); }}
               placeholder={`e.g. "Spent the morning fixing the auth bug in Driffy backend, quick standup at 10, then worked on the CI/CD pipeline until 4pm, finished with code review for the frontend section"`}
               rows={3}
-              className="w-full px-3.5 py-3 text-sm rounded-xl border border-violet-500/20 bg-background/60 focus:outline-none focus:border-violet-500/50 placeholder:text-muted-foreground/40 resize-none leading-relaxed"
+              className="w-full px-3 py-2 text-[13px] rounded-lg border border-violet-500/20 bg-background/60 focus:outline-none focus:border-violet-500/50 placeholder:text-muted-foreground/40 resize-none leading-relaxed"
             />
             <div className="flex items-center justify-between">
               <span className="text-[11px] text-muted-foreground/40">⌘ Enter to parse</span>
               <button
                 onClick={() => void handleParse()}
                 disabled={!summary.trim() || parsing}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-violet-600 text-white text-sm font-semibold hover:bg-violet-500 transition-colors disabled:opacity-50"
+                className="inline-flex h-7 items-center gap-1.5 px-3 rounded-lg bg-violet-600 text-white text-xs font-semibold hover:bg-violet-500 transition-colors disabled:opacity-50"
               >
                 <Sparkles className="h-3.5 w-3.5" />
                 {parsing ? 'Parsing…' : 'Parse my day'}
@@ -822,7 +822,7 @@ function TimesheetAIPanel({
             </div>
 
             {rows.length === 0 && (
-              <p className="text-sm text-muted-foreground/50 text-center py-2">All rows removed.</p>
+              <p className="text-[13px] text-muted-foreground/50 text-center py-2">All rows removed.</p>
             )}
 
             {/* Footer */}
@@ -840,7 +840,7 @@ function TimesheetAIPanel({
               <button
                 onClick={() => void handleAcceptAll()}
                 disabled={saving || rows.length === 0}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-violet-600 text-white text-sm font-semibold hover:bg-violet-500 transition-colors disabled:opacity-50"
+                className="inline-flex h-7 items-center gap-1.5 px-3 rounded-lg bg-violet-600 text-white text-xs font-semibold hover:bg-violet-500 transition-colors disabled:opacity-50"
               >
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 {saving ? 'Saving…' : `Accept all (${rows.length})`}
@@ -1535,13 +1535,13 @@ const TimesheetPage = () => {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={pageEnter}
-      className={cn('flex flex-col min-h-0', (manageOpen || analyticsOpen) ? 'min-h-full' : 'h-[calc(100dvh-3.5rem)]')}
+      className={cn('flex flex-col min-h-0', (manageOpen || analyticsOpen) ? 'min-h-full' : 'h-full')}
     >
       {manageOpen ? (
         <TimesheetManagePanel onClose={() => setManageOpen(false)} />
       ) : analyticsOpen ? (
         <div className="flex flex-col h-full">
-          <div className="shrink-0 px-4 sm:px-8 pt-6 pb-4 border-b border-border/30 bg-gradient-to-b from-muted/20 to-transparent flex items-center justify-between gap-4">
+          <div className="shrink-0 px-3 sm:px-4 pt-3 pb-3 border-b border-border/30 flex items-center justify-between gap-3">
             <div>
               <h1 className="text-lg font-bold text-foreground">Timesheet Analytics</h1>
               <p className="text-xs text-muted-foreground mt-0.5">Your work patterns, billable hours, and overtime insights.</p>
@@ -1549,7 +1549,7 @@ const TimesheetPage = () => {
             <button
               type="button"
               onClick={() => setAnalyticsOpen(false)}
-              className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl border border-border/50 hover:bg-muted/50 transition-all text-muted-foreground hover:text-foreground font-medium"
+              className="inline-flex h-7 items-center gap-1.5 text-xs px-2.5 rounded-lg border border-border/60 hover:bg-muted/50 hover:border-border/80 transition-colors text-muted-foreground hover:text-foreground font-medium"
             >
               ← Back to Timesheet
             </button>
@@ -1561,7 +1561,7 @@ const TimesheetPage = () => {
       ) : (
       <>
       {/* ── Page header ──────────────────────────────────────────────────── */}
-      <div className="shrink-0 px-3 sm:px-8 pt-3 sm:pt-7 pb-3 sm:pb-5 border-b border-border/30 bg-gradient-to-b from-muted/20 to-transparent">
+      <div className="shrink-0 px-3 sm:px-4 pt-3 pb-3 border-b border-border/30">
         <div className="flex flex-col lg:flex-row lg:items-center gap-3 w-full min-w-0">
           <div className="flex items-start gap-2 flex-1 min-w-0">
             <DateRangePicker
@@ -1584,32 +1584,32 @@ const TimesheetPage = () => {
               if (statuses.size === 1) {
                 const only = submissions[weeksWithStatus[0]].status;
                 return (
-                  <span className={cn('text-xs font-bold px-3 py-1.5 rounded-xl border', statusBadgeClass(only))}>
+                  <span className={cn('inline-flex h-7 items-center text-xs font-bold px-2.5 rounded-lg border', statusBadgeClass(only))}>
                     {statusDisplayLabel(only)}
                     {weeksWithStatus.length > 1 && ` · ${weeksWithStatus.length} weeks`}
                   </span>
                 );
               }
               return (
-                <span className="text-xs font-bold px-3 py-1.5 rounded-xl border border-border/50 text-muted-foreground">
+                <span className="inline-flex h-7 items-center text-xs font-bold px-2.5 rounded-lg border border-border/60 text-muted-foreground">
                   {weeksWithStatus.length} weeks · mixed status
                 </span>
               );
             })()}
 
             {/* Total for the selected period */}
-            <div className="flex items-center gap-2.5 bg-primary/8 border border-primary/20 rounded-xl px-4 py-2">
-              <span className="text-[11px] font-bold text-primary/70 uppercase tracking-wide">
+            <div className="inline-flex h-7 items-center gap-2 bg-primary/8 border border-primary/20 rounded-lg px-2.5">
+              <span className="text-[10px] font-bold text-primary/70 uppercase tracking-wide">
                 {selection.preset === 'day' ? 'Day' : selection.preset === 'week' ? 'Week' : 'Total'}
               </span>
-              <span className="text-lg font-bold tabular-nums text-foreground">{formatDuration(weekTotalSeconds)}</span>
+              <span className="text-sm font-bold tabular-nums text-foreground">{formatDuration(weekTotalSeconds)}</span>
             </div>
           </div>
         </div>
 
-        <div className="flex items-center justify-start lg:justify-end gap-4 flex-wrap">
+        <div className="flex items-center justify-start lg:justify-end gap-3 flex-wrap">
           {/* Action buttons */}
-          <div className="flex items-center gap-2 sm:gap-2.5 mt-1 flex-wrap">
+          <div className="flex items-center gap-2 mt-2 flex-wrap">
             <p className="text-xs text-muted-foreground/70 w-full sm:w-auto sm:mr-1">
               {submitWeekCount > 1 ? (
                 <>
@@ -1634,9 +1634,9 @@ const TimesheetPage = () => {
               aria-label="Refresh"
               title="Refresh"
               disabled={refreshing}
-              className="flex items-center gap-2 text-sm px-3 sm:px-4 py-2 rounded-xl border border-border/50 hover:bg-muted/50 hover:border-border/80 transition-all text-muted-foreground hover:text-foreground font-medium disabled:opacity-40"
+              className="inline-flex h-7 items-center gap-1.5 text-xs px-2.5 rounded-lg border border-border/60 hover:bg-muted/50 hover:border-border/80 transition-colors text-muted-foreground hover:text-foreground font-medium disabled:opacity-40"
             >
-              <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin')} />
+              <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
               <span className="hidden sm:inline">Refresh</span>
             </motion.button>
             <motion.button
@@ -1645,9 +1645,9 @@ const TimesheetPage = () => {
               whileTap={{ scale: canOpenSubmit && !sendingEmail ? 0.97 : 1 }}
               onClick={() => openSubmitDialog()}
               disabled={!canOpenSubmit || sendingEmail}
-              className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-all font-semibold"
+              className="inline-flex h-7 items-center gap-1.5 text-xs px-3 rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-opacity font-semibold"
             >
-              <Send className="h-4 w-4" />{' '}
+              <Send className="h-3.5 w-3.5" />{' '}
               {weeksInSelection.some(ws => submissions[ws]?.status === 'rejected')
                 ? 'Resubmit'
                 : 'Submit timesheet'}
@@ -1660,9 +1660,9 @@ const TimesheetPage = () => {
                 onClick={() => setManageOpen(true)}
               aria-label="Manage timesheets"
               title="Manage timesheets"
-                className="flex items-center gap-2 text-sm px-3 sm:px-4 py-2 rounded-xl border border-border/50 hover:bg-muted/50 hover:border-border/80 transition-all text-muted-foreground hover:text-foreground font-medium"
+                className="inline-flex h-7 items-center gap-1.5 text-xs px-2.5 rounded-lg border border-border/60 hover:bg-muted/50 hover:border-border/80 transition-colors text-muted-foreground hover:text-foreground font-medium"
               >
-                <Users className="h-4 w-4" />
+                <Users className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Manage timesheets</span>
               </motion.button>
             )}
@@ -1680,18 +1680,18 @@ const TimesheetPage = () => {
                 aria-label={label}
                 title={label}
                 className={cn(
-                  'flex items-center gap-2 text-sm px-3 sm:px-4 py-2 rounded-xl border transition-all font-medium',
+                  'inline-flex h-7 items-center gap-1.5 text-xs px-2.5 rounded-lg border transition-colors font-medium',
                   groupDims.includes(id)
                     ? 'border-primary/40 bg-primary/10 text-primary'
-                    : 'border-border/50 hover:bg-muted/50 hover:border-border/80 text-muted-foreground hover:text-foreground',
+                    : 'border-border/60 hover:bg-muted/50 hover:border-border/80 text-muted-foreground hover:text-foreground',
                 )}
               >
                 {groupDims.includes(id) ? (
-                  <span className="h-4 w-4 shrink-0 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center tabular-nums">
+                  <span className="h-3.5 w-3.5 shrink-0 rounded-full bg-primary text-primary-foreground text-[9px] font-bold flex items-center justify-center tabular-nums">
                     {groupDims.indexOf(id) + 1}
                   </span>
                 ) : (
-                  <Icon className="h-4 w-4" />
+                  <Icon className="h-3.5 w-3.5" />
                 )}
                 <span className="hidden sm:inline">{label}</span>
               </motion.button>
@@ -1703,9 +1703,9 @@ const TimesheetPage = () => {
               onClick={() => setAnalyticsOpen(true)}
               aria-label="Analytics"
               title="Analytics"
-              className="flex items-center gap-2 text-sm px-3 sm:px-4 py-2 rounded-xl border border-violet-500/30 bg-violet-500/10 hover:bg-violet-500/20 transition-all text-violet-300 hover:text-violet-200 font-medium"
+              className="inline-flex h-7 items-center gap-1.5 text-xs px-2.5 rounded-lg border border-violet-500/30 bg-violet-500/10 hover:bg-violet-500/20 transition-colors text-violet-500 font-medium"
             >
-              <BarChart2 className="h-4 w-4" />
+              <BarChart2 className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Analytics</span>
             </motion.button>
             <motion.button
@@ -1715,9 +1715,9 @@ const TimesheetPage = () => {
               onClick={exportExcel}
               aria-label="Export to Excel"
               title="Export to Excel"
-              className="flex items-center gap-2 text-sm px-3 sm:px-4 py-2 rounded-xl border border-border/50 hover:bg-muted/50 hover:border-border/80 transition-all text-muted-foreground hover:text-foreground font-medium"
+              className="inline-flex h-7 items-center gap-1.5 text-xs px-2.5 rounded-lg border border-border/60 hover:bg-muted/50 hover:border-border/80 transition-colors text-muted-foreground hover:text-foreground font-medium"
             >
-              <Download className="h-4 w-4" />
+              <Download className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Export Excel</span>
             </motion.button>
           </div>
@@ -1726,12 +1726,12 @@ const TimesheetPage = () => {
         {/* ── Quick entry bar (Clockify-style) ─────────────────────────────── */}
         <div
           className={cn(
-            'mt-5 rounded-2xl border border-border/40 bg-card shadow-sm',
+            'mt-3 rounded-xl border border-border/50 bg-card shadow-sm',
             'flex flex-wrap items-stretch gap-0 divide-y md:divide-y-0 md:divide-x divide-border/30',
             (userProjects.length === 0 || quickWorkDateLocked) && 'opacity-60 pointer-events-none',
           )}
         >
-          <div className="flex-1 min-w-[200px] flex items-center px-4 py-4 md:border-0">
+          <div className="flex-1 min-w-[200px] flex items-center px-3 py-1.5 md:border-0">
             <TaskSuggest
               value={quickDesc}
               onChange={setQuickDesc}
@@ -1741,12 +1741,12 @@ const TimesheetPage = () => {
               disabled={saving || userProjects.length === 0}
               inputId="timesheet-quick-desc"
               placeholder="What have you worked on?"
-              inputClassName="w-full bg-transparent text-base placeholder:text-muted-foreground/45 focus:outline-none focus:ring-0 border-0 px-1 py-1.5"
+              inputClassName="w-full bg-transparent text-[13px] placeholder:text-muted-foreground/45 focus:outline-none focus:ring-0 border-0 px-1 py-1"
               containerClassName="w-full"
             />
           </div>
 
-          <div className="flex flex-wrap items-center gap-0 sm:gap-1 px-2 py-2 md:py-0">
+          <div className="flex flex-wrap items-center gap-0 sm:gap-1 px-1.5 py-1.5 md:py-0">
             <ProjectSectionPicker
               projects={userProjects}
               projectId={quickProjectId}
@@ -1755,12 +1755,12 @@ const TimesheetPage = () => {
               onCreateSection={createSectionReturningId}
               disabled={saving || userProjects.length === 0}
               placeholder="Project / section"
-              triggerClassName="w-auto min-w-[170px] max-w-[280px] py-2"
+              triggerClassName="h-7 w-auto min-w-[160px] max-w-[260px] py-0 text-[13px]"
             />
 
-            <div className="hidden sm:flex h-8 w-px bg-border/40 mx-0.5" aria-hidden />
-            <button type="button" className="p-2 rounded-lg text-muted-foreground/40 hover:text-muted-foreground hover:bg-muted/50 transition-colors" title="Tags (coming soon)">
-              <Tag className="h-4 w-4" />
+            <div className="hidden sm:flex h-5 w-px bg-border/40 mx-0.5" aria-hidden />
+            <button type="button" className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground/40 hover:text-muted-foreground hover:bg-muted/50 transition-colors" title="Tags (coming soon)">
+              <Tag className="h-3.5 w-3.5" />
             </button>
             <button
               type="button"
@@ -1768,16 +1768,16 @@ const TimesheetPage = () => {
               aria-pressed={quickBillable}
               title={quickBillable ? 'Billable — click to mark non-billable' : 'Non-billable — click to mark billable'}
               className={cn(
-                'p-2 rounded-lg transition-all',
+                'flex h-7 w-7 items-center justify-center rounded-md transition-colors',
                 quickBillable
                   ? 'text-emerald-500 bg-emerald-500/10 ring-1 ring-emerald-500/40 shadow-[0_0_10px_-1px_rgba(16,185,129,0.65)]'
                   : 'text-muted-foreground/40 hover:text-muted-foreground hover:bg-muted/50',
               )}
             >
-              <DollarSign className="h-4 w-4" />
+              <DollarSign className="h-3.5 w-3.5" />
             </button>
 
-            <div className="flex items-center gap-2 px-2 font-mono tabular-nums text-foreground">
+            <div className="flex items-center gap-1.5 px-1.5 font-mono tabular-nums text-foreground">
               <input
                 type="text"
                 inputMode="numeric"
@@ -1787,7 +1787,7 @@ const TimesheetPage = () => {
                 onFocus={() => setQuickFrom('')}
                 onChange={e => setQuickFrom(e.target.value.replace(/\D/g, '').slice(0, 4))}
                 disabled={saving || userProjects.length === 0}
-                className="w-16 bg-background rounded-lg border border-border/60 px-2 py-1.5 text-center text-sm font-semibold tracking-wider focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 placeholder:text-muted-foreground/40 placeholder:font-normal"
+                className="h-7 w-14 bg-background rounded-md border border-border/60 px-1.5 py-0 text-center text-[13px] font-semibold tracking-wider focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 placeholder:text-muted-foreground/40 placeholder:font-normal"
               />
               <span className="text-muted-foreground/60 font-semibold">–</span>
               <input
@@ -1799,7 +1799,7 @@ const TimesheetPage = () => {
                 onFocus={() => setQuickTo('')}
                 onChange={e => setQuickTo(e.target.value.replace(/\D/g, '').slice(0, 4))}
                 disabled={saving || userProjects.length === 0}
-                className="w-16 bg-background rounded-lg border border-border/60 px-2 py-1.5 text-center text-sm font-semibold tracking-wider focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 placeholder:text-muted-foreground/40 placeholder:font-normal"
+                className="h-7 w-14 bg-background rounded-md border border-border/60 px-1.5 py-0 text-center text-[13px] font-semibold tracking-wider focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/30 placeholder:text-muted-foreground/40 placeholder:font-normal"
               />
             </div>
 
@@ -1808,9 +1808,9 @@ const TimesheetPage = () => {
                 <button
                   type="button"
                   disabled={saving || userProjects.length === 0}
-                  className="inline-flex items-center gap-1.5 px-2 py-2 rounded-lg text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors disabled:opacity-50"
+                  className="inline-flex h-7 items-center gap-1.5 px-2 rounded-md text-[13px] text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors disabled:opacity-50"
                 >
-                  <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground/60" />
+                  <CalendarDays className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
                   <span className="whitespace-nowrap">
                     {formatQuickDateLabel(quickWorkDate ?? defaultNewDate, todayStr)}
                   </span>
@@ -1836,7 +1836,7 @@ const TimesheetPage = () => {
               </PopoverContent>
             </Popover>
 
-            <div className="px-2 font-mono text-sm font-bold tabular-nums text-foreground min-w-[5.5rem] text-center">
+            <div className="px-1.5 font-mono text-[13px] font-bold tabular-nums text-foreground min-w-[5rem] text-center">
               {formatDurationHMS(quickDurationPreview)}
             </div>
 
@@ -1844,7 +1844,7 @@ const TimesheetPage = () => {
               type="button"
               disabled={saving || userProjects.length === 0}
               onClick={() => void saveQuickEntry()}
-              className="m-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-bold uppercase tracking-wide hover:opacity-90 disabled:opacity-40 transition-opacity shrink-0"
+              className="m-1 h-7 px-3 rounded-md bg-primary text-primary-foreground text-xs font-bold uppercase tracking-wide hover:opacity-90 disabled:opacity-40 transition-opacity shrink-0"
             >
               {saving ? '…' : 'Add'}
             </button>
@@ -1854,7 +1854,7 @@ const TimesheetPage = () => {
       </div>
 
       {/* ── Scrollable body ───────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto min-h-0 p-4 sm:p-8 space-y-6">
+      <div className="flex-1 overflow-y-auto min-h-0 p-3 sm:p-4 space-y-3">
 
         {/* One status card per ISO week the period covers — submission is per week. */}
         {weeksWithStatus.map(ws => {
@@ -1863,26 +1863,26 @@ const TimesheetPage = () => {
           const lockedDays = weekDays.filter(d => isDateLocked(d));
           const allLocked = weekDays.length > 0 && lockedDays.length === weekDays.length;
           return (
-            <div key={ws} className={cn('rounded-2xl border px-4 sm:px-5 py-4', statusBadgeClass(sub.status))}>
-              <div className="flex items-start gap-3 min-w-0">
+            <div key={ws} className={cn('rounded-xl border px-3.5 py-2.5', statusBadgeClass(sub.status))}>
+              <div className="flex items-start gap-2.5 min-w-0">
                 {lockedDays.length > 0
-                  ? <Lock className="h-4 w-4 shrink-0 mt-0.5 opacity-70" />
-                  : <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5 opacity-70" />}
-                <div className="min-w-0 space-y-2 flex-1">
+                  ? <Lock className="h-3.5 w-3.5 shrink-0 mt-0.5 opacity-70" />
+                  : <CheckCircle2 className="h-3.5 w-3.5 shrink-0 mt-0.5 opacity-70" />}
+                <div className="min-w-0 space-y-1.5 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[10px] font-bold uppercase tracking-widest opacity-70">
                       {weeksInSelection.length > 1
                         ? `Week of ${formatDisplayDate(ws)}`
                         : 'Status'}
                     </span>
-                    <span className="text-sm font-bold">{statusDisplayLabel(sub.status)}</span>
+                    <span className="text-[13px] font-bold">{statusDisplayLabel(sub.status)}</span>
                     {loadingSubmission && (
                       <div className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin opacity-60" />
                     )}
                   </div>
                   <TimesheetSubmissionAuditInfo submission={sub} className="space-y-1" />
                   {sub.status === 'rejected' && sub.rejectionNote && (
-                    <p className="text-sm rounded-lg bg-background/40 border border-current/15 px-3 py-2">
+                    <p className="text-[13px] rounded-lg bg-background/40 border border-current/15 px-2.5 py-1.5">
                       <span className="font-semibold">Rejection: </span>{sub.rejectionNote}
                     </p>
                   )}
@@ -1901,7 +1901,7 @@ const TimesheetPage = () => {
 
         {/* ── No project warning ───────────────────────────────────────────── */}
         {userProjects.length === 0 && (
-          <div className="rounded-2xl border border-dashed border-amber-500/30 bg-amber-500/5 px-5 py-4 text-sm text-amber-400/80">
+          <div className="rounded-xl border border-dashed border-amber-500/30 bg-amber-500/5 px-3.5 py-2.5 text-[13px] text-amber-500">
             You are not in any project yet. Ask a manager to add you, then you can log work by project and section.
           </div>
         )}
@@ -1909,7 +1909,7 @@ const TimesheetPage = () => {
         {/* ── Day cards ───────────────────────────────────────────────────── */}
         {activeDims.length > 0 ? (
           groupTree.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-border/40 bg-muted/10 px-6 py-10 text-center text-sm text-muted-foreground/50">
+            <div className="rounded-xl border border-dashed border-border/40 bg-muted/10 px-4 py-6 text-center text-[13px] text-muted-foreground/50">
               Nothing logged in this period.
             </div>
           ) : (
@@ -1947,7 +1947,7 @@ const TimesheetPage = () => {
             </div>
           )
         ) : visibleWeekDates.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-border/40 bg-muted/10 px-6 py-10 text-center text-sm text-muted-foreground/50">
+          <div className="rounded-xl border border-dashed border-border/40 bg-muted/10 px-4 py-6 text-center text-[13px] text-muted-foreground/50">
             No days in this range — future days are hidden.
           </div>
         ) : (
@@ -1963,23 +1963,23 @@ const TimesheetPage = () => {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.98 }}
                     transition={{ ...pageEnter, delay: idx * 0.04 }}
-                    className="rounded-2xl border border-border/30 overflow-hidden bg-card shadow-sm hover:shadow-md transition-shadow duration-200"
+                    className="rounded-xl border border-border/40 overflow-hidden bg-card shadow-sm hover:shadow-md transition-shadow duration-200"
                   >
                     {/* Day header */}
-                    <div className="flex flex-wrap items-center justify-between gap-3 px-7 py-4 border-b border-border/20 bg-muted/10">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="flex items-baseline gap-3 min-w-0">
-                          <h2 className="text-base sm:text-lg font-bold text-foreground">{day.dayName}</h2>
-                          <span className="text-sm font-mono text-muted-foreground/60 tabular-nums">{formatDisplayDate(day.date)}</span>
+                    <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2 border-b border-border/20 bg-muted/10">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="flex items-baseline gap-2 min-w-0">
+                          <h2 className="text-sm font-bold text-foreground">{day.dayName}</h2>
+                          <span className="text-xs font-mono text-muted-foreground/60 tabular-nums">{formatDisplayDate(day.date)}</span>
                           {isToday && (
-                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-primary/15 text-primary border border-primary/20 font-bold">Today</span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/15 text-primary border border-primary/20 font-bold">Today</span>
                           )}
                         </div>
                       </div>
 
                       <div className="flex items-center gap-2">
                         {/* Day total */}
-                        <span className={`text-base font-bold tabular-nums px-3.5 py-1.5 rounded-xl border ${
+                        <span className={`inline-flex h-7 items-center text-xs font-bold tabular-nums px-2.5 rounded-lg border ${
                           day.totalSeconds > 0
                             ? 'bg-primary/10 text-primary border-primary/20'
                             : 'text-muted-foreground/40 bg-muted/30 border-border/30'
@@ -1991,7 +1991,7 @@ const TimesheetPage = () => {
                         <button
                           type="button"
                           onClick={() => toggleOnLeave(day.date!)}
-                          className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg transition-all font-medium ${
+                          className={`inline-flex h-7 items-center gap-1.5 text-xs px-2.5 rounded-lg transition-colors font-medium ${
                             onLeaveDays.has(day.date)
                               ? 'bg-amber-500/15 text-amber-600 border border-amber-500/30 hover:bg-amber-500/25'
                               : 'text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/60'
@@ -2008,7 +2008,7 @@ const TimesheetPage = () => {
                               type="button"
                               disabled={userProjects.length === 0}
                               onClick={() => setAiOpenDay(prev => prev === day.date ? null : day.date)}
-                              className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl font-semibold border transition-all disabled:opacity-40 ${
+                              className={`inline-flex h-7 items-center gap-1.5 text-xs px-2.5 rounded-lg font-semibold border transition-colors disabled:opacity-40 ${
                                 aiOpenDay === day.date
                                   ? 'border-violet-500/40 bg-violet-500/15 text-violet-600 dark:text-violet-400'
                                   : 'border-violet-500/20 bg-violet-500/5 hover:bg-violet-500/15 text-violet-600 dark:text-violet-400'
@@ -2020,7 +2020,7 @@ const TimesheetPage = () => {
                               type="button"
                               disabled={userProjects.length === 0}
                               onClick={() => openNewModal(day.date)}
-                              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl font-semibold border border-border/40 bg-muted/30 hover:bg-primary/8 hover:border-primary/30 hover:text-primary text-muted-foreground transition-all disabled:opacity-40"
+                              className="inline-flex h-7 items-center gap-1.5 text-xs px-2.5 rounded-lg font-semibold border border-border/40 bg-muted/30 hover:bg-primary/8 hover:border-primary/30 hover:text-primary text-muted-foreground transition-colors disabled:opacity-40"
                             >
                               <Plus className="h-3.5 w-3.5" /> Add
                             </button>
@@ -2043,12 +2043,12 @@ const TimesheetPage = () => {
 
                     {/* Entries */}
                     {isDay && onLeaveDays.has(day.date!) ? (
-                      <div className="px-5 py-6 flex items-center justify-center gap-2.5 text-amber-500/70">
-                        <CalendarX2 className="h-4 w-4 shrink-0" />
-                        <span className="text-sm font-medium">On leave — no entries for this day</span>
+                      <div className="px-3.5 py-3 flex items-center justify-center gap-2 text-amber-500/70">
+                        <CalendarX2 className="h-3.5 w-3.5 shrink-0" />
+                        <span className="text-[13px] font-medium">On leave — no entries for this day</span>
                       </div>
                     ) : day.entriesForDay.length === 0 ? (
-                      <div className="px-5 py-7 text-center text-sm text-muted-foreground/40 italic">
+                      <div className="px-3.5 py-3.5 text-center text-[13px] text-muted-foreground/40 italic">
                         Nothing logged yet —{' '}
                         <button
                           type="button"
@@ -2085,14 +2085,14 @@ const TimesheetPage = () => {
             </AnimatePresence>
 
             {dayView.length > visibleDayCount && (
-              <div className="flex flex-col items-center gap-1.5 py-4">
+              <div className="flex flex-col items-center gap-1.5 py-3">
                 <p className="text-xs text-muted-foreground">
                   Showing {visibleDayCount} of {dayView.length} days
                 </p>
                 <button
                   type="button"
                   onClick={() => setVisibleDayCount(n => n + DAYS_PER_PAGE)}
-                  className="rounded-xl border border-border/60 px-4 py-2 text-sm font-semibold hover:bg-muted/60 transition-colors"
+                  className="inline-flex h-7 items-center rounded-lg border border-border/60 px-3 text-xs font-semibold hover:bg-muted/60 transition-colors"
                 >
                   Show {Math.min(DAYS_PER_PAGE, dayView.length - visibleDayCount)} more days
                 </button>
@@ -2104,9 +2104,9 @@ const TimesheetPage = () => {
 
       {/* ── Log / Edit Entry Modal ────────────────────────────────────────── */}
       <Dialog open={!!entryModal} onOpenChange={o => { if (!o) closeEntryModal(); }}>
-        <DialogContent className="overflow-y-auto rounded-2xl">
+        <DialogContent className="overflow-y-auto rounded-xl">
           <DialogHeader>
-            <DialogTitle className="text-xl font-bold">
+            <DialogTitle className="text-base font-bold">
               {entryModal?.mode === 'edit' ? 'Edit entry' : 'Log time'}
             </DialogTitle>
             {entryModal?.mode === 'new' && (
@@ -2229,7 +2229,7 @@ const TimesheetPage = () => {
       }}>
         <DialogContent className="flex min-h-0 flex-col gap-0 overflow-hidden p-0">
           <DialogHeader className="shrink-0 px-6 pb-4 pt-2 text-left border-b border-border/60">
-            <DialogTitle className="text-xl font-bold">
+            <DialogTitle className="text-base font-bold">
               Submit timesheet for {weekRangeLabel}?
             </DialogTitle>
             <p className="text-sm text-muted-foreground mt-1.5">
@@ -2245,7 +2245,7 @@ const TimesheetPage = () => {
             </p>
           </DialogHeader>
 
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-5 space-y-5">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3.5 space-y-4">
 
             {/* From */}
             <div className="rounded-xl border border-border/50 bg-muted/20 px-4 py-3 flex items-center gap-3">
@@ -2435,7 +2435,7 @@ const TimesheetPage = () => {
             )}
           </div>
 
-          <div className="shrink-0 px-6 py-4 border-t border-border/60 flex gap-2 justify-end bg-muted/10">
+          <div className="shrink-0 px-4 py-3 border-t border-border/60 flex gap-2 justify-end bg-muted/10">
             <Button variant="ghost" onClick={() => setNotifyOpen(false)} className="rounded-xl">Cancel</Button>
             <button
               onClick={() => void handleSubmitAndSend()}
@@ -2453,7 +2453,7 @@ const TimesheetPage = () => {
 
       {/* ── Delete Entry Confirmation ─────────────────────────────────────── */}
       <AlertDialog open={!!entryToDelete} onOpenChange={o => !o && setEntryToDelete(null)}>
-        <AlertDialogContent className="max-w-[min(100%,24rem)] rounded-2xl">
+        <AlertDialogContent className="max-w-[min(100%,24rem)] rounded-xl">
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this entry?</AlertDialogTitle>
             <AlertDialogDescription className="break-words [overflow-wrap:anywhere]">

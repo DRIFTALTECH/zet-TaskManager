@@ -29,9 +29,14 @@
     --secondary: 0 0% 40%;
     --secondary-foreground: 0 0% 100%;
     --muted: 0 0% 92%;
-    --muted-foreground: 0 0% 0%;
-    --accent: 0 0% 18%;
-    --accent-foreground: 0 0% 100%;
+    /* Was identical to --foreground, so nothing muted actually read as
+       secondary and the UI had no text hierarchy. */
+    --muted-foreground: 0 0% 40%;
+    /* A hover surface, not a solid emphasis: every use is hover:bg-accent.
+       It used to be near-black here and near-white in dark, so hovering
+       anything flashed the opposite of the theme. Mirrors --sidebar-accent. */
+    --accent: 0 0% 92%;
+    --accent-foreground: 0 0% 10%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
     --border: 0 0% 88%;
@@ -77,9 +82,9 @@
     --secondary: 0 0% 60%;
     --secondary-foreground: 0 0% 5%;
     --muted: 0 0% 12%;
-    --muted-foreground: 0 0% 100%;
-    --accent: 0 0% 85%;
-    --accent-foreground: 0 0% 5%;
+    --muted-foreground: 0 0% 64%;
+    --accent: 0 0% 14%;
+    --accent-foreground: 0 0% 98%;
     --destructive: 0 62% 30%;
     --destructive-foreground: 0 0% 100%;
     --border: 0 0% 14%;

@@ -10,7 +10,7 @@ import { getStoredToken } from "@/lib/api";
 import LoginPage from "./pages/LoginPage";
 import SignUpPage from "./pages/SignUpPage";
 import AppSidebar from "./components/AppSidebar";
-import AppNavbar from "./components/AppNavbar";
+import MobileNav from "./components/MobileNav";
 import ErrorBoundary from "./components/ErrorBoundary";
 
 // Route-level code splitting: each authenticated page is its own chunk, so a
@@ -72,9 +72,16 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-screen w-full overflow-hidden">
       <AppSidebar />
+      {/* The top bar is gone; the sidebar carries everything it held. Under md
+          the sidebar is hidden, so the drawer trigger floats over the page
+          instead of sitting in a bar of its own. */}
+      <div className="md:hidden fixed left-2 top-2 z-50 rounded-xl border border-border/70 bg-card/90 backdrop-blur shadow-sm">
+        <MobileNav />
+      </div>
       <div className="flex-1 flex flex-col min-w-0">
-        <AppNavbar />
-        <main className="flex-1 min-w-0 overflow-auto">
+        {/* pt on small screens keeps page content clear of the floating drawer
+            button, which would otherwise sit on top of the first heading. */}
+        <main className="flex-1 min-w-0 overflow-auto pt-12 md:pt-0">
         {/* A render error in one page must not blank the whole app. */}
         <ErrorBoundary>
           <Suspense fallback={<PageSkeleton />}>{children}</Suspense>
@@ -221,7 +228,9 @@ const App = () => (
       <Sonner />
       <ThemeHandler />
       <BootstrapGate>
-      <BrowserRouter>
+      {/* Opt in to the v7 behaviours now. Without these, Router logs two
+          deprecation warnings on every boot, which buries real errors. */}
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <StripTrailingSlash />
         <MsalRedirectResume>
         <Routes>

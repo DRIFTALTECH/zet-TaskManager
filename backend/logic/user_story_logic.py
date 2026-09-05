@@ -5,7 +5,7 @@ import json
 import logging
 import re
 import uuid
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
 from crud import projects as projects_crud
@@ -18,6 +18,7 @@ from database.database import Db
 from database.init_db import new_id
 from database.models import Task, UserStory
 from logic import project_logic, task_logic, user_logic
+from logic.audit import log_audit
 from logic.schemas import (
     GeneratedSubtaskPreview,
     GeneratedTaskPreview,
@@ -72,10 +73,6 @@ def _fmt_tags(tags: list[str] | None) -> str:
 
 def _is_done(status: str) -> bool:
     return (status or "").strip().lower() in _DONE
-
-
-def _complete_linked_tasks(db: Db, story_id: str) -> None:
-    tasks_crud.complete_for_user_story(db, story_id, date.today().isoformat())
 
 
 def _unique_ordered(ids: list[str] | None) -> list[str]:
@@ -295,41 +292,46 @@ def _set_story_parent(db: Db, s, raw_parent_id: str, user_id: str) -> None:
     s.parent_story_id = parent.id
 
 
-def _cascade_story_status(db: Db, story_id: str, status: str, seen: set[str] | None = None) -> None:
-    """Move a story's subtree to the status the story just took.
+def _cascade_story_status(
+    db: Db,
+    story_id: str,
+    new_status: str,
+    seen: set[str] | None = None,
+    *,
+    approve: bool = False,
+) -> None:
+    """Move everything inside a story to the status the story just took.
 
-    A story dragged to another column takes the work still inside it. Work that
-    had already been moved elsewhere is no longer inside: moving it out is what
-    ended the relationship, so it is not dragged back in now. In practice every
-    task still carrying this story's id shares its status, because diverging is
-    what detaches them.
+    A story and what it holds are one block, and the block travels whole:
+    sub-stories, their sub-stories, and every task and subtask hanging off any
+    of them. Dragging a card used to take only the story and its own tasks, so a
+    parent landed in the new column while its sub-stories stayed behind — the
+    block appeared to come apart mid-drag.
+
+    Being inside the story is the only thing that decides whether a piece comes
+    along; the column it happened to be sitting in decides nothing. Finished
+    work comes back open when the block is dragged out of Done, and unfinished
+    work is completed when the block is dragged into it. Work that is not inside
+    the story is never touched, however close to it on the board it sits.
     """
     seen = seen if seen is not None else set()
     if story_id in seen:
         return
     seen.add(story_id)
 
-    finishing = _is_done(status)
+    # Direct tasks and their subtasks both carry this story's id, so one pass
+    # covers both levels.
     for t in tasks_crud.list_for_user_story(db, story_id):
-        if (t.status or "") == status:
+        if (t.status or "") == new_status:
             continue
-        # Finished work stays finished; moving the story does not reopen it.
-        if not finishing and _is_done(t.status or ""):
-            continue
-        t.status = status
-        if status == "done":
-            t.is_started = False
-            t.started_at = None
-        tasks_crud.update_task(db, t)
+        task_logic.apply_status_to_task(db, t, new_status, approve=approve)
 
     for child in stories_crud.list_children(db, story_id):
-        if not finishing and _is_done(child.status or ""):
-            continue
-        if (child.status or "") != status:
-            child.status = status
+        if (child.status or "") != new_status:
+            child.status = new_status
             child.updated_at = datetime.now(timezone.utc).isoformat()
             stories_crud.update(db, child)
-        _cascade_story_status(db, child.id, status, seen)
+        _cascade_story_status(db, child.id, new_status, seen, approve=approve)
 
 
 def _move_story_to_project(db: Db, s, new_project_id: str, user_id: str) -> None:
@@ -362,6 +364,37 @@ def _move_story_to_project(db: Db, s, new_project_id: str, user_id: str) -> None
         tasks_crud.update(db, t)
 
 
+def _block_counts(db: Db, story_id: str) -> tuple[int, int, int]:
+    """(sub-stories, tasks, approved tasks) inside a story, all the way down.
+
+    Recorded with the move so the audit row says what a drag actually disturbed.
+    Reopening a block clears the approval on everything in it, and that is worth
+    being able to find afterwards.
+
+    Task ids are collected in a set rather than counted per level:
+    `list_for_user_story` already reaches a sub-story's tasks through the
+    grandparent link, so adding them up level by level counted the same task
+    once for its own story and again for every story above it.
+    """
+    story_ids: set[str] = set()
+    task_ids: set[str] = set()
+    approved_ids: set[str] = set()
+
+    def walk(sid: str) -> None:
+        for t in tasks_crud.list_for_user_story(db, sid):
+            task_ids.add(t.id)
+            if getattr(t, "approved_by_manager", False):
+                approved_ids.add(t.id)
+        for child in stories_crud.list_children(db, sid):
+            if child.id in story_ids or child.id == story_id:
+                continue
+            story_ids.add(child.id)
+            walk(child.id)
+
+    walk(story_id)
+    return (len(story_ids), len(task_ids), len(approved_ids))
+
+
 def patch_story(db: Db, user_id: str, story_id: str, body: UserStoryPatch) -> UserStoryOut:
     s = stories_crud.get_by_id(db, story_id)
     if not s:
@@ -387,11 +420,23 @@ def patch_story(db: Db, user_id: str, story_id: str, body: UserStoryPatch) -> Us
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, "Section is not in this project")
         s.section_id = sid
     if body.status is not None:
+        prev_status = s.status or ""
+        sub_stories, task_count, approved_count = _block_counts(db, story_id)
         s.status = body.status
-        if _is_done(body.status):
-            _complete_linked_tasks(db, story_id)
-        else:
-            _cascade_story_status(db, story_id, body.status)
+        _cascade_story_status(db, story_id, body.status)
+        # Story moves were not recorded anywhere, so a whole block changing
+        # status — and every approval inside it being cleared — left no trace of
+        # who did it or when.
+        log_audit(
+            db, user_id, "user_story.status_changed", "user_story", story_id, s.title,
+            {
+                "from": prev_status,
+                "to": body.status,
+                "subStoriesMoved": sub_stories,
+                "tasksMoved": task_count,
+                "approvalsCleared": approved_count if not _is_done(body.status) else 0,
+            },
+        )
     if body.assigneeIds is not None:
         aids = _resolve_assignee_ids(
             db, s.project_id, assignee_ids=body.assigneeIds, assignee_id=None
@@ -444,7 +489,14 @@ def approve_story(db: Db, user_id: str, story_id: str) -> UserStoryOut:
     s.approved_by_manager = True
     s.updated_at = datetime.now(timezone.utc).isoformat()
     stories_crud.update(db, s)
-    _complete_linked_tasks(db, story_id)
+    # Approving finishes the same block a drag into Done finishes: sub-stories
+    # and their work included, not just the tasks hanging directly off this one.
+    sub_stories, task_count, _ = _block_counts(db, story_id)
+    _cascade_story_status(db, story_id, "completed", approve=True)
+    log_audit(
+        db, user_id, "user_story.approved", "user_story", story_id, s.title,
+        {"subStoriesApproved": sub_stories, "tasksApproved": task_count},
+    )
     db.commit()
     return _to_out(db, s)
 

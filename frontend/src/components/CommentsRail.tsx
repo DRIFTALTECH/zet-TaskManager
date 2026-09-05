@@ -4,7 +4,6 @@ import { MessageSquare, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import { confirmAction } from '@/components/ConfirmDialog';
 import { Button } from '@/components/ui/button';
-import { FieldLabel } from '@/components/ui/field';
 import UserAvatar from '@/components/UserAvatar';
 import { matchAgentBrand, AgentBrandBadge } from '@/lib/agent-brand';
 import { useAppStore } from '@/stores/appStore';
@@ -166,15 +165,24 @@ export function CommentsRail({ comments, loading, onPost, onEdit, onDelete }: Pr
   };
 
   return (
-    <div className="flex w-full min-h-0 shrink-0 flex-col overscroll-contain bg-muted/5 md:w-[340px] md:overflow-y-auto">
-      <div className="p-5 sm:p-6">
-        <section>
-          <div className="flex items-center justify-between mb-3">
-            <FieldLabel
-              icon={MessageSquare}
-              label={comments.length > 0 ? `Comments (${comments.length})` : 'Comments'}
-            />
-          </div>
+    // Three bands: a fixed heading, a scrolling list, and a composer pinned to
+    // the bottom. The rail used to scroll as one block, so the input sat below
+    // the last comment and walked off screen as the thread grew — the one
+    // control you always want reachable was the first to disappear.
+    <div className="flex w-full min-h-0 shrink-0 flex-col overscroll-contain bg-muted/5 md:w-[340px] md:overflow-hidden">
+      <div className="flex shrink-0 items-center gap-2 px-5 pb-2 pt-4 sm:px-6">
+        <MessageSquare className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
+        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/70">
+          Comments
+        </span>
+        {comments.length > 0 && (
+          <span className="rounded-full bg-muted/70 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
+            {comments.length}
+          </span>
+        )}
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-3 sm:px-6">
 
           {loading ? (
             <div className="flex items-center justify-center py-10 gap-2 text-sm text-muted-foreground">
@@ -182,11 +190,14 @@ export function CommentsRail({ comments, loading, onPost, onEdit, onDelete }: Pr
               Loading comments…
             </div>
           ) : (
-            <div className="space-y-3 mb-5">
+            <div className="space-y-3">
               {comments.length === 0 && (
-                <div className="text-center py-8 px-4 rounded-xl border border-dashed border-border/30 bg-muted/5">
-                  <MessageSquare className="h-7 w-7 text-muted-foreground/20 mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground/40 italic">No comments yet. Start the conversation!</p>
+                <div className="flex flex-col items-center gap-2 py-12 text-center">
+                  <span className="grid h-10 w-10 place-items-center rounded-full bg-muted/50">
+                    <MessageSquare className="h-4 w-4 text-muted-foreground/40" />
+                  </span>
+                  <p className="text-[13px] font-medium text-muted-foreground/60">No comments yet</p>
+                  <p className="text-[11px] text-muted-foreground/40">Start the conversation below</p>
                 </div>
               )}
               <AnimatePresence initial={false}>
@@ -262,10 +273,17 @@ export function CommentsRail({ comments, loading, onPost, onEdit, onDelete }: Pr
             </div>
           )}
 
-          {/* Comment input */}
-          <div className="flex gap-3 items-end">
-            {currentUser && <UserAvatar name={currentUser.name} avatar={currentUser.avatar} size="sm" />}
-            <div className="flex-1 relative">
+      </div>
+
+      {/* Pinned composer.
+
+          One bordered shell holds the avatar, the field and the send button, and
+          the focus ring sits on the shell rather than the textarea — so the whole
+          control lights up as one object. The avatar used to sit outside on
+          `items-end`, which left it floating against the bottom of a two-row box,
+          and the send button overlapped the text it was meant to sit beside. */}
+      <div className="shrink-0 border-t border-border/40 bg-card/50 px-4 py-3 sm:px-5">
+          <div className="relative">
               <AnimatePresence>
                 {mentionQuery !== null && mentionCandidates.length > 0 && (
                   <motion.div
@@ -293,25 +311,41 @@ export function CommentsRail({ comments, loading, onPost, onEdit, onDelete }: Pr
                   </motion.div>
                 )}
               </AnimatePresence>
-              <textarea
-                ref={textareaRef}
-                value={newText}
-                onChange={handleChange}
-                onKeyDown={handleKeyDown}
-                placeholder="Add a comment… (@ to mention, Enter to send)"
-                rows={2}
-                className="w-full rounded-xl border border-border/40 bg-muted/20 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 resize-none pr-14 transition-all placeholder:text-muted-foreground/35 leading-relaxed"
-              />
-              <button
-                onClick={() => void post()}
-                disabled={posting || !newText.trim()}
-                className="absolute right-2.5 bottom-2.5 p-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-25 transition-all hover:scale-105 active:scale-95 shadow-sm"
-              >
-                <Send className="h-3.5 w-3.5" />
-              </button>
-            </div>
+              <div className="group flex gap-2.5 rounded-2xl border border-border/50 bg-background px-3 py-2.5 transition-all focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/15">
+                {currentUser && (
+                  <span className="mt-0.5 shrink-0">
+                    <UserAvatar name={currentUser.name} avatar={currentUser.avatar} size="sm" />
+                  </span>
+                )}
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <textarea
+                    ref={textareaRef}
+                    value={newText}
+                    onChange={handleChange}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Write a comment…"
+                    rows={2}
+                    className="w-full resize-none bg-transparent text-[13px] leading-relaxed text-foreground placeholder:text-muted-foreground/40 focus:outline-none"
+                  />
+                  <div className="mt-1 flex items-center justify-between gap-2">
+                    {/* The hint costs a line, so it waits until you are actually
+                        typing rather than sitting there permanently. */}
+                    <span className="truncate text-[10px] text-muted-foreground/45 opacity-0 transition-opacity group-focus-within:opacity-100">
+                      <kbd className="font-sans font-semibold">@</kbd> to mention ·{' '}
+                      <kbd className="font-sans font-semibold">Enter</kbd> to send
+                    </span>
+                    <button
+                      onClick={() => void post()}
+                      disabled={posting || !newText.trim()}
+                      aria-label="Send comment"
+                      className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground shadow-sm transition-all hover:opacity-90 active:scale-95 disabled:bg-muted disabled:text-muted-foreground/40 disabled:shadow-none"
+                    >
+                      <Send className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </div>
           </div>
-        </section>
       </div>
     </div>
   );

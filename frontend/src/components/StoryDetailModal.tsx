@@ -1,6 +1,7 @@
 import { useAppStore } from '@/stores/appStore';
 import { KanbanColumn, Priority, Task, TaskStatus, UserStory, UserStoryAttachment, UserStoryFeedback } from '@/types';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
+import AttachmentViewer, { type ViewableAttachment } from '@/components/AttachmentViewer';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -12,7 +13,7 @@ import {
   FolderOpen, Layers, CircleDot, MessageSquare,
   User2, CheckCircle2, Check, Paperclip, Download, Upload, BookOpen, FileText, Sparkles, Loader2, ChevronsUpDown,
 } from 'lucide-react';
-import { useState, useEffect, useMemo, useCallback, type ElementType } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, type ElementType } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import UserAvatar from '@/components/UserAvatar';
 import RichTextEditor from '@/components/RichTextEditor';
@@ -31,7 +32,7 @@ import { WorkTypeSelect } from '@/components/dash/WorkTypeSelect';
 import { WorkItemRow } from '@/components/WorkItemRow';
 import { formatHM } from '@/components/HoursMinutesInput';
 import { AssigneeCell } from '@/components/dash/DashCells';
-import { queryClient, removeUserStory, storyKeys, upsertUserStory } from '@/lib/queryClient';
+import { invalidateUserStories, queryClient, removeUserStory, storyKeys, upsertUserStory } from '@/lib/queryClient';
 import type { UserStoryGeneratePreview } from '@/types';
 import { isStoryConfirmed, isTaskConfirmed, normalizePriority, rollupStoryHours, storyAssigneeIds } from '@/lib/task-utils';
 import {
@@ -116,6 +117,9 @@ export default function StoryDetailModal({
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [attachments, setAttachments] = useState<UserStoryAttachment[]>([]);
+  /** Opened attachment. Stories had no viewer at all — files could only be downloaded. */
+  const [viewing, setViewing] = useState<ViewableAttachment | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [taskPreview, setTaskPreview] = useState<UserStoryGeneratePreview | null>(null);
@@ -248,8 +252,12 @@ export default function StoryDetailModal({
       });
       upsertUserStory(updated);
       onUpdated?.(updated);
-      if (updated.status === 'done' || updated.status === 'completed' || updated.status === doneColumnId) {
+      if (updated.status !== story.status) {
+        // A status change moves the whole block on the server. Only this story
+        // is in the response, so re-read the rest rather than leaving the
+        // sub-stories cached where they used to be.
         await syncTasks();
+        invalidateUserStories();
       }
       toast.success('Story saved');
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not save story'); }
@@ -313,7 +321,7 @@ export default function StoryDetailModal({
   return (
     <>
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="flex h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] min-h-0 max-w-none flex-col gap-0 overflow-hidden rounded-2xl border-border/30 bg-card p-0 shadow-2xl sm:max-w-[min(96vw,1500px)]">
+        <DialogContent className="flex h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] min-h-0 max-w-none flex-col gap-0 overflow-hidden rounded-2xl border-border/30 bg-card p-0 shadow-2xl sm:max-w-[min(96vw,1500px)]" style={{ maxHeight: 'none' }}>
           <DialogTitle className="sr-only">{story.title}</DialogTitle>
           <DialogDescription className="sr-only">Story details for {story.title}</DialogDescription>
 
@@ -685,11 +693,28 @@ export default function StoryDetailModal({
                     <span>Attachments {attachments.length > 0 ? `(${attachments.length})` : ''}</span>
                   </div>
                   {canEdit && (
-                    <label className="text-[11px] text-primary/60 hover:text-primary flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-primary/8 transition-colors font-medium cursor-pointer">
-                      <Upload className="h-3 w-3" />
-                      {uploadingFile ? 'Uploading…' : 'Upload'}
-                      <input type="file" className="sr-only" onChange={e => void handleFileUpload(e)} disabled={uploadingFile} />
-                    </label>
+                    <>
+                      {/* A plain button that opens the picker itself. Wrapping a
+                          file input in a label makes the click land on the input,
+                          which the dialog has to special-case as "not a click
+                          outside" — a button and a ref skip that entirely. */}
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploadingFile}
+                        className="text-[11px] text-primary/60 hover:text-primary flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-primary/8 transition-colors font-medium disabled:opacity-50"
+                      >
+                        <Upload className="h-3 w-3" />
+                        {uploadingFile ? 'Uploading…' : 'Upload'}
+                      </button>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        className="hidden"
+                        onChange={e => void handleFileUpload(e)}
+                        disabled={uploadingFile}
+                      />
+                    </>
                   )}
                 </div>
                 {attachments.length === 0 ? (
@@ -699,14 +724,21 @@ export default function StoryDetailModal({
                     {attachments.map(att => (
                       <div key={att.id} className="flex items-center gap-2.5 group rounded-xl border border-border/30 px-3 py-2.5 bg-muted/10 hover:bg-muted/25 transition-colors">
                         <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium truncate">{att.filename}</p>
+                        {/* The name opens the file in the app. Downloading to
+                            read something is the slow path, not the only one. */}
+                        <button
+                          type="button"
+                          onClick={() => setViewing(att)}
+                          className="flex-1 min-w-0 text-left"
+                          title="Open"
+                        >
+                          <p className="text-xs font-medium truncate hover:text-primary hover:underline">{att.filename}</p>
                           <p className="text-[10px] text-muted-foreground/50">{fmtSize(att.sizeBytes)} · {att.uploaderName}</p>
-                        </div>
+                        </button>
                         <button
                           type="button"
                           onClick={() => void api.downloadUserStoryAttachment(story.id, att.id, att.filename).catch(() => toast.error('Download failed'))}
-                          className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-primary/10 text-muted-foreground/50 hover:text-primary transition-all shrink-0"
+                          className="p-1.5 rounded-lg hover:bg-primary/10 text-muted-foreground/50 hover:text-primary transition-all shrink-0"
                           title="Download"
                         >
                           <Download className="h-3.5 w-3.5" />
@@ -715,7 +747,7 @@ export default function StoryDetailModal({
                           <button
                             type="button"
                             onClick={() => void handleDeleteAtt(att)}
-                            className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-red-500/10 text-muted-foreground/50 hover:text-red-600 dark:text-red-400 transition-all shrink-0"
+                            className="p-1.5 rounded-lg hover:bg-red-500/10 text-muted-foreground/50 hover:text-red-600 dark:text-red-400 transition-all shrink-0"
                             title="Delete"
                           >
                             <X className="h-3.5 w-3.5" />
@@ -788,6 +820,14 @@ export default function StoryDetailModal({
         </DialogContent>
       </Dialog>
 
+      <AttachmentViewer
+        attachment={viewing}
+        fetchBlob={att => api.fetchUserStoryAttachmentBlob(story!.id, att.id)}
+        onDownload={att => void api.downloadUserStoryAttachment(story!.id, att.id, att.filename)
+          .catch(() => toast.error('Download failed'))}
+        onClose={() => setViewing(null)}
+      />
+
       <Dialog open={generateChoiceOpen} onOpenChange={setGenerateChoiceOpen}>
         <DialogContent className="max-w-md rounded-2xl">
           <DialogTitle>Generate tasks</DialogTitle>
@@ -827,7 +867,7 @@ export default function StoryDetailModal({
       </Dialog>
 
       <Dialog open={brdOpen} onOpenChange={setBrdOpen}>
-        <DialogContent className="flex h-[calc(100dvh-3rem)] w-[calc(100vw-3rem)] max-w-none flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-[min(94vw,1200px)]">
+        <DialogContent className="flex h-[calc(100dvh-3rem)] w-[calc(100vw-3rem)] max-w-none flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-[min(94vw,1200px)]" style={{ maxHeight: 'none' }}>
           <div className="shrink-0 border-b border-border/40 px-6 py-4">
             <DialogTitle>Import a BRD</DialogTitle>
             <DialogDescription>

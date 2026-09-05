@@ -63,6 +63,21 @@ def start(db: Db, user_id: str, task_id: str) -> TimerRunOut:
     return _to_out(row)
 
 
+def stop_all_for_task(db: Db, task_id: str) -> None:
+    """End every running timer on a task, whoever started it.
+
+    Work that has just been marked finished is not still being done. A timer
+    left running on a done card keeps billing time nobody is spending, and the
+    person timing it is often not the person who moved the card — dragging the
+    story that holds it is enough to finish their task out from under them.
+
+    Called before the status is written so the elapsed time still reaches the
+    timesheet: `stop` deliberately drops the time of an already-completed task.
+    """
+    for run in timers_crud.list_for_task(db, task_id):
+        stop(db, run.user_id, task_id)
+
+
 def stop(db: Db, user_id: str, task_id: str, tz_offset_minutes: int = 0):
     """Stop the running timer, compute elapsed server-side, and log the time.
 

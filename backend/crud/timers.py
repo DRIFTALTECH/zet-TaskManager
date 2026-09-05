@@ -23,6 +23,18 @@ def list_for_user(db: Db, user_id: str) -> list[TaskTimerRun]:
     )
 
 
+def list_for_task(db: Db, task_id: str) -> list[TaskTimerRun]:
+    """Every running timer on one task, whoever started it.
+
+    Timers are per user, so a task can be being timed by several people at once;
+    finishing the task has to end all of them, not just the caller's.
+    """
+    return rows_to_models(
+        TaskTimerRun,
+        fetch_all(db, "SELECT * FROM task_timer_runs WHERE task_id = %s", (task_id,)),
+    )
+
+
 def start(db: Db, user_id: str, task_id: str, started_at: str) -> TaskTimerRun:
     """Begin a run, or return the existing one (idempotent — keeps the original start)."""
     row = get(db, user_id, task_id)

@@ -49,7 +49,7 @@ function KpiCard({ icon: Icon, label, value, sub, accent }: {
   }[accent ?? 'blue'];
 
   return (
-    <div className="rounded-2xl border border-border/30 bg-card p-4 space-y-2">
+    <div className="rounded-xl border border-border/40 bg-card p-3 space-y-1.5">
       <div className="flex items-center gap-2 text-muted-foreground">
         <Icon className="h-4 w-4" />
         <span className="text-xs font-medium">{label}</span>
@@ -83,7 +83,7 @@ export function TimesheetAnalyticsPanel({ userId }: { userId?: string }) {
   }, [data]);
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-4 p-3 sm:p-4">
       {/* Date range controls */}
       <div className="flex flex-wrap items-center gap-3">
         <span className="text-sm font-medium text-muted-foreground">Period:</span>
@@ -133,7 +133,7 @@ export function TimesheetAnalyticsPanel({ userId }: { userId?: string }) {
 
           {/* Daily hours trend */}
           {data.dailyBreakdown.length > 0 && (
-            <section className="rounded-2xl border border-border/30 bg-card p-5 space-y-3">
+            <section className="rounded-xl border border-border/40 bg-card p-3.5 space-y-3">
               <h3 className="text-sm font-semibold text-foreground">Daily Hours</h3>
               <ResponsiveContainer width="100%" height={160}>
                 <BarChart data={data.dailyBreakdown} barSize={12} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
@@ -155,7 +155,7 @@ export function TimesheetAnalyticsPanel({ userId }: { userId?: string }) {
           )}
 
           {/* Weekly trend */}
-          <section className="rounded-2xl border border-border/30 bg-card p-5 space-y-3">
+          <section className="rounded-xl border border-border/40 bg-card p-3.5 space-y-3">
             <h3 className="text-sm font-semibold text-foreground">Weekly Hours Trend</h3>
             <ResponsiveContainer width="100%" height={200}>
               <AreaChart data={data.weeklyTrend} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
@@ -187,7 +187,7 @@ export function TimesheetAnalyticsPanel({ userId }: { userId?: string }) {
 
           {/* Overtime detection */}
           {data.overtimeDays.length > 0 && (
-            <section className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5 space-y-3">
+            <section className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3.5 space-y-3">
               <div className="flex items-center gap-2">
                 <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
                 <h3 className="text-sm font-semibold text-amber-300">Overtime Detected</h3>

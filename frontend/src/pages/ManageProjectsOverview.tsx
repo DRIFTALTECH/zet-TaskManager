@@ -17,8 +17,10 @@ import { computeProjectStats, formatHM, projectAccent } from '@/lib/manage-utils
 import { resolveMediaUrl } from '@/lib/env';
 import { ANALYTICS_LABELS } from '@/lib/analyticsLabels';
 import DeliveryPage from '@/pages/DeliveryPage';
-import { cn } from '@/lib/utils';
 import CreateProjectDialog from '@/components/CreateProjectDialog';
+import PageHeader from '@/components/PageHeader';
+import { PAGE_CHIP, PAGE_SHELL_SCROLL, SEGMENT_BAR, SEGMENT_BTN, SEGMENT_ICON } from '@/lib/page-styles';
+import { Button } from '@/components/ui/button';
 
 const ManageProjectsOverview = () => {
   const { projects, tasks } = useAppStore();
@@ -44,85 +46,49 @@ const ManageProjectsOverview = () => {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={pageEnter}
-      className="min-h-full"
+      className={PAGE_SHELL_SCROLL}
     >
       {/* ── Header ──────────────────────────────────────────────────────── */}
-      <div className="px-4 sm:px-8 pt-6 sm:pt-7 pb-6 border-b border-border/30 bg-gradient-to-b from-muted/20 to-transparent">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <Sparkles className="h-4 w-4 text-primary/60" />
-              <span className="text-xs font-semibold text-muted-foreground/60 uppercase tracking-widest">Manager Panel</span>
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
-              Projects
-            </h1>
-            <p className="text-sm text-muted-foreground/60 mt-1.5">
-              {statusView
-                ? 'Late tasks, blockers, and how each project is progressing'
-                : 'A quick snapshot of every project — open one to dive in.'}
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3">
+      <PageHeader
+        icon={Sparkles}
+        eyebrow="Manager Panel"
+        title="Projects"
+        actions={
+          <>
             {!statusView && (
               <div className="hidden md:flex items-center gap-2">
-                <StatPill icon={<FolderOpen className="h-3.5 w-3.5" />} value={projects.length} label="projects" />
-                <StatPill icon={<Users className="h-3.5 w-3.5" />} value={totalMembers} label="members" />
-                <StatPill icon={<ListTodo className="h-3.5 w-3.5" />} value={tasks.length} label="tasks" />
-                <StatPill icon={<Clock className="h-3.5 w-3.5" />} value={formatHM(totalTime)} label="logged" />
+                <StatPill icon={<FolderOpen className={SEGMENT_ICON} />} value={projects.length} label="projects" />
+                <StatPill icon={<Users className={SEGMENT_ICON} />} value={totalMembers} label="members" />
+                <StatPill icon={<ListTodo className={SEGMENT_ICON} />} value={tasks.length} label="tasks" />
+                <StatPill icon={<Clock className={SEGMENT_ICON} />} value={formatHM(totalTime)} label="logged" />
               </div>
             )}
-            <motion.button
-              transition={snappy}
-              whileHover={{ scale: 1.03 }}
-              whileTap={{ scale: 0.97 }}
-              onClick={() => setCreateOpen(true)}
-              className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl bg-primary text-primary-foreground hover:opacity-90 transition-opacity font-semibold shadow-sm"
-            >
-              <Plus className="h-4 w-4" /> New Project
-            </motion.button>
-          </div>
-        </div>
-
-        <div className="mt-5 flex flex-wrap items-center gap-3">
-          <div className="inline-flex items-center rounded-xl border border-border/40 bg-muted/30 p-1">
-            <button
-              type="button"
-              onClick={() => navigate('/manage')}
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
-                !statusView
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <LayoutGrid className="h-3.5 w-3.5" />
+            <Button size="sm" onClick={() => setCreateOpen(true)} className="gap-1.5">
+              <Plus className={SEGMENT_ICON} /> New Project
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <div className={SEGMENT_BAR}>
+            <button type="button" onClick={() => navigate('/manage')} className={SEGMENT_BTN(!statusView)}>
+              <LayoutGrid className={SEGMENT_ICON} />
               All Projects
             </button>
-            <button
-              type="button"
-              onClick={() => navigate('/manage/status')}
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
-                statusView
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <BarChart3 className="h-3.5 w-3.5" />
+            <button type="button" onClick={() => navigate('/manage/status')} className={SEGMENT_BTN(statusView)}>
+              <BarChart3 className={SEGMENT_ICON} />
               {ANALYTICS_LABELS.projectStatus}
             </button>
           </div>
 
           {!statusView && projects.length > 0 && (
-            <div className="flex items-center gap-2 bg-muted/40 border border-border/40 rounded-xl px-3.5 py-2 max-w-sm flex-1 min-w-[200px]">
-              <Search className="h-4 w-4 text-muted-foreground/50 shrink-0" />
+            <div className="flex h-7 items-center gap-2 rounded-lg border border-border/50 bg-muted/40 px-2.5 max-w-sm flex-1 min-w-[200px]">
+              <Search className="h-3.5 w-3.5 text-muted-foreground/50 shrink-0" />
               <input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Search projects…"
-                className="bg-transparent text-sm focus:outline-none flex-1 placeholder:text-muted-foreground/40"
+                className="bg-transparent text-[13px] focus:outline-none flex-1 placeholder:text-muted-foreground/40"
               />
               {search && (
                 <button onClick={() => setSearch('')} className="text-muted-foreground/50 hover:text-foreground transition-colors">
@@ -132,15 +98,15 @@ const ManageProjectsOverview = () => {
             </div>
           )}
         </div>
-      </div>
+      </PageHeader>
 
       {/* ── Content ─────────────────────────────────────────────────────── */}
       {statusView ? (
-        <div className="p-4 sm:p-8">
+        <div>
           <DeliveryPage embedded />
         </div>
       ) : (
-      <div className="p-4 sm:p-8">
+      <div>
         {projects.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 text-center">
             <div className="w-20 h-20 rounded-3xl bg-muted/40 flex items-center justify-center mb-5 border border-border/30">
@@ -244,7 +210,7 @@ const ManageProjectsOverview = () => {
 
 function StatPill({ icon, value, label }: { icon: React.ReactNode; value: React.ReactNode; label: string }) {
   return (
-    <div className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl bg-muted/50 border border-border/40 text-muted-foreground">
+    <div className={PAGE_CHIP}>
       {icon}
       <span className="font-semibold text-foreground">{value}</span> {label}
     </div>

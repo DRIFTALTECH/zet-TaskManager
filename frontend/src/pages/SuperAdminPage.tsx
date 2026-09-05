@@ -23,6 +23,8 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import PageHeader from '@/components/PageHeader';
+import { PAGE_PAD } from '@/lib/page-styles';
 
 const ROLE_LABEL: Record<Role, string> = {
   superadmin: 'Superadmin',
@@ -283,33 +285,27 @@ const SuperAdminPage = () => {
   const activeList = filterByQuery(active);
 
   return (
-    <div className="mx-auto max-w-6xl px-4 sm:px-6 py-6">
-      <header className="flex flex-wrap items-center justify-between gap-3 pb-5">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
-            <ShieldCheck className="h-5 w-5" />
-          </div>
-          <div>
-            <h1 className="text-lg font-semibold tracking-tight leading-none">Superadmin</h1>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Approve accounts, assign roles, and manage access
-            </p>
-          </div>
+    <div className={`mx-auto max-w-6xl ${PAGE_PAD}`}>
+      <PageHeader
+        icon={ShieldCheck}
+        title="Superadmin"
+        subtitle="Approve accounts, assign roles, and manage access"
+        actions={
+          <Button variant="outline" size="sm" onClick={() => void loadAll()} disabled={loading}>
+            <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
+          </Button>
+        }
+      >
+        <div className="relative w-full max-w-xs">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <Input
+            className="h-7 pl-8 text-[13px]"
+            placeholder="Search name or email…"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+          />
         </div>
-        <Button variant="outline" size="sm" onClick={() => void loadAll()} disabled={loading}>
-          <RefreshCw className={`h-4 w-4 mr-1.5 ${loading ? 'animate-spin' : ''}`} /> Refresh
-        </Button>
-      </header>
-
-      <div className="relative w-full max-w-xs mb-4">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          className="pl-8"
-          placeholder="Search name or email…"
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-        />
-      </div>
+      </PageHeader>
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>

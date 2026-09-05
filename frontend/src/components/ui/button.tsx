@@ -16,11 +16,18 @@ const buttonVariants = cva(
         ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
       },
+      // One step down across the board: 32px is the app's default control height
+      // (see CONTROL_H in lib/field-styles), 28px for dense toolbars.
+      //
+      // Compact suits a mouse and is tight for a thumb, so every size grows on a
+      // coarse pointer. `pointer: coarse` keys off the input device rather than
+      // the viewport, so a small laptop window stays dense while a large tablet
+      // still gets touch-sized controls.
       size: {
-        default: "h-10 px-4 py-2",
-        sm: "h-9 rounded-md px-3",
-        lg: "h-11 rounded-md px-8",
-        icon: "h-10 w-10",
+        default: "h-8 px-3.5 py-1.5 [@media(pointer:coarse)]:h-10",
+        sm: "h-7 rounded-md px-2.5 text-xs [@media(pointer:coarse)]:h-9",
+        lg: "h-10 rounded-md px-6 [@media(pointer:coarse)]:h-11",
+        icon: "h-8 w-8 [@media(pointer:coarse)]:h-10 [@media(pointer:coarse)]:w-10",
       },
     },
     defaultVariants: {

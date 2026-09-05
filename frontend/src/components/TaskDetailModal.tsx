@@ -1,4 +1,6 @@
 import { useAppStore } from '@/stores/appStore';
+import AttachmentViewer, { type ViewableAttachment } from '@/components/AttachmentViewer';
+import { useElapsedTime } from '@/hooks/useElapsedTime';
 import { Task, Priority, TaskStatus, TaskAttachment, TaskFeedback } from '@/types';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -13,7 +15,7 @@ import {
   Calendar, Tag, Clock, AlertTriangle, Plus, X, Trash2,
   FolderOpen, Layers, Mail, UserCircle, CircleDot,
   MessageSquare, Send, User2, CheckCircle2, RotateCcw, ChevronRight,
-  Paperclip, Download, Upload, Sparkles, Eye, FileText, BookOpen,
+  Paperclip, Download, Upload, Sparkles, Eye, BookOpen,
   ChevronsUpDown,
 } from 'lucide-react';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
@@ -137,23 +139,6 @@ function renderMessageWithMentions(message: string, userNames: string[]) {
   );
 }
 
-function useElapsedTime(epochStart: number | null): string {
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    if (!epochStart) return;
-    const id = setInterval(() => setTick(n => n + 1), 1000);
-    return () => clearInterval(id);
-  }, [epochStart]);
-  if (!epochStart) return '';
-  const secs = Math.max(0, Math.floor((Date.now() - epochStart) / 1000));
-  const h = Math.floor(secs / 3600);
-  const m = Math.floor((secs % 3600) / 60);
-  const s = secs % 60;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  if (h > 0) return `${h}:${pad(m)}:${pad(s)}`;
-  return `${pad(m)}:${pad(s)}`;
-}
-
 // ── Sub-components ────────────────────────────────────────────────────────────
 function Avatar({ name, avatar, size = 'md' }: { name: string; avatar?: string; size?: 'sm' | 'md' | 'lg' }) {
   const sizeMap: Record<string, 'sm' | 'md' | 'lg'> = { sm: 'sm', md: 'md', lg: 'lg' };
@@ -228,31 +213,7 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange, onConvert }: Prop
   // ── Attachments ─────────────────────────────────────────────────────────────
   const [uploadingFile, setUploadingFile] = useState(false);
   // Inline viewer: preview a doc/diff/image in-app instead of downloading.
-  const [viewer, setViewer] = useState<{ att: TaskAttachment; kind: 'text' | 'image' | 'binary'; text?: string; url?: string; loading: boolean } | null>(null);
-
-  const openViewer = useCallback(async (att: TaskAttachment) => {
-    if (!task) return;
-    setViewer({ att, kind: 'binary', loading: true });
-    try {
-      const blob = await api.fetchAttachmentBlob(task.id, att.id);
-      const ct = att.contentType || '';
-      const textLike = ct.startsWith('text/') || /\.(md|markdown|txt|diff|patch|json|log|csv|ya?ml|py|ts|tsx|js|jsx|sh|sql|html|css|env|toml|ini)$/i.test(att.filename);
-      if (textLike) {
-        setViewer({ att, kind: 'text', text: await blob.text(), loading: false });
-      } else if (ct.startsWith('image/')) {
-        setViewer({ att, kind: 'image', url: URL.createObjectURL(blob), loading: false });
-      } else {
-        setViewer({ att, kind: 'binary', loading: false });
-      }
-    } catch {
-      toast.error('Could not open attachment');
-      setViewer(null);
-    }
-  }, [task]);
-
-  const closeViewer = useCallback(() => {
-    setViewer(prev => { if (prev?.url) { try { URL.revokeObjectURL(prev.url); } catch { /* noop */ } } return null; });
-  }, []);
+  const [viewing, setViewing] = useState<ViewableAttachment | null>(null);
 
   const isManager = currentUser?.role === 'manager' || currentUser?.role === 'superadmin';
   const isCompleted = task?.status === 'completed';
@@ -542,7 +503,7 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange, onConvert }: Prop
   return (
     <>
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="flex h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] min-h-0 max-w-none flex-col gap-0 overflow-hidden rounded-2xl border-border/30 bg-card p-0 shadow-2xl sm:max-w-[min(96vw,1500px)]">
+        <DialogContent className="flex h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] min-h-0 max-w-none flex-col gap-0 overflow-hidden rounded-2xl border-border/30 bg-card p-0 shadow-2xl sm:max-w-[min(96vw,1500px)]" style={{ maxHeight: 'none' }}>
           <DialogTitle className="sr-only">{task.title}</DialogTitle>
           <DialogDescription className="sr-only">Task details for {task.title}</DialogDescription>
 
@@ -1026,7 +987,7 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange, onConvert }: Prop
                               <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground/40" />
                               <button
                                 type="button"
-                                onClick={() => void openViewer(att)}
+                                onClick={() => void setViewing(att)}
                                 className="flex-1 min-w-0 text-left"
                                 title="View"
                               >
@@ -1034,7 +995,7 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange, onConvert }: Prop
                                 <p className="text-[10px] text-muted-foreground/50">{fmtSize(att.sizeBytes)} · {att.uploaderName}</p>
                               </button>
                               <button
-                                onClick={() => void openViewer(att)}
+                                onClick={() => void setViewing(att)}
                                 className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-primary/10 text-muted-foreground/50 hover:text-primary transition-all shrink-0"
                                 title="View"
                               >
@@ -1327,49 +1288,12 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange, onConvert }: Prop
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Inline attachment viewer */}
-      <Dialog open={!!viewer} onOpenChange={o => { if (!o) closeViewer(); }}>
-        <DialogContent className="max-w-[min(92vw,820px)] w-[min(92vw,820px)] max-h-[85vh] flex flex-col gap-0 p-0 overflow-hidden">
-          <div className="flex items-center gap-2 px-5 py-3 border-b border-border/40 bg-muted/20">
-            <FileText className="h-4 w-4 text-primary/70 shrink-0" />
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold truncate">{viewer?.att.filename}</p>
-              <p className="text-[10px] text-muted-foreground/50">{viewer && fmtSize(viewer.att.sizeBytes)} · {viewer?.att.uploaderName}</p>
-            </div>
-            {viewer && (
-              <button
-                onClick={() => void api.downloadAttachment(task!.id, viewer.att.id, viewer.att.filename)}
-                className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg border border-border/50 hover:bg-muted/60 transition-colors shrink-0"
-              >
-                <Download className="h-3.5 w-3.5" /> Download
-              </button>
-            )}
-          </div>
-          <DialogTitle className="sr-only">{viewer?.att.filename ?? 'Attachment'}</DialogTitle>
-          <DialogDescription className="sr-only">Attachment preview</DialogDescription>
-          <div className="flex-1 min-h-0 overflow-auto">
-            {viewer?.loading ? (
-              <div className="flex items-center justify-center py-16 text-sm text-muted-foreground/60">Loading…</div>
-            ) : viewer?.kind === 'text' ? (
-              <pre className="text-[12.5px] leading-relaxed font-mono whitespace-pre-wrap break-words text-foreground/90 p-5">{viewer.text}</pre>
-            ) : viewer?.kind === 'image' ? (
-              <div className="flex items-center justify-center p-5 bg-muted/20">
-                <img src={viewer.url} alt={viewer.att.filename} className="max-w-full max-h-[68vh] rounded-lg" />
-              </div>
-            ) : viewer ? (
-              <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-                <p className="text-sm text-muted-foreground/70">Can’t preview this file type here.</p>
-                <button
-                  onClick={() => void api.downloadAttachment(task!.id, viewer.att.id, viewer.att.filename)}
-                  className="flex items-center gap-1.5 text-sm font-medium px-4 py-2 rounded-xl bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
-                >
-                  <Download className="h-4 w-4" /> Download instead
-                </button>
-              </div>
-            ) : null}
-          </div>
-        </DialogContent>
-      </Dialog>
+      <AttachmentViewer
+        attachment={viewing}
+        fetchBlob={att => api.fetchAttachmentBlob(task!.id, att.id)}
+        onDownload={att => void api.downloadAttachment(task!.id, att.id, att.filename)}
+        onClose={() => setViewing(null)}
+      />
     </>
   );
 };

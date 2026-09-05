@@ -335,25 +335,74 @@ def _set_actual_hours(db: Db, task_id: str, user_id: str, hours: float | None) -
 _FINISHED = frozenset({"done", "completed"})
 
 
+def prepare_status_change(db: Db, t: Task, status: str, *, approve: bool = False) -> None:
+    """Put everything a status change implies onto `t`, without writing it.
+
+    The one place that decides what "this task moved column" means. It used to
+    be decided in four: `move_task` cleared the started flag, `patch_task`
+    assigned the status and nothing else, `approve_task` stamped its own fields,
+    and the cascade did the full job — so a task and its own subtasks came out
+    of a single move in different states, one with a finish date and no timer
+    and the other with a running timer and no date.
+
+    Reaching Done is not approval. The board deliberately keeps finished but
+    unapproved work on screen so a manager can approve it there, so `approve`
+    stays off for anything a drag can reach; only an explicit Approve passes it.
+
+    Callers that are mid-edit keep their own changes: this mutates `t` in place
+    and leaves the write to them.
+    """
+    was_finished = (t.status or "").strip().lower() in _FINISHED
+    finishing = (status or "").strip().lower() in _FINISHED
+
+    if finishing and not was_finished:
+        # Before the status is written: `stop` throws away the elapsed time of a
+        # task it finds already completed, so stopping afterwards loses the work.
+        # Imported here because timer_logic imports this module.
+        from logic import timer_logic
+        timer_logic.stop_all_for_task(db, t.id)
+        # Logging that time rewrote time_tracked on the row. Without picking the
+        # new total back up, the caller's write would put the old one back and
+        # the time just logged would vanish.
+        fresh = tasks_crud.get_by_id(db, t.id)
+        if fresh is not None:
+            t.time_tracked = fresh.time_tracked
+
+    t.status = status
+    if finishing:
+        if not was_finished:
+            t.completed_at = date.today().isoformat()
+        if approve:
+            t.approved_by_manager = True
+        t.is_started = False
+        t.started_at = None
+    elif was_finished:
+        # Out of Done: a completion date left behind still reads as finished
+        # everywhere it is shown, and an approval left behind hides the card.
+        t.completed_at = None
+        t.approved_by_manager = False
+        t.is_started = False
+        t.started_at = None
+
+
+def apply_status_to_task(db: Db, t: Task, status: str, *, approve: bool = False) -> None:
+    """`prepare_status_change`, written straight away. For callers not mid-edit."""
+    prepare_status_change(db, t, status, approve=approve)
+    tasks_crud.update_task(db, t)
+
+
 def _cascade_status_to_children(db: Db, task: Task, status: str) -> None:
     """Move everything under a task to the status the task just took.
 
-    Dragging a task to another column moves that piece of work, and the pieces
-    it is made of go with it — leaving subtasks behind in the old column would
-    split one job across two places.
+    A card and the pieces it is made of are one block, and dragging the card
+    moves the block whole — whatever column each piece happened to be sitting
+    in. A subtask that was already finished comes back open with its parent,
+    because leaving it behind in Done splits one job across two columns, which
+    is the thing dragging the parent was meant to avoid.
     """
-    finishing = status.lower() in _FINISHED
     for child in tasks_crud.list_children(db, task.id):
-        if (child.status or "") == status:
-            continue
-        # Finished work is not dragged back open by its parent moving.
-        if not finishing and (child.status or "").lower() in _FINISHED:
-            continue
-        child.status = status
-        if status == "done":
-            child.is_started = False
-            child.started_at = None
-        tasks_crud.update_task(db, child)
+        if (child.status or "") != status:
+            apply_status_to_task(db, child, status)
         _cascade_status_to_children(db, child, status)
 
 
@@ -386,7 +435,7 @@ def patch_task(db: Db, current_user_id: str, task_id: str, body: TaskPatch) -> T
     if body.priority is not None:
         t.priority = body.priority
     if body.status is not None:
-        t.status = body.status
+        prepare_status_change(db, t, body.status)
     if body.projectId is not None:
         new_pid = (body.projectId or "").strip()
         dest = projects_crud.get_by_id(db, new_pid) if new_pid else None
@@ -506,12 +555,7 @@ def move_task(db: Db, current_user_id: str, task_id: str, body: TaskMoveBody) ->
     if body.actualHours is not None:
         _set_actual_hours(db, task_id, current_user_id, body.actualHours)
         t = _refresh_task(db, task_id)
-    t.status = body.status
-    # Moving to Done ends any active work session
-    if body.status == "done":
-        t.is_started = False
-        t.started_at = None
-    tasks_crud.update_task(db, t)
+    apply_status_to_task(db, t, body.status)
     _cascade_status_to_children(db, t, t.status)
     return to_task_out(db, t, current_user_id)
 
@@ -537,12 +581,7 @@ def reopen_completed_to_backlog(db: Db, current_user_id: str, task_id: str) -> T
             status.HTTP_403_FORBIDDEN,
             "Only the creator, an assignee, or a manager can reopen a completed task",
         )
-    t.status = "backlog"
-    t.completed_at = None
-    t.approved_by_manager = False
-    t.is_started = False
-    t.started_at = None
-    tasks_crud.update_task(db, t)
+    apply_status_to_task(db, t, "backlog")
     _cascade_status_to_children(db, t, t.status)
     return to_task_out(db, t, current_user_id)
 
@@ -559,10 +598,7 @@ def approve_task(db: Db, current_user_id: str, task_id: str, actual_hours: float
     if t.status == "completed":
         # Already confirmed — return as-is so a stale Approve click is not an error.
         return to_task_out(db, t, current_user_id)
-    t.status = "completed"
-    t.approved_by_manager = True
-    t.completed_at = date.today().isoformat()
-    tasks_crud.update_task(db, t)
+    apply_status_to_task(db, t, "completed", approve=True)
     _cascade_status_to_children(db, t, t.status)
     return to_task_out(db, t, current_user_id)
 

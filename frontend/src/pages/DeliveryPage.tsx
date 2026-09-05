@@ -24,6 +24,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { pageEnter } from '@/lib/motion';
 import { cn } from '@/lib/utils';
+import PageHeader from '@/components/PageHeader';
+import { PAGE_SHELL_SCROLL } from '@/lib/page-styles';
 
 function emptyProjectCard(project: { id: string; name: string }): ProjectProgressCard {
   return {
@@ -161,14 +163,12 @@ export default function DeliveryPage({ embedded = false }: DeliveryPageProps) {
   if (!isManager) return <Navigate to="/" replace />;
 
   const content = (
-    <div className={cn('space-y-8', embedded ? 'py-2' : '')}>
+    <div className={cn('space-y-4', embedded ? 'py-1' : '')}>
       {!embedded && (
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">{ANALYTICS_LABELS.projectStatus}</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Past-due tasks, work that started but is late, and how each project is doing
-          </p>
-        </div>
+        <PageHeader
+          title={ANALYTICS_LABELS.projectStatus}
+          subtitle="Past-due tasks, work that started but is late, and how each project is doing"
+        />
       )}
 
       {isLoading && (
@@ -312,7 +312,7 @@ export default function DeliveryPage({ embedded = false }: DeliveryPageProps) {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={pageEnter}
-      className="min-h-full px-4 sm:px-8 py-6"
+      className={PAGE_SHELL_SCROLL}
     >
       {content}
     </motion.div>

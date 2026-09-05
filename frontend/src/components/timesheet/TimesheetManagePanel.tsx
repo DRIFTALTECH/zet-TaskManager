@@ -27,6 +27,8 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import PageHeader from '@/components/PageHeader';
+import { PAGE_SHELL_SCROLL } from '@/lib/page-styles';
 
 type StatusFilter = 'all' | TimesheetSubmissionStatus;
 
@@ -195,30 +197,21 @@ export default function TimesheetManagePanel({ onClose }: { onClose: () => void 
   if (!isManagerial) return null;
 
   return (
-    <div className="min-h-full flex flex-col">
-      <div className="px-4 sm:px-8 pt-6 sm:pt-7 pb-5 border-b border-border/30 bg-gradient-to-b from-muted/20 to-transparent">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <Clock className="h-4 w-4 text-primary/60" />
-              <span className="text-xs font-bold text-muted-foreground/50 uppercase tracking-widest">Timesheets</span>
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
-              Manage timesheets
-            </h1>
-            <p className="text-sm text-muted-foreground/60 mt-1.5">
-              Review submitted, approved, and rejected team timesheets.
-            </p>
-          </div>
-          <Button variant="outline" onClick={onClose} className="rounded-xl gap-2 shrink-0">
-            <ArrowLeft className="h-4 w-4" />
+    <div className={PAGE_SHELL_SCROLL}>
+      <PageHeader
+        icon={Clock}
+        eyebrow="Timesheets"
+        title="Manage timesheets"
+        actions={
+          <Button variant="outline" size="sm" onClick={onClose} className="gap-1.5 shrink-0">
+            <ArrowLeft className="h-3.5 w-3.5" />
             Back to timesheet
           </Button>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 mt-5 rounded-xl border border-border/70 bg-card/50 p-2.5">
+        }
+      >
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-card/50 p-1.5">
           <Select value={filterStatus} onValueChange={v => setFilterStatus(v as StatusFilter)}>
-            <SelectTrigger className="h-8 w-auto min-w-[130px] text-xs">
+            <SelectTrigger className="h-7 w-auto min-w-[130px] text-xs">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
@@ -229,7 +222,7 @@ export default function TimesheetManagePanel({ onClose }: { onClose: () => void 
             </SelectContent>
           </Select>
           <Select value={filterEmployee} onValueChange={setFilterEmployee}>
-            <SelectTrigger className="h-8 w-auto min-w-[140px] text-xs">
+            <SelectTrigger className="h-7 w-auto min-w-[140px] text-xs">
               <SelectValue placeholder="Employee" />
             </SelectTrigger>
             <SelectContent>
@@ -248,7 +241,7 @@ export default function TimesheetManagePanel({ onClose }: { onClose: () => void 
             type="button"
             variant="outline"
             size="sm"
-            className="h-8 rounded-lg gap-1.5 text-xs ml-auto"
+            className="h-7 rounded-lg gap-1.5 text-xs ml-auto"
             disabled={loading}
             onClick={() => void load()}
           >
@@ -256,22 +249,22 @@ export default function TimesheetManagePanel({ onClose }: { onClose: () => void 
             Refresh
           </Button>
         </div>
-      </div>
+      </PageHeader>
 
-      <div className="flex-1 p-4 sm:p-8 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto">
         {loading ? (
-          <div className="flex justify-center py-16">
+          <div className="flex justify-center py-10">
             <div className="h-8 w-8 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
           </div>
         ) : rows.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-border/40 bg-muted/10 px-6 py-14 text-center">
-            <Inbox className="h-10 w-10 text-muted-foreground/30 mx-auto mb-3" />
-            <p className="text-sm font-medium text-muted-foreground/70">No timesheets match your filters</p>
+          <div className="rounded-xl border border-dashed border-border/40 bg-muted/10 px-4 py-8 text-center">
+            <Inbox className="h-7 w-7 text-muted-foreground/30 mx-auto mb-2" />
+            <p className="text-[13px] font-medium text-muted-foreground/70">No timesheets match your filters</p>
             <p className="text-xs text-muted-foreground/45 mt-1">Submitted timesheets from your team will appear here.</p>
           </div>
         ) : (
-          <div className="rounded-2xl border border-border/35 bg-card shadow-sm overflow-hidden">
-            <div className="hidden sm:grid sm:grid-cols-[1.2fr_1fr_0.75fr_1fr_0.7fr_1fr_2rem] gap-4 px-5 py-3 border-b border-border/30 bg-muted/20 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/55">
+          <div className="rounded-xl border border-border/40 bg-card shadow-sm overflow-hidden">
+            <div className="hidden sm:grid sm:grid-cols-[1.2fr_1fr_0.75fr_1fr_0.7fr_1fr_2rem] gap-3 px-3.5 py-2 border-b border-border/30 bg-muted/20 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/55">
               <span>Employee</span>
               <span>Week</span>
               <span>Status</span>
@@ -295,7 +288,7 @@ export default function TimesheetManagePanel({ onClose }: { onClose: () => void 
                       type="button"
                       onClick={() => toggleExpand(sub)}
                       className={cn(
-                        'w-full flex flex-col sm:grid sm:grid-cols-[1.2fr_1fr_0.75fr_1fr_0.7fr_1fr_2rem] gap-3 sm:gap-4 sm:items-center px-5 py-4 text-left transition-colors',
+                        'w-full flex flex-col sm:grid sm:grid-cols-[1.2fr_1fr_0.75fr_1fr_0.7fr_1fr_2rem] gap-2 sm:gap-3 sm:items-center px-3.5 py-2 text-left transition-colors',
                         expanded ? 'bg-muted/20' : 'hover:bg-muted/15',
                       )}
                     >
@@ -354,7 +347,7 @@ export default function TimesheetManagePanel({ onClose }: { onClose: () => void 
                           )}
 
                           {(canApprove || canReject || canMarkPending) && (
-                            <div className="flex flex-wrap items-center justify-end gap-2 px-5 py-4 border-t border-border/20 bg-muted/10">
+                            <div className="flex flex-wrap items-center justify-end gap-2 px-3.5 py-2.5 border-t border-border/20 bg-muted/10">
                               {canMarkPending && (
                                 <Button
                                   size="sm"
@@ -404,7 +397,7 @@ export default function TimesheetManagePanel({ onClose }: { onClose: () => void 
       </div>
 
       <Dialog open={!!rejectTarget} onOpenChange={o => { if (!o) setRejectTarget(null); }}>
-        <DialogContent className="rounded-2xl max-w-md">
+        <DialogContent className="rounded-xl max-w-md">
           <DialogHeader>
             <DialogTitle>Reject timesheet</DialogTitle>
           </DialogHeader>

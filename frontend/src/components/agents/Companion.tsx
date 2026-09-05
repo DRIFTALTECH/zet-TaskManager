@@ -71,7 +71,10 @@ function Stopwatch() {
       initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 300, damping: 14 }}>
       <rect x="26" y="3" width="8" height="6" rx="2" fill="#16161a" />
       <circle cx="30" cy="34" r="20" fill="#fff" stroke="#16161a" strokeWidth="3" />
-      <motion.circle r="3" fill="#f59e0b"
+      {/* cx/cy must be set before the animation runs: with only `animate`, the
+          first paint emits cx="undefined" and the browser rejects the circle. */}
+      <motion.circle r="3" fill="#f59e0b" cx={30} cy={18}
+        initial={{ cx: 30, cy: 18 }}
         animate={{ cx: [30, 44, 30, 16, 30], cy: [18, 34, 50, 34, 18] }}
         transition={{ repeat: Infinity, duration: 2, ease: 'linear' }} />
       <circle cx="30" cy="34" r="2.5" fill="#16161a" />

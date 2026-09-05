@@ -15,6 +15,8 @@ import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { pageEnter } from '@/lib/motion';
+import PageHeader from '@/components/PageHeader';
+import { PAGE_SHELL_SCROLL } from '@/lib/page-styles';
 import { useAppStore } from '@/stores/appStore';
 import { api } from '@/lib/api';
 import { isoWeekMonday, timesheetDateLocked } from '@/lib/timesheetSubmission';
@@ -251,25 +253,28 @@ export default function CalendarPage() {
   if (!currentUser) return null;
 
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={pageEnter} className="min-h-full">
-      <div className="w-full px-3 sm:px-5 py-5 space-y-4">
-        {/* Header */}
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 min-w-0">
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            <CalendarDays className="h-5 w-5 text-primary/70" /> Calendar
-            {loading && <span className="ml-1 h-3.5 w-3.5 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />}
-          </h1>
-
-          <DateRangePicker
-            value={selection}
-            onChange={setSelection}
-            allowedPresets={['day', 'week', 'lastweek', 'month', 'custom']}
-            className="min-w-0"
-          />
-        </div>
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={pageEnter} className={PAGE_SHELL_SCROLL}>
+      <div className="w-full">
+        <PageHeader
+          icon={CalendarDays}
+          title={
+            <span className="inline-flex items-center gap-2">
+              Calendar
+              {loading && <span className="h-3 w-3 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />}
+            </span>
+          }
+          actions={
+            <DateRangePicker
+              value={selection}
+              onChange={setSelection}
+              allowedPresets={['day', 'week', 'lastweek', 'month', 'custom']}
+              className="min-w-0"
+            />
+          }
+        />
 
         {userProjects.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-amber-500/30 bg-amber-500/5 px-5 py-4 text-sm text-amber-400/80">
+          <div className="rounded-xl border border-dashed border-amber-500/30 bg-amber-500/5 px-3.5 py-3 text-[13px] text-amber-500">
             You are not in any project yet. Ask a manager to add you, then you can log work here.
           </div>
         ) : (

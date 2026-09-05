@@ -31,6 +31,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { cn, getLocalDateString } from '@/lib/utils';
+import PageHeader from '@/components/PageHeader';
+import { PAGE_SHELL_SCROLL, SEGMENT_BAR, SEGMENT_BTN, SEGMENT_ICON } from '@/lib/page-styles';
 import { SkillsPicker } from '@/components/SkillsPicker';
 
 // ─── colour helpers ───────────────────────────────────────────────────────────
@@ -731,7 +733,7 @@ export default function UserDetailPage() {
 
   if (!userId || !user) {
     return (
-      <div className="flex items-center justify-center h-[calc(100dvh-3.5rem)]">
+      <div className="flex items-center justify-center h-full min-h-[60vh]">
         <div className="text-center space-y-3">
           <p className="text-sm text-muted-foreground">User not found.</p>
           <Link to="/users" className="text-sm text-primary flex items-center justify-center gap-1.5 hover:underline">
@@ -745,62 +747,52 @@ export default function UserDetailPage() {
   // ─── render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-full bg-background">
-      <div className="max-w-7xl mx-auto px-6 pb-16">
+    <div className={`${PAGE_SHELL_SCROLL} bg-background`}>
+      <div className="max-w-7xl w-full mx-auto pb-8">
 
         {/* ── breadcrumb + name ──────────────────────────────────────────── */}
         <motion.div
           initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
           transition={pageEnter}
-          className="pt-8 pb-6"
         >
-          <Link to="/users"
-            className="inline-flex items-center gap-1.5 text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors mb-4 group">
-            <ArrowLeft className="h-3.5 w-3.5 group-hover:-translate-x-0.5 transition-transform" />
-            Team members
-          </Link>
-
-          <div className="flex items-end justify-between gap-4 flex-wrap">
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">{user.name}</h1>
-              <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground/60">
-                <span className="flex items-center gap-1.5"><Mail className="h-3.5 w-3.5" />{user.email}</span>
-                <span className="flex items-center gap-1.5"><Briefcase className="h-3.5 w-3.5" />{userProjects.length} project{userProjects.length !== 1 ? 's' : ''}</span>
-                <span className={`flex items-center gap-1.5 font-medium capitalize ${
-                  user.role === 'manager' ? 'text-primary' : 'text-muted-foreground/60'
-                }`}>
-                  {user.role}
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 flex-wrap">
-            <button
-              type="button"
-              onClick={() => setAddProjOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-primary/40 bg-primary/5 text-primary text-sm font-semibold hover:bg-primary/10 transition-colors"
-            >
-              <FolderPlus className="h-4 w-4" /> Add User to Project
-            </button>
-            {/* tab switcher */}
-            <div className="flex items-center gap-1 bg-muted/40 border border-border/40 rounded-xl p-1">
-              {([
-                { id: 'analytics' as View, label: 'Analytics', icon: BarChart2 },
-                { id: 'timesheet' as View, label: 'Timesheet', icon: CalendarDays },
-              ]).map(t => (
-                <button key={t.id} type="button" onClick={() => setView(t.id)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                    view === t.id
-                      ? 'bg-card border border-border/60 text-foreground shadow-sm'
-                      : 'text-muted-foreground/60 hover:text-foreground'
-                  }`}>
-                  <t.icon className="h-3.5 w-3.5" />
-                  {t.label}
+          <PageHeader
+            title={user.name}
+            subtitle={
+              <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                <span className="flex items-center gap-1.5"><Mail className="h-3 w-3" />{user.email}</span>
+                <span className="flex items-center gap-1.5"><Briefcase className="h-3 w-3" />{userProjects.length} project{userProjects.length !== 1 ? 's' : ''}</span>
+                <span className={`font-medium capitalize ${user.role === 'manager' ? 'text-primary' : ''}`}>{user.role}</span>
+              </span>
+            }
+            actions={
+              <>
+                <Link to="/users"
+                  className="inline-flex h-7 items-center gap-1.5 rounded-lg px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors group">
+                  <ArrowLeft className="h-3.5 w-3.5 group-hover:-translate-x-0.5 transition-transform" />
+                  Team members
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setAddProjOpen(true)}
+                  className="inline-flex h-7 items-center gap-1.5 px-2.5 rounded-lg border border-primary/40 bg-primary/5 text-primary text-xs font-semibold hover:bg-primary/10 transition-colors"
+                >
+                  <FolderPlus className={SEGMENT_ICON} /> Add User to Project
                 </button>
-              ))}
-            </div>
-            </div>
-          </div>
+                {/* tab switcher */}
+                <div className={SEGMENT_BAR}>
+                  {([
+                    { id: 'analytics' as View, label: 'Analytics', icon: BarChart2 },
+                    { id: 'timesheet' as View, label: 'Timesheet', icon: CalendarDays },
+                  ]).map(t => (
+                    <button key={t.id} type="button" onClick={() => setView(t.id)} className={SEGMENT_BTN(view === t.id)}>
+                      <t.icon className={SEGMENT_ICON} />
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            }
+          />
         </motion.div>
 
         {isManager && (
@@ -808,10 +800,10 @@ export default function UserDetailPage() {
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ ...pageEnter, delay: 0.05 }}
-            className="rounded-2xl border border-border/50 bg-card p-5 sm:p-6 mb-6"
+            className="rounded-xl border border-border/50 bg-card p-3.5 mb-4"
           >
-            <h2 className="text-sm font-semibold text-foreground mb-1">Skills</h2>
-            <p className="text-xs text-muted-foreground/60 mb-4">
+            <h2 className="text-sm font-semibold text-foreground mb-0.5">Skills</h2>
+            <p className="text-xs text-muted-foreground/60 mb-3">
               Add skills that describe what {user.name.split(' ')[0]} is good at.
             </p>
             <SkillsPicker
@@ -841,17 +833,16 @@ export default function UserDetailPage() {
               <motion.div
                 initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
                 transition={pageEnter}
-                className="rounded-3xl border border-border/50 bg-gradient-to-br from-card via-card to-primary/[0.03] p-1 shadow-[0_20px_60px_-24px_rgba(0,0,0,0.45)]"
+                className="rounded-xl border border-border/50 bg-card/80 p-3.5 space-y-4"
               >
-                <div className="rounded-[1.35rem] border border-border/40 bg-card/80 backdrop-blur-sm p-6 sm:p-8 space-y-6">
-                  <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-5">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2 text-primary">
-                        <Sparkles className="h-5 w-5" />
-                        <span className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground/60">Workload</span>
-                      </div>
-                      <h2 className="text-2xl font-bold tracking-tight text-foreground">Week at a glance</h2>
-                      <p className="text-sm text-muted-foreground/55 max-w-xl">
+                <div className="space-y-4">
+                  <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
+                    <div className="space-y-0.5">
+                      <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                        <Sparkles className="h-3.5 w-3.5 text-primary" />
+                        Week at a glance
+                      </h2>
+                      <p className="text-xs text-muted-foreground/70 max-w-xl">
                         Navigate weeks, hover a day for project breakdown, click a bar to open a 24-hour timeline of timesheet blocks.
                       </p>
                     </div>
@@ -1044,21 +1035,21 @@ export default function UserDetailPage() {
                   <motion.div key={card.label}
                     initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
                     transition={{ ...pageEnter, delay: i * 0.06 }}
-                    className="group rounded-2xl border border-border/60 bg-card p-5 flex flex-col gap-4 hover:border-border hover:shadow-[0_8px_30px_rgba(0,0,0,0.3)] transition-all duration-200"
+                    className="group rounded-xl border border-border/60 bg-card p-3.5 flex flex-col gap-3 hover:border-border transition-colors duration-200"
                   >
                     <div className="flex items-start justify-between">
-                      <div className={`h-10 w-10 rounded-xl flex items-center justify-center ${card.iconBg}`}>
-                        <card.icon className={`h-5 w-5 ${card.iconColor}`} />
+                      <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${card.iconBg}`}>
+                        <card.icon className={`h-4 w-4 ${card.iconColor}`} />
                       </div>
                     </div>
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/50 mb-1">
                         {card.label}
                       </p>
-                      <p className="text-3xl sm:text-4xl font-bold tabular-nums text-foreground">
+                      <p className="text-xl font-bold tabular-nums text-foreground">
                         <CountUp to={card.value} />
                       </p>
-                      <p className="text-xs text-muted-foreground/40 mt-1">{card.sub}</p>
+                      <p className="text-[11px] text-muted-foreground/50 mt-0.5">{card.sub}</p>
                     </div>
                   </motion.div>
                 ))}

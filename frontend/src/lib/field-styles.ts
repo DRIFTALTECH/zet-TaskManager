@@ -15,11 +15,32 @@
  * label→value rows. A value that renders more than one element must wrap them in
  * a single div, or the extras land in their own grid cells.
  */
+/**
+ * Height of a compact control.
+ *
+ * The detail field grid and the dashboard toolbar share it so a filter chip and
+ * a task field read as the same size of thing. Changing the density of the app
+ * is this one value plus the row min-height beside it.
+ */
+export const CONTROL_H = 'h-7';
+
+/** Row height that matches CONTROL_H, for grids and list rows. */
+export const ROW_MIN_H = 'min-h-7';
+
 export const FIELD_GRID = [
-  'grid grid-cols-1 gap-x-8 gap-y-0 lg:grid-cols-2',
-  '[&>section]:grid [&>section]:grid-cols-[6.5rem_minmax(0,1fr)] [&>section]:items-center',
-  '[&>section]:gap-3 [&>section]:min-h-8',
-  '[&>section>div:first-child]:mb-0 [&>section>div:first-child]:text-xs',
+  'grid grid-cols-1 gap-x-6 gap-y-0 lg:grid-cols-2',
+  '[&>section]:grid [&>section]:grid-cols-[5.5rem_minmax(0,1fr)] [&>section]:items-center',
+  '[&>section]:gap-2 [&>section]:min-h-7',
+  '[&>section>div:first-child]:mb-0 [&>section>div:first-child]:text-[11px]',
+  '[&>section>div:first-child_svg]:h-3 [&>section>div:first-child_svg]:w-3',
+  // Values sit one step below body text. A detail modal shows a dozen of these
+  // at once, so a field set that reads comfortably on its own still pushes the
+  // description and comments off screen.
+  '[&>section>*:last-child]:text-[13px]',
+  // Controls shrink to the row rather than the row growing to fit a 40px select.
+  // That single default was most of the height: twelve fields, twelve h-10 rows.
+  '[&_[role=combobox]]:h-7 [&_[role=combobox]]:px-2 [&_[role=combobox]]:text-[13px]',
+  '[&_input]:h-7 [&_input]:px-2 [&_input]:py-0 [&_input]:text-[13px]',
   '[&_input]:border-transparent [&_input]:bg-transparent [&_input]:shadow-none',
   '[&_input:hover]:bg-muted/60 [&_input:focus]:bg-muted/60 [&_input:focus]:border-border/60',
   '[&_[role=combobox]]:border-transparent [&_[role=combobox]]:bg-transparent',

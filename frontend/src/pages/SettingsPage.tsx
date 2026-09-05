@@ -16,6 +16,8 @@ import { getConfiguredApiUrl } from '@/lib/env';
 import type { PersonalAccessToken, AuditLog } from '@/types';
 import UserAvatar from '@/components/UserAvatar';
 import AgentAvatar from '@/components/agents/AgentAvatar';
+import PageHeader from '@/components/PageHeader';
+import { PAGE_SHELL_SCROLL } from '@/lib/page-styles';
 
 const ACTION_LABELS: Record<string, { label: string; color: string }> = {
   'task.created':        { label: 'Created task',         color: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/25' },
@@ -181,7 +183,7 @@ function ConnectionGuide({
   const tokenPayloadReal = mkPayload(tok);
 
   return (
-    <div className="rounded-2xl border border-border/40 bg-gradient-to-b from-card to-muted/10 overflow-hidden shadow-sm">
+    <div className="rounded-xl border border-border/50 bg-gradient-to-b from-card to-muted/10 overflow-hidden shadow-sm">
       {/* Navbar-style, color-coded platform tabs */}
       <div className="flex items-center gap-1.5 overflow-x-auto border-b border-border/30 bg-muted/20 px-2 py-2">
         {PLATFORMS.map(x => {
@@ -507,34 +509,29 @@ export default function SettingsPage() {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={pageEnter}
-      className="min-h-full"
+      className={PAGE_SHELL_SCROLL}
     >
-      {/* ── Header ──────────────────────────────────────────────── */}
-      <div className="shrink-0 px-4 sm:px-8 pt-6 sm:pt-7 pb-5 border-b border-border/30 bg-gradient-to-b from-muted/20 to-transparent">
-        <div className="flex items-center gap-2 mb-1">
-          <Shield className="h-4 w-4 text-primary/60" />
-          <span className="text-xs font-bold text-muted-foreground/50 uppercase tracking-widest">Account</span>
-        </div>
-        <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
-          Settings
-        </h1>
-        <p className="text-sm text-muted-foreground/60 mt-1.5">Manage your profile, appearance and security</p>
-      </div>
+      <PageHeader
+        icon={Shield}
+        eyebrow="Account"
+        title="Settings"
+        subtitle="Manage your profile, appearance and security"
+      />
 
       {/* ── Scrollable body ──────────────────────────────────────── */}
-      <div className="p-4 sm:p-8">
-        <div className="space-y-6">
+      <div>
+        <div className="space-y-4">
 
           {/* ── Profile Card ─────────────────────────────────────── */}
-          <div className="rounded-2xl border border-border/30 bg-card overflow-hidden">
-            <div className="px-6 py-4 border-b border-border/20 bg-muted/10 flex items-center gap-2">
+          <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
+            <div className="px-3.5 py-2.5 border-b border-border/20 bg-muted/10 flex items-center gap-2">
               <User className="h-4 w-4 text-primary/70" />
               <h2 className="text-sm font-bold text-foreground">Profile</h2>
             </div>
-            <div className="p-6 space-y-6">
+            <div className="p-3.5 space-y-4">
 
               {/* Avatar upload */}
-              <div className="flex items-center gap-6">
+              <div className="flex items-center gap-4">
                 <div className="relative group shrink-0">
                   <UserAvatar name={name || currentUser.name} avatar={avatarPreview} size="2xl" />
                   <button
@@ -624,12 +621,12 @@ export default function SettingsPage() {
           </div>
 
           {/* ── Appearance Card ───────────────────────────────────── */}
-          <div className="rounded-2xl border border-border/30 bg-card overflow-hidden">
-            <div className="px-6 py-4 border-b border-border/20 bg-muted/10 flex items-center gap-2">
+          <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
+            <div className="px-3.5 py-2.5 border-b border-border/20 bg-muted/10 flex items-center gap-2">
               {theme === 'dark' ? <Moon className="h-4 w-4 text-primary/70" /> : <Sun className="h-4 w-4 text-primary/70" />}
               <h2 className="text-sm font-bold text-foreground">Appearance</h2>
             </div>
-            <div className="p-6">
+            <div className="p-3.5">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm font-semibold text-foreground">Theme</p>
@@ -686,12 +683,12 @@ export default function SettingsPage() {
           </div>
 
           {/* ── Password Card ─────────────────────────────────────── */}
-          <div className="rounded-2xl border border-border/30 bg-card overflow-hidden">
-            <div className="px-6 py-4 border-b border-border/20 bg-muted/10 flex items-center gap-2">
+          <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
+            <div className="px-3.5 py-2.5 border-b border-border/20 bg-muted/10 flex items-center gap-2">
               <Lock className="h-4 w-4 text-primary/70" />
               <h2 className="text-sm font-bold text-foreground">Change password</h2>
             </div>
-            <div className="p-6 space-y-4">
+            <div className="p-3.5 space-y-3">
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-muted-foreground/60 uppercase tracking-wide">Current password</label>
                 <div className="relative">
@@ -764,7 +761,7 @@ export default function SettingsPage() {
 
           {isSuperadmin && (
             <>
-            <div className="rounded-2xl border border-border/40 bg-card shadow-sm overflow-hidden p-5">
+            <div className="rounded-xl border border-border/50 bg-card shadow-sm overflow-hidden p-3.5">
               <div className="flex items-center gap-3">
                 <div className="h-9 w-9 rounded-xl bg-primary/10 flex items-center justify-center">
                   <Clock className="h-4 w-4 text-primary" />
@@ -895,7 +892,7 @@ export default function SettingsPage() {
               )}
             </div>
 
-            <div className="rounded-2xl border border-border/40 bg-card shadow-sm overflow-hidden p-5">
+            <div className="rounded-xl border border-border/50 bg-card shadow-sm overflow-hidden p-3.5">
               <div className="flex items-center gap-3">
                 <div className="h-9 w-9 rounded-xl bg-primary/10 flex items-center justify-center">
                   <ListTodo className="h-4 w-4 text-primary" />
@@ -1021,8 +1018,8 @@ export default function SettingsPage() {
           )}
 
           {/* ── Developer Settings (MCP) ──────────────────────────── */}
-          <div className="rounded-2xl border border-border/30 bg-card overflow-hidden">
-            <div className="px-6 py-4 border-b border-border/20 bg-muted/10 flex items-center justify-between gap-2">
+          <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
+            <div className="px-3.5 py-2.5 border-b border-border/20 bg-muted/10 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Terminal className="h-4 w-4 text-primary/70" />
                 <h2 className="text-sm font-bold text-foreground">Developer settings</h2>
@@ -1039,7 +1036,7 @@ export default function SettingsPage() {
             </div>
 
             {devOn && (
-              <div className="p-6 space-y-4">
+              <div className="p-3.5 space-y-3">
                 <div className="flex items-start gap-2 text-xs text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2.5">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
                   <span>These settings are still in development and may not work accurately yet. Use at your own discretion.</span>
@@ -1105,8 +1102,8 @@ export default function SettingsPage() {
           </div>
 
           {/* ── Audit Logs ───────────────────────────────────────── */}
-          <div className="rounded-2xl border border-border/30 bg-card overflow-hidden">
-            <div className="px-6 py-4 border-b border-border/20 bg-muted/10 flex items-center justify-between gap-2">
+          <div className="rounded-xl border border-border/50 bg-card overflow-hidden">
+            <div className="px-3.5 py-2.5 border-b border-border/20 bg-muted/10 flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <ShieldCheck className="h-4 w-4 text-primary/70" />
                 <h2 className="text-sm font-bold text-foreground">Audit Logs</h2>

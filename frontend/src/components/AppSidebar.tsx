@@ -1,11 +1,12 @@
 import { useAppStore } from '@/stores/appStore';
 import { useLocation, Link } from 'react-router-dom';
-import { Settings, LogOut, Briefcase, ChevronDown } from 'lucide-react';
+import { Settings, LogOut, Briefcase, ChevronDown, Sun, Moon } from 'lucide-react';
 import { ZetLogo } from '@/components/brand/ZetLogo';
 import { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { toast } from 'sonner';
 import UserAvatar from '@/components/UserAvatar';
+import NotificationBell from '@/components/NotificationBell';
 import { isNavItemActive, visibleNavItems, type NavItem } from '@/components/nav-items';
 
 const AppSidebar = () => {
@@ -13,6 +14,8 @@ const AppSidebar = () => {
   const [mgmtOpen, setMgmtOpen] = useState(false);
   const currentUser = useAppStore(s => s.currentUser);
   const logout = useAppStore(s => s.logout);
+  const theme = useAppStore(s => s.theme);
+  const toggleTheme = useAppStore(s => s.toggleTheme);
   const location = useLocation();
 
   const primary = visibleNavItems(currentUser?.role, 'primary');
@@ -118,6 +121,15 @@ const AppSidebar = () => {
           )}
         </nav>
 
+        {/* Notifications sits with the nav, styled as one of its rows so the
+            icons share a column. Theme moved down beside Settings. */}
+        <div className={`border-t border-sidebar-border/70 shrink-0 ${expanded ? 'p-2' : 'p-2 flex justify-center'}`}>
+          <NotificationBell
+            triggerClassName={`${linkClass(false, expanded)} ${expanded ? 'w-full' : ''}`}
+            label={expanded ? 'Notifications' : undefined}
+          />
+        </div>
+
         <div className="border-t border-sidebar-border/70 p-3 shrink-0">
           <div className={`flex gap-2 ${expanded ? 'items-center' : 'flex-col items-center'}`}>
             <Link to="/settings" className="shrink-0 rounded-full ring-2 ring-transparent hover:ring-ring/50 transition-shadow">
@@ -132,6 +144,24 @@ const AppSidebar = () => {
             )}
 
             <div className={`flex gap-1 shrink-0 ${expanded ? 'items-center' : 'flex-col items-center'}`}>
+              <button
+                onClick={toggleTheme}
+                className="p-1.5 rounded-lg text-muted-foreground hover:bg-sidebar-accent/60 transition-colors duration-100"
+                title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+              >
+                <AnimatePresence mode="wait" initial={false}>
+                  <motion.span
+                    key={theme}
+                    initial={{ rotate: -90, opacity: 0, scale: 0.6 }}
+                    animate={{ rotate: 0, opacity: 1, scale: 1 }}
+                    exit={{ rotate: 90, opacity: 0, scale: 0.6 }}
+                    transition={{ duration: 0.18, ease: 'easeOut' }}
+                    className="block"
+                  >
+                    {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                  </motion.span>
+                </AnimatePresence>
+              </button>
               <Link to="/settings"
                 className={`p-1.5 rounded-lg hover:bg-sidebar-accent/60 transition-colors duration-100 ${
                   location.pathname === '/settings' ? 'text-primary bg-sidebar-accent' : 'text-muted-foreground'

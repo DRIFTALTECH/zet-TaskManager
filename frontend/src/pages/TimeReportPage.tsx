@@ -33,6 +33,8 @@ import type { TimesheetWorkEntry } from '@/types';
 import { pageEnter } from '@/lib/motion';
 import { ZET, zetStackColor } from '@/lib/zet-charts';
 import { cn } from '@/lib/utils';
+import PageHeader from '@/components/PageHeader';
+import { PAGE_SHELL_SCROLL } from '@/lib/page-styles';
 import { downloadCSV, openPrintWindow, printTable, exportEmployeeReport, type EmployeeReportSummary } from '@/lib/report-export';
 import { ClientSummaryPanel } from '@/components/analytics/ClientSummaryPanel';
 import UserAvatar, { accentColor } from '@/components/UserAvatar';
@@ -363,27 +365,16 @@ const ReportsPage = () => {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={pageEnter}
-      className="min-h-full flex flex-col"
+      className={PAGE_SHELL_SCROLL}
     >
-      {/* Header — same chrome as Audit / Manage timesheets */}
-      <div className="shrink-0 px-4 sm:px-8 pt-6 sm:pt-7 pb-5 border-b border-border/30 bg-gradient-to-b from-muted/20 to-transparent">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <ShieldCheck className="h-4 w-4 text-primary/60" />
-              <span className="text-xs font-bold text-muted-foreground/50 uppercase tracking-widest">Time</span>
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
-              Reports
-            </h1>
-            <p className="text-sm text-muted-foreground/60 mt-1.5">
-              Summary, detailed entries, and weekly matrices for the selected period.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2 mt-1 flex-wrap">
+      <PageHeader
+        icon={ShieldCheck}
+        eyebrow="Time"
+        title="Reports"
+        actions={
+          <>
             <Tabs value={tab} onValueChange={v => setTab(v as Tab)}>
-              <TabsList className="h-9">
+              <TabsList className="h-7 rounded-lg p-0.5">
                 <TabsTrigger value="summary" className="gap-1.5 text-xs"><BarChart3 className="size-3.5" /> Summary</TabsTrigger>
                 <TabsTrigger value="detailed" className="gap-1.5 text-xs"><ListChecks className="size-3.5" /> Detailed</TabsTrigger>
                 <TabsTrigger value="weekly" className="gap-1.5 text-xs"><CalendarRange className="size-3.5" /> Weekly</TabsTrigger>
@@ -395,7 +386,7 @@ const ReportsPage = () => {
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-9 gap-1.5 text-xs rounded-xl">
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs">
                   <Download className="size-3.5" /> Export
                 </Button>
               </DropdownMenuTrigger>
@@ -421,14 +412,14 @@ const ReportsPage = () => {
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
-          </div>
-        </div>
-
+          </>
+        }
+      >
         {/* Filter bar — Employee + date (+ project / view options) */}
-        <div className="flex flex-wrap items-center gap-2 mt-5 rounded-xl border border-border/70 bg-card/50 p-2.5">
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-card/50 p-1.5">
           {isManager ? (
             <Select value={employeeFilter} onValueChange={setEmployeeFilter}>
-              <SelectTrigger className="h-8 w-auto min-w-[160px] text-xs">
+              <SelectTrigger className="h-7 w-auto min-w-[160px] text-xs">
                 <SelectValue placeholder="Employee" />
               </SelectTrigger>
               <SelectContent>
@@ -444,14 +435,14 @@ const ReportsPage = () => {
               </SelectContent>
             </Select>
           ) : (
-            <div className="flex items-center gap-2 h-8 px-2.5 rounded-lg border border-border/60 bg-muted/30 text-xs">
+            <div className="flex items-center gap-2 h-7 px-2.5 rounded-lg border border-border/60 bg-muted/30 text-xs">
               <UserAvatar name={currentUser.name} avatar={currentUser.avatar} size="xs" />
               <span className="font-medium truncate max-w-[140px]">{currentUser.name}</span>
             </div>
           )}
 
           <Select value={projectFilter} onValueChange={setProjectFilter}>
-            <SelectTrigger className="h-8 w-auto min-w-[130px] text-xs">
+            <SelectTrigger className="h-7 w-auto min-w-[130px] text-xs">
               <SelectValue placeholder="Project" />
             </SelectTrigger>
             <SelectContent>
@@ -462,11 +453,11 @@ const ReportsPage = () => {
 
           {tab === 'weekly' ? (
             <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-background/60 p-0.5">
-              <Button variant="ghost" size="icon" className="size-7" onClick={() => setWeekOff(w => w - 1)}>
+              <Button variant="ghost" size="icon" className="size-6" onClick={() => setWeekOff(w => w - 1)}>
                 <ChevronLeft className="size-4" />
               </Button>
               <span className="text-xs font-semibold tabular-nums px-2 min-w-[150px] text-center">{rangeLabel}</span>
-              <Button variant="ghost" size="icon" className="size-7" onClick={() => setWeekOff(w => w + 1)}>
+              <Button variant="ghost" size="icon" className="size-6" onClick={() => setWeekOff(w => w + 1)}>
                 <ChevronRight className="size-4" />
               </Button>
               <Button variant="ghost" size="sm" className="text-[11px] h-7 px-2" onClick={() => setWeekOff(0)}>
@@ -483,7 +474,7 @@ const ReportsPage = () => {
 
           {tab === 'summary' && (
             <Select value={groupBy} onValueChange={v => setGroupBy(v as GroupBy)}>
-              <SelectTrigger className="h-8 w-auto min-w-[130px] text-xs ml-auto">
+              <SelectTrigger className="h-7 w-auto min-w-[130px] text-xs ml-auto">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -496,7 +487,7 @@ const ReportsPage = () => {
           )}
           {tab === 'weekly' && (
             <Select value={weeklyBy} onValueChange={v => setWeeklyBy(v as WeeklyBy)}>
-              <SelectTrigger className="h-8 w-auto min-w-[120px] text-xs ml-auto">
+              <SelectTrigger className="h-7 w-auto min-w-[120px] text-xs ml-auto">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -507,9 +498,9 @@ const ReportsPage = () => {
           )}
           {loading && <span className="text-[11px] text-muted-foreground animate-pulse">Loading…</span>}
         </div>
-      </div>
+      </PageHeader>
 
-      <div className="flex-1 p-4 sm:p-8 space-y-5 max-w-[1400px] w-full mx-auto">
+      <div className="flex-1 space-y-4 max-w-[1400px] w-full mx-auto">
         {tab !== 'clients' && (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <Kpi label="Total" value={fmtHMS(total)} sub={`${hoursDec(total)} h`} color={ZET.indigo} />
@@ -521,7 +512,7 @@ const ReportsPage = () => {
 
         {/* ── SUMMARY ── */}
         {tab === 'summary' && (
-          <div className="space-y-5">
+          <div className="space-y-4">
             <Card title="Daily breakdown" right={`Hours · by ${groupBy}`}>
               <div className="h-[300px] w-full min-w-0">
                 {topGroups.length === 0 ? <Empty /> : (
@@ -734,17 +725,17 @@ const ReportsPage = () => {
 
 function Kpi({ label, value, sub, color }: { label: string; value: string; sub: string; color: string }) {
   return (
-    <div className="rounded-xl border border-border/70 bg-card p-4 shadow-sm">
+    <div className="rounded-xl border border-border/70 bg-card p-3 shadow-sm">
       <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="text-2xl font-bold tabular-nums mt-1 truncate" style={{ color }}>{value}</p>
+      <p className="text-lg font-bold tabular-nums mt-0.5 truncate" style={{ color }}>{value}</p>
       <p className="text-[11px] text-muted-foreground mt-1 truncate">{sub}</p>
     </div>
   );
 }
 function Card({ title, right, children }: { title: string; right?: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-border/70 bg-card p-5 shadow-sm">
-      <div className="flex items-center justify-between mb-4">
+    <div className="rounded-xl border border-border/70 bg-card p-3.5 shadow-sm">
+      <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-semibold flex items-center gap-2"><FolderKanban className="size-3.5 text-primary/60" />{title}</h2>
         {right && <span className="text-xs text-muted-foreground">{right}</span>}
       </div>

@@ -26,6 +26,8 @@ import { ZET } from '@/lib/zet-charts';
 import { Progress } from '@/components/ui/progress';
 import UserAvatar from '@/components/UserAvatar';
 import type { TimesheetWorkEntry } from '@/types';
+import PageHeader from '@/components/PageHeader';
+import { PAGE_SHELL_SCROLL } from '@/lib/page-styles';
 
 const CHART_TOOLTIP = {
   background: 'hsl(var(--card))',
@@ -127,27 +129,22 @@ export default function ClientDetailPage() {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={pageEnter}
-      className="min-h-full"
+      className={PAGE_SHELL_SCROLL}
     >
-      <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-6 space-y-6">
-        <Link
-          to="/reports?tab=clients"
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" /> Back to reports
-        </Link>
-
-        <div className="flex items-start gap-3">
-          <div className="h-12 w-12 rounded-2xl bg-primary/10 flex items-center justify-center shrink-0">
-            <Building2 className="h-6 w-6 text-primary" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">{summary.name}</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              All projects and tasks for this client.
-            </p>
-          </div>
-        </div>
+      <div className="max-w-[1200px] w-full mx-auto space-y-4">
+        <PageHeader
+          icon={Building2}
+          title={summary.name}
+          subtitle="All projects and tasks for this client."
+          actions={
+            <Link
+              to="/reports?tab=clients"
+              className="inline-flex h-7 items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" /> Back to reports
+            </Link>
+          }
+        />
 
         {/* Summary cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -170,7 +167,7 @@ export default function ClientDetailPage() {
         </div>
 
         {/* Progress bar */}
-        <div className="rounded-2xl border border-border/60 bg-card p-5">
+        <div className="rounded-xl border border-border/60 bg-card p-3.5">
           <div className="flex items-center justify-between text-sm mb-2">
             <span className="font-medium text-foreground">Overall progress</span>
             <span className="font-bold tabular-nums">{summary.progress}%</span>
@@ -181,7 +178,7 @@ export default function ClientDetailPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
           {/* Projects list */}
           <div className="rounded-2xl border border-border/60 bg-card p-5 h-full">
-            <h2 className="text-sm font-semibold mb-4 flex items-center gap-2">
+            <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
               <FolderKanban className="h-4 w-4 text-primary/70" /> Projects
             </h2>
             <ul className="space-y-2">
@@ -209,7 +206,7 @@ export default function ClientDetailPage() {
 
           {/* Team — scroll only when the list is taller than this stretched card */}
           <div className="rounded-2xl border border-border/60 bg-card p-5 flex flex-col min-h-0 h-full">
-            <h2 className="text-sm font-semibold mb-4 flex items-center gap-2 shrink-0">
+            <h2 className="text-sm font-semibold mb-3 flex items-center gap-2 shrink-0">
               <Users className="h-4 w-4 text-primary/70" /> Team members
             </h2>
             {memberUsers.length === 0 ? (
@@ -232,7 +229,7 @@ export default function ClientDetailPage() {
 
         {/* Charts */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          <div className="rounded-2xl border border-border/60 bg-card p-5">
+          <div className="rounded-xl border border-border/60 bg-card p-3.5">
             <h2 className="text-sm font-semibold mb-3">Done vs left</h2>
             {donutData.length === 0 ? (
               <p className="text-sm text-muted-foreground italic py-8 text-center">No tasks yet.</p>
@@ -257,7 +254,7 @@ export default function ClientDetailPage() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-border/60 bg-card p-5">
+          <div className="rounded-xl border border-border/60 bg-card p-3.5">
             <h2 className="text-sm font-semibold mb-3">{barByHours ? 'Hours per project' : 'Tasks per project'}</h2>
             {barData.length === 0 ? (
               <p className="text-sm text-muted-foreground italic py-8 text-center">No projects yet.</p>
@@ -279,8 +276,8 @@ export default function ClientDetailPage() {
         </div>
 
         {/* Task list (simple) */}
-        <div className="rounded-2xl border border-border/60 bg-card p-5">
-          <h2 className="text-sm font-semibold mb-4 flex items-center gap-2">
+        <div className="rounded-xl border border-border/60 bg-card p-3.5">
+          <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
             <ListTodo className="h-4 w-4 text-primary/70" /> Tasks ({clientTasks.length})
           </h2>
           {clientTasks.length === 0 ? (

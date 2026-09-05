@@ -125,7 +125,10 @@ export function PrdStudio({
       const res = await onCommit([story.id]);
       setStoryOn(c => ({ ...c, [storyId]: true }));
       setStoryOpen(false);
-      return res?.storyIds?.[0] ?? null;
+      // `onCommit` may return nothing at all, and `?.` does not narrow `void`
+      // away — so check for the object before reaching into it.
+      const ids = res && typeof res === 'object' ? res.storyIds : undefined;
+      return ids?.[0] ?? null;
     } catch {
       return null;
     }

@@ -151,7 +151,7 @@ export default function AIPage() {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={pageEnter}
-      className="relative flex flex-col h-[calc(100dvh-4rem)] min-h-0 overflow-hidden"
+      className="relative flex flex-col h-full min-h-0 overflow-hidden"
     >
       {/* Atmospheric background */}
       <div className="pointer-events-none absolute inset-0 -z-10" aria-hidden>

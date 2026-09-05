@@ -10,6 +10,8 @@ import { CheckCircle2, ChevronRight, CircleDot, Loader2, RotateCcw, UserPlus2 } 
 import { Button } from '@/components/ui/button';
 import UserAvatar from '@/components/UserAvatar';
 import { useAppStore } from '@/stores/appStore';
+import { CARD_SHADOW } from '@/lib/card-shadow';
+import { useElapsedTime } from '@/hooks/useElapsedTime';
 import { projectNameColor } from '@/lib/project-utils';
 import { isTaskAssignedTo, taskAssigneeIds, normalizePriority } from '@/lib/task-utils';
 import {
@@ -21,8 +23,7 @@ import { priorityTextClass } from '@/lib/priority-styles';
 import { AssigneeCell, DueDateCell, PriorityCell, type DashUser } from '@/components/dash/DashCells';
 import type { DashRowPatch } from '@/components/dash/DashTable';
 
-const CARD_SHADOW =
-  'shadow-[0_1px_4px_rgba(0,0,0,0.10)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.14)] dark:shadow-[0_1px_4px_rgba(255,255,255,0.14)] dark:hover:shadow-[0_2px_8px_rgba(255,255,255,0.22)]';
+
 
 /** Project (text) + sprint (pill) in fixed slots so every card lines up. */
 export function BoardCardMetaPills({
@@ -66,23 +67,6 @@ export function BoardCardMetaPills({
       ) : null}
     </div>
   );
-}
-
-function useElapsedTime(epochStart: number | null): string {
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    if (!epochStart) return;
-    const id = setInterval(() => setTick(n => n + 1), 1000);
-    return () => clearInterval(id);
-  }, [epochStart]);
-  if (!epochStart) return '';
-  const secs = Math.max(0, Math.floor((Date.now() - epochStart) / 1000));
-  const h = Math.floor(secs / 3600);
-  const m = Math.floor((secs % 3600) / 60);
-  const s = secs % 60;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  if (h > 0) return `${h}:${pad(m)}:${pad(s)}`;
-  return `${pad(m)}:${pad(s)}`;
 }
 
 function formatDate(d: string) {
@@ -157,8 +141,13 @@ export function TaskCard({
 
   const isTimerActive = !!activeTimers[task.id];
   const elapsed = useElapsedTime(activeTimers[task.id] ?? null);
+  // Matches what the server actually allows: `start_task` accepts an assignee
+  // OR the creator. The card only checked assignees, so it hid the button from
+  // people the API would have let through — most visibly on subtasks, which are
+  // made by dragging one card onto another and often carry no assignee of their
+  // own, leaving nobody able to time them.
   const canStartTimer = !!currentUser
-    && isTaskAssignedTo(task, currentUser.id)
+    && (isTaskAssignedTo(task, currentUser.id) || task.createdBy === currentUser.id)
     && task.status !== 'completed'
     && task.status !== 'done';
   const showTimer = (canStartTimer || isTimerActive) && task.status !== 'completed' && task.status !== 'done';
@@ -347,7 +336,10 @@ export function TaskCard({
       {/* Cards of their own, indented under the task — the same shape a story
           uses for its tasks, so a subtask reads as work, not as a list item. */}
       {expanded && subtasks.length > 0 && (
-        <div className="mt-1.5 ml-2 space-y-1.5 border-l-2 border-border/60 pl-2">
+        <div
+          className="mt-1.5 ml-2 space-y-1.5 border-l-2 border-border/60 pl-2"
+          onClick={e => e.stopPropagation()}
+        >
           {subtasks.map(st =>
             renderSubtask
               ? renderSubtask(st)

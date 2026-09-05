@@ -122,7 +122,7 @@ export default function TeamTimeBreakdown({ groupBy }: { groupBy: GroupBy }) {
         />
 
         <Select value={personFilter} onValueChange={setPersonFilter}>
-          <SelectTrigger className="h-9 w-auto min-w-[140px] text-xs"><SelectValue placeholder="Person" /></SelectTrigger>
+          <SelectTrigger className="h-7 w-auto min-w-[140px] text-xs"><SelectValue placeholder="Person" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All people</SelectItem>
             {users.map(u => <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>)}
@@ -130,7 +130,7 @@ export default function TeamTimeBreakdown({ groupBy }: { groupBy: GroupBy }) {
         </Select>
 
         <Select value={projectFilter} onValueChange={setProjectFilter}>
-          <SelectTrigger className="h-9 w-auto min-w-[150px] text-xs"><SelectValue placeholder="Project" /></SelectTrigger>
+          <SelectTrigger className="h-7 w-auto min-w-[150px] text-xs"><SelectValue placeholder="Project" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All projects</SelectItem>
             {projects.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
@@ -142,7 +142,7 @@ export default function TeamTimeBreakdown({ groupBy }: { groupBy: GroupBy }) {
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border border-border/40 bg-muted/20 px-4 py-3">
         <div className="flex items-center gap-2">
           <Clock className="h-4 w-4 text-muted-foreground" />
-          <span className="text-lg font-bold tabular-nums">{hours(totalSeconds)}</span>
+          <span className="text-sm font-bold tabular-nums">{hours(totalSeconds)}</span>
           <span className="text-xs text-muted-foreground">total</span>
         </div>
         <div className="flex items-center gap-2">

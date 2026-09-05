@@ -23,6 +23,8 @@ import { useAppStore } from '@/stores/appStore';
 import UserAvatar from '@/components/UserAvatar';
 import type { Scrum, ScrumDaySummary, MomMember, User } from '@/types';
 import { toast } from 'sonner';
+import PageHeader from '@/components/PageHeader';
+import { PAGE_SHELL_SCROLL } from '@/lib/page-styles';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const iso = (d: Date) => format(d, 'yyyy-MM-dd');
@@ -121,46 +123,38 @@ export default function MeetingNotesPage() {
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={pageEnter}
-      className="min-h-full"
+      className={PAGE_SHELL_SCROLL}
     >
-      {/* Header */}
-      <div className="shrink-0 px-4 sm:px-8 pt-6 sm:pt-7 pb-5 border-b border-border/30 bg-gradient-to-b from-muted/20 to-transparent">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <CalendarDays className="h-4 w-4 text-primary/60" />
-              <span className="text-xs font-bold text-muted-foreground/50 uppercase tracking-widest">Daily MOM</span>
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-foreground to-foreground/60 bg-clip-text text-transparent">
-              Meeting Notes
-            </h1>
-            <p className="text-sm text-muted-foreground/60 mt-1.5">
-              Add one or more scrums per day — the AI agent structures each one per person automatically.
-            </p>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
+      <PageHeader
+        icon={CalendarDays}
+        eyebrow="Daily MOM"
+        title="Meeting Notes"
+        actions={
+          <>
             {isManagerial && (
               <button onClick={() => setTeamsOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-primary/40 bg-primary/5 text-primary text-xs font-semibold hover:bg-primary/10 transition-colors">
+                className="inline-flex h-7 items-center gap-1.5 px-2.5 rounded-lg border border-primary/40 bg-primary/5 text-primary text-xs font-semibold hover:bg-primary/10 transition-colors">
                 <Video className="h-3.5 w-3.5" /> Import from Teams
               </button>
             )}
-            <button onClick={() => setCursor(c => addMonths(c, -1))} className="p-2 rounded-xl border border-border/50 bg-muted/30 hover:bg-muted/60 transition-colors">
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <span className="text-sm font-semibold w-36 text-center tabular-nums">{format(cursor, 'MMMM yyyy')}</span>
-            <button onClick={() => setCursor(c => addMonths(c, 1))} className="p-2 rounded-xl border border-border/50 bg-muted/30 hover:bg-muted/60 transition-colors">
-              <ChevronRight className="h-4 w-4" />
-            </button>
-            <button onClick={() => setCursor(startOfMonth(new Date()))} className="ml-1 px-3 py-2 rounded-xl border border-border/50 bg-muted/30 hover:bg-muted/60 text-xs font-semibold transition-colors">
-              Today
-            </button>
-          </div>
-        </div>
-      </div>
+            <div className="inline-flex h-7 items-center rounded-lg border border-border/70 bg-card/70 p-0.5">
+              <button onClick={() => setCursor(c => addMonths(c, -1))} className="inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-muted transition-colors">
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </button>
+              <span className="text-xs font-semibold w-28 text-center tabular-nums">{format(cursor, 'MMMM yyyy')}</span>
+              <button onClick={() => setCursor(c => addMonths(c, 1))} className="inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-muted transition-colors">
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+              <button onClick={() => setCursor(startOfMonth(new Date()))} className="ml-0.5 h-6 rounded-md px-2 text-xs font-semibold hover:bg-muted transition-colors">
+                Today
+              </button>
+            </div>
+          </>
+        }
+      />
 
       {/* Calendar */}
-      <div className="p-4 sm:p-6">
+      <div>
         <div className="grid grid-cols-7 gap-1.5 mb-1.5">
           {WEEKDAYS.map(d => (
             <div key={d} className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/40 text-center py-1">{d}</div>

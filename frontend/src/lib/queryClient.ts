@@ -90,6 +90,10 @@ export function removeUserStory(storyId: string, projectId: string) {
 }
 
 export function invalidateUserStories() {
-  void queryClient.invalidateQueries({ queryKey: storyKeys.all });
-  void queryClient.invalidateQueries({ queryKey: ['project'] });
+  // Returns the refetch so a caller painting an optimistic move can hold that
+  // paint until real data replaces it. Callers that do not care may ignore it.
+  return Promise.all([
+    queryClient.invalidateQueries({ queryKey: storyKeys.all }),
+    queryClient.invalidateQueries({ queryKey: ['project'] }),
+  ]);
 }

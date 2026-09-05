@@ -73,6 +73,13 @@ const DialogContent = React.forwardRef<
     }
   };
 
+  // NOTE: the max-h below is a default for ordinary dialogs, and a caller
+  // CANNOT cancel it with a class. tailwind-merge keeps the base's arbitrary
+  // max-h and silently drops `max-h-none` / `!max-h-none`, so a dialog that
+  // sets its own height gets capped, overflows, and scrolls as a whole —
+  // taking its pinned header with it. Override with an inline
+  // `style={{ maxHeight: 'none' }}`, which no class merging can touch.
+  // See the full-height detail modals.
   return (
   <DialogPortal>
     <DialogOverlay />

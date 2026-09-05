@@ -27,7 +27,15 @@ const TYPE_ICON: Record<string, React.ReactNode> = {
   task_approved: <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />,
 };
 
-export default function NotificationBell() {
+export default function NotificationBell({
+  triggerClassName,
+  label,
+}: {
+  /** Lets the sidebar style the trigger like one of its nav rows. */
+  triggerClassName?: string;
+  /** Shown beside the bell when the sidebar is expanded. */
+  label?: string;
+} = {}) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -111,23 +119,31 @@ export default function NotificationBell() {
       {/* Bell button */}
       <button
         onClick={() => setOpen(o => !o)}
-        className="relative h-9 w-9 inline-flex items-center justify-center rounded-xl border border-border/70 bg-card/70 hover:bg-accent/60 hover:border-ring/40 transition-colors"
-        title="Notifications"
+        className={
+          triggerClassName ??
+          'relative h-9 w-9 inline-flex items-center justify-center rounded-xl border border-border/70 bg-card/70 hover:bg-accent/60 hover:border-ring/40 transition-colors'
+        }
+        title={label ? undefined : 'Notifications'}
       >
-        <Bell className="h-4 w-4" />
-        <AnimatePresence>
-          {unread > 0 && (
-            <motion.span
-              key="badge"
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              exit={{ scale: 0 }}
-              className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white leading-none"
-            >
-              {unread > 9 ? '9+' : unread}
-            </motion.span>
-          )}
-        </AnimatePresence>
+        {/* The badge hangs off the icon, not the button: with a label the button
+            is full width, and a button-anchored badge drifts to the far edge. */}
+        <span className="relative z-10 inline-flex shrink-0">
+          <Bell className="h-[18px] w-[18px]" />
+          <AnimatePresence>
+            {unread > 0 && (
+              <motion.span
+                key="badge"
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                exit={{ scale: 0 }}
+                className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white leading-none"
+              >
+                {unread > 9 ? '9+' : unread}
+              </motion.span>
+            )}
+          </AnimatePresence>
+        </span>
+        {label && <span className="relative z-10 whitespace-nowrap">{label}</span>}
       </button>
 
       {/* Dropdown panel */}

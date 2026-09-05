@@ -1,4 +1,5 @@
 import { useAppStore } from '@/stores/appStore';
+import { CARD_SHADOW } from '@/lib/card-shadow';
 import { projectPickerLabel } from '@/lib/project-utils';
 import { Task, Priority, KanbanColumn } from '@/types';
 import { motion } from 'framer-motion';
@@ -71,10 +72,17 @@ import { Loader2 } from 'lucide-react';
 import { useBusyIds } from '@/hooks/useBusyIds';
 import { AssigneeCell, DueDateCell, PriorityCell, type DashUser } from '@/components/dash/DashCells';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { api } from '@/lib/api';
 import { promptActualHours } from '@/components/ActualHoursDialog';
 import { useQuery } from '@tanstack/react-query';
-import { removeUserStory, storyKeys, STORY_STALE_TIME, upsertUserStory } from '@/lib/queryClient';
+import { invalidateUserStories, removeUserStory, storyKeys, STORY_STALE_TIME, upsertUserStory } from '@/lib/queryClient';
 import type { UserStory } from '@/types';
 
 const PROTECTED_IDS = new Set(['backlog', 'in_progress', 'in_review', 'done']);
@@ -106,8 +114,7 @@ function statusColId(status: string, columns: KanbanColumn[], doneColumnId: stri
   // not exist is rendered by nobody and simply disappears.
   return columns.some(c => c.id === 'backlog') ? 'backlog' : (columns[0]?.id ?? 'backlog');
 }
-const CARD_SHADOW =
-  'shadow-[0_1px_4px_rgba(0,0,0,0.10)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.14)] dark:shadow-[0_1px_4px_rgba(255,255,255,0.14)] dark:hover:shadow-[0_2px_8px_rgba(255,255,255,0.22)]';
+
 
 /** A task rendered as its own card. `storyTitle` marks one pulled out of its story. */
 interface BoardTaskCard {
@@ -679,12 +686,29 @@ const DashboardPage = () => {
    * `childTasksOf` nothing to find, so a task with subtasks showed no expander
    * in the list and nothing on its board card.
    */
+  /**
+   * Where a drag has already put things on screen, before the server agrees.
+   *
+   * A drop used to leave the card sitting in the old column until the request,
+   * the task re-read and the story re-read had all come back. On a story
+   * holding a dozen tasks that is long enough to read as "nothing happened", so
+   * people drag it again. Painting the move here lands the card under the
+   * cursor immediately; the entry is dropped once the real status arrives, and
+   * a failed request simply reverts to the truth on screen.
+   *
+   * Overlaid at the two sources the board is built from, so every derived
+   * view — which column a card is in, what nests under what — follows from one
+   * change rather than each having to know about pending moves.
+   */
+  const [pendingMoves, setPendingMoves] = useState<Record<string, string>>({});
+
   const scopedTasks = useMemo(() => {
     if (!projectSelected) return [];
-    return isAllProjects
+    const rows = isAllProjects
       ? tasks.filter(t => userProjects.some(p => p.id === t.projectId))
       : tasks.filter(t => t.projectId === selectedProjectId);
-  }, [projectSelected, isAllProjects, tasks, userProjects, selectedProjectId]);
+    return rows.map(t => (pendingMoves[t.id] ? { ...t, status: pendingMoves[t.id] } : t));
+  }, [projectSelected, isAllProjects, tasks, userProjects, selectedProjectId, pendingMoves]);
 
   const [dashPriorityFilter, setDashPriorityFilter] = useState<Set<Priority>>(() => new Set());
   const [dashDateFrom, setDashDateFrom] = useState('');
@@ -699,12 +723,14 @@ const DashboardPage = () => {
   });
   const dashStories = useMemo(() => {
     if (!selectedProjectId) return [];
-    if (selectedProjectId === 'all') {
-      const ids = new Set(userProjects.map(p => p.id));
-      return allStories.filter(s => ids.has(s.projectId));
-    }
-    return allStories.filter(s => s.projectId === selectedProjectId);
-  }, [allStories, selectedProjectId, userProjects]);
+    const rows = selectedProjectId === 'all'
+      ? (() => {
+          const ids = new Set(userProjects.map(p => p.id));
+          return allStories.filter(s => ids.has(s.projectId));
+        })()
+      : allStories.filter(s => s.projectId === selectedProjectId);
+    return rows.map(s => (pendingMoves[s.id] ? { ...s, status: pendingMoves[s.id] } : s));
+  }, [allStories, selectedProjectId, userProjects, pendingMoves]);
   const [dashView, setDashView] = useState<DashView>(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem(VIEW_KEY) : null;
     return saved === 'board' || saved === 'list' ? saved : 'list';
@@ -1029,6 +1055,88 @@ const DashboardPage = () => {
   };
 
   /**
+   * Approved work inside a story, at any depth.
+   *
+   * Counted from the raw task and story lists rather than the board's maps: the
+   * board hides approved work, so by the time a card reaches those maps the
+   * very thing being counted has already been filtered out.
+   */
+  const approvedInsideStory = useCallback(
+    (storyId: string): number => {
+      const seen = new Set<string>();
+      let count = 0;
+      const walk = (sid: string) => {
+        if (seen.has(sid)) return;
+        seen.add(sid);
+        for (const t of tasks) {
+          if (t.userStoryId === sid && t.approvedByManager) count += 1;
+        }
+        for (const child of allStories) {
+          if (child.parentStoryId === sid) walk(child.id);
+        }
+      };
+      walk(storyId);
+      return count;
+    },
+    [tasks, allStories],
+  );
+
+  /**
+   * Every entity a drag is about to move: the card itself and all of its
+   * contents, as plain entity ids.
+   *
+   * The block has to be painted in one go. Landing the card first and letting
+   * its contents catch up a moment later is the same flicker the optimistic
+   * move exists to remove, only smaller.
+   */
+  const blockEntityIds = useCallback(
+    (kind: 'story' | 'task', id: string): string[] => {
+      const out: string[] = [id];
+      const seen = new Set<string>([id]);
+      const push = (next: string) => {
+        if (seen.has(next)) return false;
+        seen.add(next);
+        out.push(next);
+        return true;
+      };
+      const walkTask = (taskId: string) => {
+        for (const st of subtasksByTask[taskId] ?? []) if (push(st.id)) walkTask(st.id);
+      };
+      const walkStory = (sid: string) => {
+        for (const t of storyTasksById[sid] ?? []) if (push(t.id)) walkTask(t.id);
+        for (const c of childStoriesById[sid] ?? []) if (push(c.id)) walkStory(c.id);
+      };
+      if (kind === 'story') walkStory(id);
+      else walkTask(id);
+      return out;
+    },
+    [subtasksByTask, storyTasksById, childStoriesById],
+  );
+
+  /**
+   * Show the block in its new column now. Returns the undo that takes the paint
+   * back off once the server's answer has replaced it — call it in a `finally`
+   * so a rejected move reverts rather than leaving a lie on screen.
+   */
+  const paintMove = useCallback(
+    (kind: 'story' | 'task', id: string, colId: string) => {
+      const ids = blockEntityIds(kind, id);
+      setPendingMoves(prev => {
+        const next = { ...prev };
+        for (const i of ids) next[i] = colId;
+        return next;
+      });
+      return () =>
+        setPendingMoves(prev => {
+          const next = { ...prev };
+          for (const i of ids) delete next[i];
+          return next;
+        });
+    },
+    [blockEntityIds],
+  );
+
+  /**
    * Drop ids nested inside the dragged card — its subtasks, and for a story its
    * tasks and sub-stories all the way down.
    *
@@ -1182,6 +1290,15 @@ const DashboardPage = () => {
           toast.error('Move it to the same project first');
           return;
         }
+        // Filing one card inside another is a structural change, and the drop
+        // that does it looks identical to a drop meant for the column behind
+        // the card. Ask before rearranging someone's tree.
+        const ok = await confirmAction({
+          title: `Move "${story.title}" into "${host.title}"?`,
+          description: 'It becomes a sub-story and moves with that story from now on.',
+          confirmLabel: 'Move it in',
+        });
+        if (!ok) return;
         try {
           const updated = await api.patchUserStory(sid, { parentStoryId: hostId });
           upsertUserStory(updated);
@@ -1204,13 +1321,44 @@ const DashboardPage = () => {
       const leftParent = !!story.parentStoryId;
       const sameColumn = statusColId(story.status, boardColumns, doneColumnId) === targetCol;
       if (sameColumn && !leftParent) return;
+      // Coming back out of Done un-approves everything inside, which is what
+      // puts those cards back on the board. Worth saying out loud rather than
+      // quietly reversing someone's sign-off.
+      const leavingDone =
+        !sameColumn
+        && isDoneBoardStatus(story.status, doneColumnId)
+        && !isDoneBoardStatus(targetCol, doneColumnId);
+      if (leavingDone) {
+        const approved = approvedInsideStory(sid);
+        if (approved > 0) {
+          const ok = await confirmAction({
+            title: `Reopen ${approved} approved ${approved === 1 ? 'item' : 'items'}?`,
+            description: `Moving "${story.title}" out of Done reopens everything inside it. `
+              + `${approved} ${approved === 1 ? 'item was' : 'items were'} approved and will need approving again.`,
+            confirmLabel: 'Reopen them',
+          });
+          if (!ok) return;
+        }
+      }
+      const unpaint = sameColumn ? () => {} : paintMove('story', sid, targetCol);
       try {
         const updated = await api.patchUserStory(sid, {
           ...(sameColumn ? {} : { status: targetCol }),
           ...(leftParent ? { parentStoryId: '' } : {}),
         });
         if (leftParent) toast.success('Moved out on its own');
-        if (!sameColumn) await syncTasks();
+        if (!sameColumn) {
+          // The server moved the whole block, sub-stories included, but only the
+          // story that was patched comes back in the response. Upserting just
+          // that one leaves every child holding its old status in the cache, so
+          // they re-render in the column the parent has left and the block looks
+          // like it came apart. Nothing but re-reading the list knows which
+          // children moved.
+          await syncTasks();
+          // Held rather than fired-and-forgotten: the paint stays on until the
+          // re-read lands, so the block never blinks back to the old column.
+          await invalidateUserStories();
+        }
         upsertUserStory(updated);
         setSelectedStory(prev => (prev?.id === updated.id ? updated : prev));
         if (updated.status === 'completed' || updated.status === 'done' || updated.status === doneColumnId) {
@@ -1218,6 +1366,8 @@ const DashboardPage = () => {
         }
       } catch {
         toast.error('Could not move story');
+      } finally {
+        unpaint();
       }
       return;
     }
@@ -1236,6 +1386,12 @@ const DashboardPage = () => {
           toast.error('Move it to the same project first');
           return;
         }
+        const ok = await confirmAction({
+          title: `Move "${dragged.title}" into "${host.title}"?`,
+          description: 'It joins that story and moves with it from now on.',
+          confirmLabel: 'Move it in',
+        });
+        if (!ok) return;
         // CLEAR_LINK, not null: null means "leave this alone" to the server.
         await updateTask(activeIdStr, { userStoryId: dropStoryId, parentTaskId: CLEAR_LINK });
         toast.success(`Moved into "${host.title}"`);
@@ -1261,6 +1417,12 @@ const DashboardPage = () => {
           toast.error('Move its subtasks out first');
           return;
         }
+        const ok = await confirmAction({
+          title: `Make "${dragged.title}" a subtask of "${host.title}"?`,
+          description: 'It moves with that task from now on.',
+          confirmLabel: 'Make it a subtask',
+        });
+        if (!ok) return;
         await updateTask(activeIdStr, {
           parentTaskId: host.id,
           // A subtask belongs to whatever story holds its parent, exactly as a
@@ -1293,11 +1455,18 @@ const DashboardPage = () => {
       if (isDoneBoardStatus(targetCol, doneColumnId) && activeTimers[activeIdStr]) {
         await stopTimer(activeIdStr);
       }
-      if (leftStory) {
-        await updateTask(activeIdStr, { userStoryId: CLEAR_LINK, parentTaskId: CLEAR_LINK });
+      // Painted only now: the hours prompt above can still be cancelled, and a
+      // card that jumps before the question is answered has to jump back.
+      const unpaint = sameColumn ? () => {} : paintMove('task', activeIdStr, targetCol);
+      try {
+        if (leftStory) {
+          await updateTask(activeIdStr, { userStoryId: CLEAR_LINK, parentTaskId: CLEAR_LINK });
+        }
+        if (!sameColumn) await moveTask(activeIdStr, targetCol, hours);
+        if (leftStory) toast.success('Moved out on its own');
+      } finally {
+        unpaint();
       }
-      if (!sameColumn) await moveTask(activeIdStr, targetCol, hours);
-      if (leftStory) toast.success('Moved out on its own');
     } catch { toast.error('Could not move task'); }
     });
   };
@@ -1388,12 +1557,6 @@ const DashboardPage = () => {
     );
   }
 
-  const selectedProjectName = isAllProjects
-    ? 'All projects'
-    : (() => {
-        const p = userProjects.find(pr => pr.id === selectedProjectId);
-        return p ? projectPickerLabel(p) : 'Dashboard';
-      })();
 
   const setView = (v: DashView) => {
     setDashView(v);
@@ -1473,6 +1636,16 @@ const DashboardPage = () => {
       toast.error('Move it to the same project first');
       return;
     }
+    if (row.entityId === parent.entityId) return;
+    // Same gesture as the board's drop-on-a-card, so it asks the same question:
+    // a drop meant for the row beneath is indistinguishable from one meant to
+    // file this item inside it.
+    const nesting = await confirmAction({
+      title: `Move "${row.title}" into "${parent.title}"?`,
+      description: 'It moves with that item from now on.',
+      confirmLabel: 'Move it in',
+    });
+    if (!nesting) return;
     try {
       if (row.type === 'story') {
         if (parent.entityId === row.entityId) return;
@@ -1597,8 +1770,12 @@ const DashboardPage = () => {
         if (leavingParent) toast.success('Moved out on its own');
         upsertUserStory(updated);
         setSelectedStory(prev => (prev?.id === updated.id ? updated : prev));
-        // Its tasks and sub-stories moved with it on the server.
-        if (patch.status !== undefined) await syncTasks();
+        // Its tasks and sub-stories moved with it on the server, and only this
+        // story came back — re-read the list so the children move on screen too.
+        if (patch.status !== undefined) {
+          await syncTasks();
+          invalidateUserStories();
+        }
         return;
       }
       if (!row.task) return;
@@ -1746,9 +1923,36 @@ const DashboardPage = () => {
         </span>
       )}
       <div className="mb-3 shrink-0 flex flex-col gap-2">
-        <div className="flex items-center gap-3 min-w-0">
-          <h1 className="text-lg font-bold text-foreground truncate">{selectedProjectName}</h1>
-          <div className="inline-flex h-8 shrink-0 rounded-lg border border-border/70 bg-card/70 p-0.5">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0">
+          {/* The project picker used to live in the top bar. It belongs to the
+              board it scopes, so it moved here when that bar was removed. */}
+          <Select
+            value={userProjects.length === 0 ? 'none' : (selectedProjectId || 'all')}
+            onValueChange={v => { if (v !== 'none') selectProject(v); }}
+            disabled={userProjects.length === 0}
+          >
+            <SelectTrigger
+              aria-label="Project"
+              className="h-7 w-full sm:w-[min(60vw,18rem)] min-w-0 flex-1 sm:flex-none rounded-lg border-border/70 bg-card/70 px-2.5 text-[13px] sm:text-sm font-bold shadow-none focus:ring-2 focus:ring-ring/40 focus:ring-offset-0"
+            >
+              <SelectValue placeholder={userProjects.length === 0 ? 'No projects' : 'Project'} />
+            </SelectTrigger>
+            <SelectContent className="max-h-72 min-w-[14rem] rounded-xl border-border/70 p-1 shadow-lg">
+              {userProjects.length === 0 ? (
+                <SelectItem value="none" className="rounded-lg py-2">No projects</SelectItem>
+              ) : (
+                <>
+                  <SelectItem value="all" className="rounded-lg py-2 font-medium">All projects</SelectItem>
+                  {userProjects.map(p => (
+                    <SelectItem key={p.id} value={p.id} className="rounded-lg py-2">
+                      {projectPickerLabel(p)}
+                    </SelectItem>
+                  ))}
+                </>
+              )}
+            </SelectContent>
+          </Select>
+          <div className="inline-flex h-7 shrink-0 rounded-lg border border-border/70 bg-card/70 p-0.5">
             <button
               type="button"
               onClick={() => setView('list')}
