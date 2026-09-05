@@ -20,7 +20,25 @@ export interface ConfirmOptions {
   destructive?: boolean;
 }
 
-type Pending = ConfirmOptions & { resolve: (ok: boolean) => void };
+/**
+ * A question with more than one way to say yes.
+ *
+ * Dropping a card onto another card is genuinely ambiguous — the card and the
+ * column behind it are both under the cursor — so offering only "do it" and
+ * "cancel" makes the reader drag again to get the other outcome. Each choice
+ * carries its own value and Cancel still means nothing happens.
+ */
+export interface ChoiceOptions {
+  title: string;
+  description?: string;
+  /** Rendered left to right; the last one reads as the primary action. */
+  choices: { label: string; value: string }[];
+  cancelLabel?: string;
+}
+
+type Pending =
+  | ({ kind: 'confirm'; resolve: (ok: boolean) => void } & ConfirmOptions)
+  | ({ kind: 'choice'; resolve: (value: string | null) => void } & ChoiceOptions);
 
 let listener: ((p: Pending | null) => void) | null = null;
 
@@ -40,7 +58,22 @@ export function confirmAction(options: ConfirmOptions): Promise<boolean> {
       resolve(false);
       return;
     }
-    listener({ ...options, resolve });
+    listener({ kind: 'confirm', ...options, resolve });
+  });
+}
+
+/**
+ * Ask which of several things the reader meant. Resolves to the chosen value,
+ * or `null` for cancel, Escape and clicking away — doing nothing stays the safe
+ * outcome, exactly as it is for `confirmAction`.
+ */
+export function chooseAction(options: ChoiceOptions): Promise<string | null> {
+  return new Promise(resolve => {
+    if (!listener) {
+      resolve(null);
+      return;
+    }
+    listener({ kind: 'choice', ...options, resolve });
   });
 }
 
@@ -52,13 +85,21 @@ export function ConfirmDialogHost() {
     return () => { listener = null; };
   }, []);
 
-  const close = (ok: boolean) => {
-    pending?.resolve(ok);
+  /** Dismissing without choosing: `false` for a confirm, `null` for a choice. */
+  const dismiss = () => {
+    if (pending?.kind === 'choice') pending.resolve(null);
+    else pending?.resolve(false);
+    setPending(null);
+  };
+
+  const answer = (value: boolean | string) => {
+    if (pending?.kind === 'choice') pending.resolve(value as string);
+    else pending?.resolve(value as boolean);
     setPending(null);
   };
 
   return (
-    <AlertDialog open={!!pending} onOpenChange={o => { if (!o) close(false); }}>
+    <AlertDialog open={!!pending} onOpenChange={o => { if (!o) dismiss(); }}>
       <AlertDialogContent className="rounded-2xl">
         <AlertDialogHeader>
           <AlertDialogTitle>{pending?.title}</AlertDialogTitle>
@@ -67,15 +108,31 @@ export function ConfirmDialogHost() {
           ) : null}
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel onClick={() => close(false)}>
+          <AlertDialogCancel onClick={dismiss}>
             {pending?.cancelLabel ?? 'Cancel'}
           </AlertDialogCancel>
-          <AlertDialogAction
-            className={pending?.destructive ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : undefined}
-            onClick={() => close(true)}
-          >
-            {pending?.confirmLabel ?? 'Confirm'}
-          </AlertDialogAction>
+          {pending?.kind === 'choice' ? (
+            pending.choices.map((c, i) => (
+              <AlertDialogAction
+                key={c.value}
+                // Only the last reads as the primary action; the others are
+                // equal alternatives, not lesser ones.
+                className={i < pending.choices.length - 1
+                  ? 'bg-muted text-foreground hover:bg-muted/80'
+                  : undefined}
+                onClick={() => answer(c.value)}
+              >
+                {c.label}
+              </AlertDialogAction>
+            ))
+          ) : (
+            <AlertDialogAction
+              className={pending?.destructive ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90' : undefined}
+              onClick={() => answer(true)}
+            >
+              {pending?.confirmLabel ?? 'Confirm'}
+            </AlertDialogAction>
+          )}
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

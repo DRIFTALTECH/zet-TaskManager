@@ -57,6 +57,13 @@ export default {
         "slide-up": { "0%": { opacity: "0", transform: "translateY(16px)" }, "100%": { opacity: "1", transform: "translateY(0)" } },
         // Indeterminate bar: something is saving, length unknown.
         "dash-progress": { "0%": { transform: "translateX(-100%)" }, "100%": { transform: "translateX(400%)" } },
+        // The card under a drag that would take the item in. Small enough to
+        // read as "this one is listening", not as an error.
+        "drop-nudge": {
+          "0%, 100%": { transform: "translateX(0) rotate(0deg)" },
+          "25%": { transform: "translateX(-2px) rotate(-0.6deg)" },
+          "75%": { transform: "translateX(2px) rotate(0.6deg)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -64,6 +71,7 @@ export default {
         "fade-in": "fade-in 0.4s ease-out",
         "slide-up": "slide-up 0.5s ease-out",
         "dash-progress": "dash-progress 1.1s ease-in-out infinite",
+        "drop-nudge": "drop-nudge 0.5s ease-in-out infinite",
       },
     },
   },

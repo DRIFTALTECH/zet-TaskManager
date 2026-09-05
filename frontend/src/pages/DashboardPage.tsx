@@ -1,5 +1,6 @@
 import { useAppStore } from '@/stores/appStore';
 import { CARD_SHADOW } from '@/lib/card-shadow';
+import { DropHostContext, DROP_HOST_CLASS, useIsDropHost } from '@/lib/drop-target';
 import { projectPickerLabel } from '@/lib/project-utils';
 import { Task, Priority, KanbanColumn } from '@/types';
 import { motion } from 'framer-motion';
@@ -40,7 +41,7 @@ import { CreateUserStoryDialog } from '@/components/CreateUserStoryDialog';
 import { AddWorkMenu } from '@/components/AddWorkMenu';
 import { SortableTaskCard, TaskCard, BoardCardMetaPills } from '@/components/TaskCard';
 import { toast } from 'sonner';
-import { confirmAction } from '@/components/ConfirmDialog';
+import { chooseAction, confirmAction } from '@/components/ConfirmDialog';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
@@ -170,6 +171,7 @@ function StoryBoardCard({
   const priority = normalizePriority(String(story.priority));
   const assignees = aids.map(id => users.find(x => x.id === id)).filter(Boolean) as typeof users;
   const hours = rollupStoryHours(allTasks, story.id);
+  const isDropHost = useIsDropHost(storyDragId(story.id));
   return (
     <div
       ref={dragRef}
@@ -178,8 +180,8 @@ function StoryBoardCard({
     >
       <div
         className={`relative rounded-xl border border-border/70 bg-card p-3 flex flex-col transition-shadow ${CARD_SHADOW} ${
-          busy ? 'pointer-events-none' : ''
-        }`}
+          isDropHost ? DROP_HOST_CLASS : ''
+        } ${busy ? 'pointer-events-none' : ''}`}
       >
         {busy && (
           <span className="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-card/70">
@@ -639,6 +641,15 @@ const DashboardPage = () => {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeType, setActiveType] = useState<ActiveDrag | null>(null);
   const [overColumnId, setOverColumnId] = useState<string | null>(null);
+  /**
+   * The card a drag is currently hovering that would take the item in.
+   *
+   * A drop onto a card and a drop onto the column behind it look the same until
+   * you let go, so the board gave no sign which one was about to happen. The
+   * host card nudges while it is under the cursor: the answer is visible before
+   * the question gets asked.
+   */
+  const [overCardId, setOverCardId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createStatus, setCreateStatus] = useState<string | undefined>();
 
@@ -1055,6 +1066,29 @@ const DashboardPage = () => {
   };
 
   /**
+   * A drop landed on a card. Ask what the reader meant by it.
+   *
+   * The card and the column behind it are both under the cursor, so the gesture
+   * cannot say on its own whether the item should go *into* that card or simply
+   * to that column. Offering only "do it" and "cancel" made the reader drag a
+   * second time to get the other outcome; both are now one click.
+   */
+  const askDropPlacement = useCallback(
+    async (movingTitle: string, hostTitle: string, insideLabel: string) => {
+      const answer = await chooseAction({
+        title: `Where should "${movingTitle}" go?`,
+        description: `You dropped it on "${hostTitle}".`,
+        choices: [
+          { label: 'Leave it outside', value: 'outside' },
+          { label: insideLabel, value: 'inside' },
+        ],
+      });
+      return (answer ?? 'cancel') as 'inside' | 'outside' | 'cancel';
+    },
+    [],
+  );
+
+  /**
    * Approved work inside a story, at any depth.
    *
    * Counted from the raw task and story lists rather than the board's maps: the
@@ -1237,15 +1271,21 @@ const DashboardPage = () => {
     const { active, over } = event;
     const type = active.data.current?.type as ActiveDrag | undefined;
     if (mascotsEnabled && type === 'task') setMascotDrag(true, over?.id === 'tasker-dropzone');
-    if (!over || type === 'column') { setOverColumnId(null); return; }
+    if (!over || type === 'column') { setOverColumnId(null); setOverCardId(null); return; }
     const overId = over.id as string;
-    if (overId === 'tasker-dropzone') { setOverColumnId(null); return; }
+    if (overId === 'tasker-dropzone') { setOverColumnId(null); setOverCardId(null); return; }
     setOverColumnId(resolveOverCol(overId));
+    // Only a card that would actually accept the drop nudges. The collision
+    // rules already refuse a card's own descendants, so anything reported here
+    // as a card is a real host.
+    const overType = over.data.current?.type as string | undefined;
+    const isCard = overType === 'story' || overType === 'task';
+    setOverCardId(isCard && overId !== String(active.id) ? overId : null);
   };
 
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
-    setActiveId(null); setActiveType(null); setOverColumnId(null);
+    setActiveId(null); setActiveType(null); setOverColumnId(null); setOverCardId(null);
     setMascotDrag(false, false);
     // Whatever this drag turns out to be, the card it touches is working until
     // the request settles.
@@ -1290,23 +1330,20 @@ const DashboardPage = () => {
           toast.error('Move it to the same project first');
           return;
         }
-        // Filing one card inside another is a structural change, and the drop
-        // that does it looks identical to a drop meant for the column behind
-        // the card. Ask before rearranging someone's tree.
-        const ok = await confirmAction({
-          title: `Move "${story.title}" into "${host.title}"?`,
-          description: 'It becomes a sub-story and moves with that story from now on.',
-          confirmLabel: 'Move it in',
-        });
-        if (!ok) return;
-        try {
-          const updated = await api.patchUserStory(sid, { parentStoryId: hostId });
-          upsertUserStory(updated);
-          toast.success(`Moved into "${host.title}"`);
-        } catch (e) {
-          toast.error(e instanceof Error ? e.message : 'Could not move that story');
+        const placement = await askDropPlacement(story.title, host.title, 'Put it inside');
+        if (placement === 'cancel') return;
+        if (placement === 'inside') {
+          try {
+            const updated = await api.patchUserStory(sid, { parentStoryId: hostId });
+            upsertUserStory(updated);
+            toast.success(`Moved into "${host.title}"`);
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : 'Could not move that story');
+          }
+          return;
         }
-        return;
+        // "Outside": they meant the column the card sits in, so fall through to
+        // the column drop below rather than making them drag a second time.
       }
 
       // Dropped on a task's card. A story never lives inside a task, and the
@@ -1386,16 +1423,15 @@ const DashboardPage = () => {
           toast.error('Move it to the same project first');
           return;
         }
-        const ok = await confirmAction({
-          title: `Move "${dragged.title}" into "${host.title}"?`,
-          description: 'It joins that story and moves with it from now on.',
-          confirmLabel: 'Move it in',
-        });
-        if (!ok) return;
-        // CLEAR_LINK, not null: null means "leave this alone" to the server.
-        await updateTask(activeIdStr, { userStoryId: dropStoryId, parentTaskId: CLEAR_LINK });
-        toast.success(`Moved into "${host.title}"`);
-        return;
+        const placement = await askDropPlacement(dragged.title, host.title, 'Put it in the story');
+        if (placement === 'cancel') return;
+        if (placement === 'inside') {
+          // CLEAR_LINK, not null: null means "leave this alone" to the server.
+          await updateTask(activeIdStr, { userStoryId: dropStoryId, parentTaskId: CLEAR_LINK });
+          toast.success(`Moved into "${host.title}"`);
+          return;
+        }
+        // "Outside": fall through to the column drop below.
       }
 
       // Dropped on another task's card: that is how a subtask is made. The
@@ -1417,20 +1453,19 @@ const DashboardPage = () => {
           toast.error('Move its subtasks out first');
           return;
         }
-        const ok = await confirmAction({
-          title: `Make "${dragged.title}" a subtask of "${host.title}"?`,
-          description: 'It moves with that task from now on.',
-          confirmLabel: 'Make it a subtask',
-        });
-        if (!ok) return;
-        await updateTask(activeIdStr, {
-          parentTaskId: host.id,
-          // A subtask belongs to whatever story holds its parent, exactly as a
-          // subtask created from the card does.
-          userStoryId: host.userStoryId || CLEAR_LINK,
-        });
-        toast.success(`Moved under "${host.title}"`);
-        return;
+        const placement = await askDropPlacement(dragged.title, host.title, 'Make it a subtask');
+        if (placement === 'cancel') return;
+        if (placement === 'inside') {
+          await updateTask(activeIdStr, {
+            parentTaskId: host.id,
+            // A subtask belongs to whatever story holds its parent, exactly as a
+            // subtask created from the card does.
+            userStoryId: host.userStoryId || CLEAR_LINK,
+          });
+          toast.success(`Moved under "${host.title}"`);
+          return;
+        }
+        // "Outside": fall through to the column drop below.
       }
 
       // Dropped on a column instead: that is outside every story, so the task
@@ -1472,7 +1507,7 @@ const DashboardPage = () => {
   };
 
   const handleDragCancel = () => {
-    setActiveId(null); setActiveType(null); setOverColumnId(null);
+    setActiveId(null); setActiveType(null); setOverColumnId(null); setOverCardId(null);
     setMascotDrag(false, false);
   };
 
@@ -2046,6 +2081,7 @@ const DashboardPage = () => {
       <DndContext sensors={sensors} collisionDetection={collisionDetection}
         onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}>
+        <DropHostContext.Provider value={overCardId}>
         <SortableContext items={boardColumns.map(c => c.id)} strategy={horizontalListSortingStrategy}>
           <KanbanBoardPan className="flex gap-4 lg:gap-3 flex-1 min-h-0 pb-4">
             {boardColumns.map(col => (
@@ -2118,6 +2154,7 @@ const DashboardPage = () => {
         </DragOverlay>
 
         {mascotsEnabled && <MascotDropZone />}
+        </DropHostContext.Provider>
       </DndContext>
       )}
 

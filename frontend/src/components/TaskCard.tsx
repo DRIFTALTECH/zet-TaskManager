@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import UserAvatar from '@/components/UserAvatar';
 import { useAppStore } from '@/stores/appStore';
 import { CARD_SHADOW } from '@/lib/card-shadow';
+import { DROP_HOST_CLASS, useIsDropHost } from '@/lib/drop-target';
 import { useElapsedTime } from '@/hooks/useElapsedTime';
 import { projectNameColor } from '@/lib/project-utils';
 import { isTaskAssignedTo, taskAssigneeIds, normalizePriority } from '@/lib/task-utils';
@@ -158,6 +159,9 @@ export function TaskCard({
   const dueBucket = getDueBucket(task.dueDate);
 
   const isSortable = !!dragRef;
+  // Nudges while a drag hovers this card, so it is clear the item would land
+  // inside it rather than in the column behind.
+  const isDropHost = useIsDropHost(task.id);
 
   const style: CSSProperties | undefined = isSortable
     ? {
@@ -222,7 +226,7 @@ export function TaskCard({
       }`}
     >
       <div
-        className={`relative rounded-xl border border-border/70 bg-card p-3 flex flex-col transition-shadow ${CARD_SHADOW} ${
+        className={`relative rounded-xl border border-border/70 bg-card p-3 flex flex-col transition-shadow ${CARD_SHADOW} ${isDropHost ? DROP_HOST_CLASS : ''} ${
           busy ? 'pointer-events-none' : ''
         }`}
       >
