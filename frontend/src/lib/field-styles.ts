@@ -28,7 +28,7 @@ export const CONTROL_H = 'h-7';
 export const ROW_MIN_H = 'min-h-7';
 
 export const FIELD_GRID = [
-  'grid grid-cols-1 gap-x-6 gap-y-0 lg:grid-cols-2',
+  'grid grid-cols-1 gap-x-5 gap-y-0 sm:grid-cols-2 lg:grid-cols-3',
   '[&>section]:grid [&>section]:grid-cols-[5.5rem_minmax(0,1fr)] [&>section]:items-center',
   '[&>section]:gap-2 [&>section]:min-h-7',
   '[&>section>div:first-child]:mb-0 [&>section>div:first-child]:text-[11px]',
@@ -45,6 +45,13 @@ export const FIELD_GRID = [
   '[&_input:hover]:bg-muted/60 [&_input:focus]:bg-muted/60 [&_input:focus]:border-border/60',
   '[&_[role=combobox]]:border-transparent [&_[role=combobox]]:bg-transparent',
   '[&_[role=combobox]:hover]:bg-muted/60',
+  // Selects came with a heavy offset ring on plain `focus`, so clicking one
+  // stamped a thick dark outline around it while the input beside it just
+  // tinted. Same treatment for both, and the ring is kept for `focus-visible`
+  // where it is doing its actual job — showing a keyboard where it is.
+  '[&_[role=combobox]:focus]:bg-muted/60 [&_[role=combobox]:focus]:border-border/60',
+  '[&_[role=combobox]:focus]:ring-0 [&_[role=combobox]:focus]:ring-offset-0',
+  '[&_[role=combobox]:focus-visible]:ring-2 [&_[role=combobox]:focus-visible]:ring-primary/30',
 ].join(' ');
 
 /**
@@ -66,3 +73,16 @@ export const GHOST_FIELD =
  */
 export const FIELD_INPUT =
   'w-full rounded-xl border border-border/50 bg-muted/40 px-3.5 py-2.5 text-sm transition-all placeholder:text-muted-foreground/40 focus:border-primary/20 focus:outline-none focus:ring-2 focus:ring-primary/40';
+
+/**
+ * An icon button on a detail modal's header row — save, discard, generate,
+ * delete. These used to be a full-width footer band across the bottom of every
+ * modal, which cost a row of height on every screen to hold two buttons that
+ * are only live while there are unsaved edits.
+ */
+export const MODAL_HEADER_ACTION =
+  'rounded-xl p-2.5 text-muted-foreground/50 transition-all duration-150 hover:bg-muted/60 hover:text-foreground disabled:pointer-events-none disabled:opacity-25';
+
+/** The one that commits — tinted so it reads as the primary action. */
+export const MODAL_HEADER_ACTION_PRIMARY =
+  'rounded-xl p-2.5 text-primary transition-all duration-150 hover:bg-primary/10 disabled:pointer-events-none disabled:opacity-25';

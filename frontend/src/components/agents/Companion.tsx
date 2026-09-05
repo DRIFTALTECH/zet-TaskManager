@@ -534,22 +534,24 @@ export default function Companion() {
             )}</AnimatePresence>
           </div>
 
-          <motion.div animate={bodyAnim} transition={bodyTransition} style={{ transformOrigin: 'bottom center' }}>
-            <AgentAvatar agent={agent} mood={dragOver ? 'happy' : mood} size={70} still={reduced} />
-          </motion.div>
+          <div className="relative">
+            <motion.div animate={bodyAnim} transition={bodyTransition} style={{ transformOrigin: 'bottom center' }}>
+              <AgentAvatar agent={agent} mood={dragOver ? 'happy' : mood} size={70} still={reduced} />
+            </motion.div>
 
-          {/* Attention badge (B) */}
-          {isTasker && attention && !menuOpen && !mascotDropTaskId && (
-            <motion.span
-              key={`${attention.tone}-${attention.count}`}
-              initial={{ scale: 0 }} animate={{ scale: 1 }}
-              className={`absolute -top-0.5 right-1 flex h-5 min-w-[20px] items-center justify-center rounded-full px-1 text-[10px] font-bold text-white shadow-md ${
-                attention.tone === 'rose' ? 'bg-rose-500' : attention.tone === 'amber' ? 'bg-amber-500' : 'bg-violet-500'
-              }`}
-            >
-              {attention.tone === 'amber' ? '!' : attention.count > 9 ? '9+' : attention.count}
-            </motion.span>
-          )}
+            {/* Attention badge (B) */}
+            {isTasker && attention && !menuOpen && !mascotDropTaskId && (
+              <motion.span
+                key={`${attention.tone}-${attention.count}`}
+                initial={{ scale: 0 }} animate={{ scale: 1 }}
+                className={`absolute -right-1 top-1 flex h-5 min-w-[20px] items-center justify-center rounded-full px-1 text-[10px] font-bold text-white shadow-md ${
+                  attention.tone === 'rose' ? 'bg-rose-500' : attention.tone === 'amber' ? 'bg-amber-500' : 'bg-violet-500'
+                }`}
+              >
+                {attention.tone === 'amber' ? '!' : attention.count > 9 ? '9+' : attention.count}
+              </motion.span>
+            )}
+          </div>
 
           <div className="h-2 w-12 -translate-y-1 rounded-[50%] bg-black/25 blur-[3px] dark:bg-black/45" />
         </motion.button>

@@ -27,18 +27,24 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
-import { BookOpen, ChevronRight, CircleDot, GitBranch, GripVertical, Loader2, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { BookOpen, ChevronRight, CircleDot, GitBranch, GripVertical, Loader2, MoreHorizontal, Palette, Pencil, Plus, Trash2 } from 'lucide-react';
 import { AddWorkMenu } from '@/components/AddWorkMenu';
 import { RowDescription } from '@/components/dash/RowDescription';
 import { Hint } from '@/components/ui/hint';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { WorkTypeSelect } from '@/components/dash/WorkTypeSelect';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useAppStore } from '@/stores/appStore';
-import { ROW_SHADOW } from '@/lib/card-shadow';
 import { useElapsedTime } from '@/hooks/useElapsedTime';
 import { isTaskAssignedTo } from '@/lib/task-utils';
 import { DashBulkBar } from '@/components/dash/DashBulkBar';
-import { columnColorTokens } from '@/lib/column-colors';
+import { WORK_SURFACE } from '@/lib/card-shadow';
+import { COLUMN_COLOR_KEYS, columnColorTokens, DEFAULT_COLUMN_COLOR, type ColumnColor } from '@/lib/column-colors';
 import { projectNameColor } from '@/lib/project-utils';
 import { flattenDashNodes, statusColumnId, type DashGroup, type DashRow } from '@/lib/dash-rows';
 import {
@@ -89,7 +95,10 @@ const CELL = 'text-[13px]';
  * The board's card, laid out as a row: same radius, same border weight, same
  * shadow values — so switching views does not feel like switching apps.
  */
-const ROW_CARD = `rounded-lg border border-border/60 bg-card transition-shadow ${ROW_SHADOW}`;
+// The row is a card, drawn from the same string as the board card: the same
+// task read across instead of down, so it should not look like another kind of
+// thing on the way between views.
+const ROW_CARD = WORK_SURFACE;
 
 /**
  * Start / Stop for a list row.
@@ -216,17 +225,17 @@ function Row({
       onKeyDown={e => {
         if (e.key === 'Enter') onClick(row);
       }}
-      className={`${cols(withStatus)} ${CELL} ${ROW_CARD} group my-0.5 min-h-7 cursor-pointer px-2.5 py-0.5 ${
-        selected ? 'border-primary/50 bg-primary/5' : ''
+      className={`${cols(withStatus)} ${CELL} ${ROW_CARD} group my-1 min-h-8 cursor-pointer px-3 py-1.5 ${
+        selected ? 'bg-primary/5 ring-1 ring-primary/50' : ''
       } ${isOver && !isDragging ? 'ring-1 ring-primary/40' : ''} ${
         busy ? 'pointer-events-none opacity-60' : ''
       }`}
     >
       <div className="flex min-w-0 items-center gap-1.5">
-        <span
-          className={`shrink-0 transition-opacity ${selected ? '' : 'opacity-0 group-hover:opacity-100'}`}
-          onClick={e => e.stopPropagation()}
-        >
+        {/* Always there. Hidden until hover, selecting rows was a feature you
+            had to already know about, and on a touch screen there is no hover
+            to reveal it with. */}
+        <span className="shrink-0" onClick={e => e.stopPropagation()}>
           <Checkbox
             checked={selected}
             onCheckedChange={next => onSelectChange(row, next === true)}
@@ -240,7 +249,7 @@ function Row({
             {...attributes}
             {...listeners}
             aria-label="Drag to another group"
-            className="-ml-1 shrink-0 cursor-grab touch-none rounded p-0.5 text-muted-foreground/0 hover:bg-muted active:cursor-grabbing group-hover:text-muted-foreground/50"
+            className="-ml-1 shrink-0 cursor-grab touch-none rounded p-0.5 text-muted-foreground/40 transition-colors hover:bg-muted hover:text-foreground active:cursor-grabbing"
             onClick={e => e.stopPropagation()}
           >
             <GripVertical className="h-3.5 w-3.5" />
@@ -310,7 +319,12 @@ function Row({
           />
         ) : (
           <span
-            className={`truncate group-hover:text-primary ${row.type === 'story' ? 'font-semibold' : ''}`}
+            // The one filled thing on an otherwise flat row. With every surface
+            // stripped out, nothing marked where a row began; the title carries
+            // it, because that is what the eye goes down the list looking for.
+            className={`truncate transition-colors group-hover:text-primary ${
+              row.type === 'story' ? 'font-semibold' : ''
+            }`}
           >
             {row.title}
           </span>
@@ -585,6 +599,34 @@ function makeCollisionDetection(activeRowId: string | null): CollisionDetection 
   };
 }
 
+/**
+ * The grip that reorders a status group.
+ *
+ * Registered under `group:` so it cannot collide with the droppable the group
+ * already keeps for rows landing on it — same key, two different jobs.
+ */
+function GroupHandle({ groupKey }: { groupKey: string }) {
+  const { attributes, listeners, setNodeRef } = useSortable({
+    id: `group:${groupKey}`,
+    data: { groupKey },
+  });
+  return (
+    <Hint label="Drag to reorder">
+      <button
+        ref={setNodeRef}
+        type="button"
+        {...attributes}
+        {...listeners}
+        aria-label="Drag to reorder this column"
+        onClick={e => e.stopPropagation()}
+        className="shrink-0 cursor-grab touch-none rounded p-0.5 text-muted-foreground/40 transition-colors hover:bg-muted hover:text-foreground active:cursor-grabbing"
+      >
+        <GripVertical className="h-3.5 w-3.5" />
+      </button>
+    </Hint>
+  );
+}
+
 function GroupDropZone({
   groupKey,
   label,
@@ -601,7 +643,10 @@ function GroupDropZone({
   return (
     <div
       ref={setNodeRef}
-      className={`border-b border-border/40 bg-muted/20 px-2 pb-1.5 last:border-b-0 ${
+      // No wash. Side by side on the board the colour tells one column from
+      // the next; stacked down a list it just bands the page behind the work.
+      // The label pill still carries the colour, which is where it is read.
+      className={`border-b border-border/40 px-2 pb-1.5 last:border-b-0 ${
         isOver ? 'bg-primary/5 ring-1 ring-inset ring-primary/30' : ''
       }`}
     >
@@ -673,6 +718,10 @@ export interface DashTableProps {
   onAddStory: (groupKey: string) => void;
   /** Groups keyed by status can seed a new item's status; other groupings cannot. */
   groupKeyIsStatus: boolean;
+  /** Recolour a status column. Omitted when the groups are not columns. */
+  onSetColumnColor?: (columnId: string, color: ColumnColor) => void;
+  /** Reorder the status columns. Omitted when the groups are not columns. */
+  onReorderColumns?: (columns: KanbanColumn[]) => void;
   /** Dropping a row on a group applies that group's value to the row. */
   onDropRow: (row: DashRow, groupKey: string) => void;
   /** Dropping a row on another row files it under that row. */
@@ -689,6 +738,8 @@ export function DashTable({
   groups,
   columns,
   doneColumnId,
+  onSetColumnColor,
+  onReorderColumns,
   membersForProject,
   projectNames,
   showProjectNames,
@@ -776,6 +827,18 @@ export function DashTable({
     setDragging((e.active.data.current?.row as DashRow) ?? null);
   };
   const handleDragEnd = (e: DragEndEvent) => {
+    // A group being reordered comes through the same context as a row being
+    // moved, so it is answered first and on its own terms.
+    const movedGroup = e.active.data.current?.groupKey as string | undefined;
+    if (movedGroup && onReorderColumns) {
+      setDragging(null);
+      const overId = String(e.over?.id ?? '');
+      const overGroup = overId.startsWith('group:') ? overId.slice(6) : overId;
+      const from = columns.findIndex(c => c.id === movedGroup);
+      const to = columns.findIndex(c => c.id === overGroup);
+      if (from !== -1 && to !== -1 && from !== to) onReorderColumns(arrayMove(columns, from, to));
+      return;
+    }
     const row = (e.active.data.current?.row as DashRow) ?? null;
     setDragging(null);
     const target = e.over?.id;
@@ -815,7 +878,11 @@ export function DashTable({
       onDragEnd={handleDragEnd}
       onDragCancel={() => setDragging(null)}
     >
-    <div className="mb-10 overflow-hidden rounded-xl border border-border/50 bg-card">
+    <div className="mb-10 overflow-hidden rounded-xl">
+      <SortableContext
+        items={groups.map(g => `group:${g.key}`)}
+        strategy={verticalListSortingStrategy}
+      >
       {groups.map(group => {
         const open = !collapsedKeys.has(group.key);
         const tokens = columnColorTokens(group.color);
@@ -828,6 +895,9 @@ export function DashTable({
             dragging={!!dragging}
           >
             <div className="group/group flex items-center gap-2 px-2 py-1.5">
+              {/* A group is a column only when the list is grouped by status;
+                  grouped by assignee there is nothing to recolour or reorder. */}
+              {groupKeyIsStatus && onReorderColumns && <GroupHandle groupKey={group.key} />}
               <button
                 type="button"
                 aria-label={open ? 'Collapse group' : 'Expand group'}
@@ -849,15 +919,53 @@ export function DashTable({
                   type="button"
                   aria-label="Add story at the top"
                   onClick={() => setComposerAt(`${group.key}:top`)}
-                  className="rounded p-0.5 text-muted-foreground/0 hover:bg-muted group-hover/group:text-muted-foreground/60 hover:!text-foreground"
+                  // Visible without hovering: a control nobody can see is a
+                  // control nobody uses, and hover is not discoverable at all
+                  // on a touch screen.
+                  className="rounded p-0.5 text-muted-foreground/60 hover:bg-muted hover:text-foreground"
                 >
                   <Plus className="h-3.5 w-3.5" />
                 </button>
               </Hint>
+              {groupKeyIsStatus && onSetColumnColor && (
+                <DropdownMenu>
+                  <Hint label="Column colour">
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={`Colour of ${group.label}`}
+                        className="rounded p-0.5 text-muted-foreground/60 hover:bg-muted hover:text-foreground"
+                      >
+                        <Palette className="h-3.5 w-3.5" />
+                      </button>
+                    </DropdownMenuTrigger>
+                  </Hint>
+                  <DropdownMenuContent align="start" className="w-auto p-2">
+                    <div className="grid grid-cols-5 gap-1.5">
+                      {COLUMN_COLOR_KEYS.map(key => (
+                        <button
+                          key={key}
+                          type="button"
+                          title={key}
+                          aria-label={key}
+                          onClick={e => { e.preventDefault(); onSetColumnColor(group.key, key); }}
+                          className={`h-5 w-5 rounded-full ${columnColorTokens(key).dot} ${
+                            (group.color ?? DEFAULT_COLUMN_COLOR) === key
+                              ? 'ring-2 ring-foreground/60 ring-offset-1 ring-offset-background'
+                              : ''
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </div>
 
             {open && (
-              <>
+              // The wash sits behind the work, not behind the group's own
+              // header row: the header labels the group, the rows are it.
+              <div className={`rounded-lg ${tokens.surface}`}>
                 <HeaderRow withStatus={!groupKeyIsStatus} />
                 {composerAt === `${group.key}:top` && (
                   <ItemComposer
@@ -927,7 +1035,7 @@ export function DashTable({
                     <button
                       type="button"
                       onClick={() => setComposerAt(`${group.key}:bottom`)}
-                      className="flex flex-1 items-center gap-1.5 px-2 py-2 text-left text-[12px] font-medium text-muted-foreground/60 hover:bg-muted/40 hover:text-foreground"
+                      className={`flex flex-1 items-center gap-1.5 px-2 py-2 text-left text-[12px] font-medium hover:bg-background/60 ${tokens.accent}`}
                       style={{ paddingLeft: 8 }}
                     >
                       <Plus className="h-3.5 w-3.5" /> Add story
@@ -948,11 +1056,12 @@ export function DashTable({
                     />
                   </div>
                 )}
-              </>
+              </div>
             )}
           </GroupDropZone>
         );
       })}
+      </SortableContext>
     </div>
     <DragOverlay dropAnimation={null}>
       {dragging ? (

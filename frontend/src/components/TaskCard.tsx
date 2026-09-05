@@ -10,7 +10,7 @@ import { CheckCircle2, ChevronRight, CircleDot, Loader2, RotateCcw, UserPlus2 } 
 import { Button } from '@/components/ui/button';
 import UserAvatar from '@/components/UserAvatar';
 import { useAppStore } from '@/stores/appStore';
-import { CARD_SHADOW } from '@/lib/card-shadow';
+import { WORK_SURFACE } from '@/lib/card-shadow';
 import { DROP_HOST_CLASS, useIsDropHost } from '@/lib/drop-target';
 import { InlineSubtaskComposer } from '@/components/InlineSubtaskComposer';
 import { useElapsedTime } from '@/hooks/useElapsedTime';
@@ -234,7 +234,7 @@ export function TaskCard({
       }`}
     >
       <div
-        className={`relative rounded-xl border border-border/70 bg-card p-3 flex flex-col transition-shadow ${CARD_SHADOW} ${isDropHost ? DROP_HOST_CLASS : ''} ${
+        className={`relative ${WORK_SURFACE} p-3 flex flex-col ${isDropHost ? DROP_HOST_CLASS : ''} ${
           busy ? 'pointer-events-none' : ''
         }`}
       >

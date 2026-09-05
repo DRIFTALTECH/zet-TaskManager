@@ -9,21 +9,24 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
-import { confirmAction } from '@/components/ConfirmDialog';
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import {
   Calendar, Tag, Clock, AlertTriangle, Plus, X, Trash2,
   FolderOpen, Layers, Mail, UserCircle, CircleDot,
-  MessageSquare, Send, User2, CheckCircle2, RotateCcw, ChevronRight,
-  Paperclip, Download, Upload, Sparkles, Eye, BookOpen,
+  MessageSquare, User2, CheckCircle2, RotateCcw, ChevronRight,
+  Paperclip, Download, Upload, Sparkles, Eye, BookOpen, Flag, Save, Undo2, Loader2, ChevronLeft,
   ChevronsUpDown,
 } from 'lucide-react';
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { taskAssigneeIds, isTaskAssignedTo, normalizePriority, childTasksOf, isTaskDone, isDoneBoardStatus } from '@/lib/task-utils';
 import { projectPickerLabel } from '@/lib/project-utils';
 import UserAvatar from '@/components/UserAvatar';
-import RichTextEditor from '@/components/RichTextEditor';
+import { ExpandableRichText } from '@/components/ExpandableRichText';
+import { CommentsRail } from '@/components/CommentsRail';
+import { Hint } from '@/components/ui/hint';
+import { MODAL_HEADER_ACTION, MODAL_HEADER_ACTION_PRIMARY } from '@/lib/field-styles';
+import { priorityTextClass } from '@/lib/priority-styles';
 import { FieldLabel } from '@/components/ui/field';
 import { DatePickerInput } from '@/components/DatePickerInput';
 import { FIELD_GRID, HIDE_EMPTY_FIELDS } from '@/lib/field-styles';
@@ -32,7 +35,6 @@ import { WorkTypeSelect } from '@/components/dash/WorkTypeSelect';
 import { HoursMinutesInput, formatHM, secondsToDecimalHours } from '@/components/HoursMinutesInput';
 import { AssigneeCell } from '@/components/dash/DashCells';
 import { SprintSelect } from '@/components/SprintSelect';
-import { matchAgentBrand, AgentBrandBadge } from '@/lib/agent-brand';
 import { dueBucketDateTextClass, getDueBucket } from '@/lib/due-date-utils';
 import { api } from '@/lib/api';
 import { promptActualHours } from '@/components/ActualHoursDialog';
@@ -40,7 +42,6 @@ import { queryClient, taskKeys } from '@/lib/queryClient';
 import { InlineSubtaskComposer } from '@/components/InlineSubtaskComposer';
 import { WorkItemTable } from '@/components/WorkItemTable';
 import { formatLocalDateTime } from '@/lib/utils';
-import { motion, AnimatePresence } from 'framer-motion';
 import {
   Select,
   SelectContent,
@@ -52,17 +53,13 @@ interface Props {
   task: Task | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Steps back to whatever this was opened from. Absent at the top level. */
+  onBack?: () => void;
   /** Turn this task into a story. */
   onConvert?: (taskId: string) => void;
 }
 
 // ── Config maps ───────────────────────────────────────────────────────────────
-const priorityConfig: Record<Priority, { style: string; dot: string; ring: string }> = {
-  Urgent: { style: 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30', dot: 'bg-red-400', ring: 'ring-red-400/40' },
-  High:   { style: 'bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/30', dot: 'bg-orange-400', ring: 'ring-orange-400/40' },
-  Medium: { style: 'bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border-yellow-500/30', dot: 'bg-yellow-400', ring: 'ring-yellow-400/40' },
-  Low:    { style: 'bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/30', dot: 'bg-green-400', ring: 'ring-green-400/40' },
-};
 const statusConfig: Record<TaskStatus, { style: string; label: string; bar: string }> = {
   backlog:     { style: 'bg-slate-500/15 text-slate-600 dark:text-slate-400 border-slate-500/30', label: 'Backlog',     bar: 'bg-slate-500' },
   in_progress: { style: 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30',   label: 'In Progress', bar: 'bg-blue-500' },
@@ -147,7 +144,7 @@ function Avatar({ name, avatar, size = 'md' }: { name: string; avatar?: string; 
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-const TaskDetailModal = ({ task: listTask, open, onOpenChange, onConvert }: Props) => {
+const TaskDetailModal = ({ task: listTask, open, onOpenChange, onBack, onConvert }: Props) => {
   const {
     users, projects, kanbanColumns, updateTask, currentUser, deleteTask, reopenTaskToBacklog,
     activeTimers, startTimer, stopTimer, tasks: allTasks, moveTask, createTask,
@@ -225,17 +222,6 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange, onConvert }: Prop
     enabled: open && !!taskId,
     staleTime: Infinity,
   });
-  const [newFeedbackText, setNewFeedbackText] = useState('');
-  const [postingFeedback, setPostingFeedback] = useState(false);
-  const [editingFeedbackId, setEditingFeedbackId] = useState<string | null>(null);
-  const [editingFeedbackText, setEditingFeedbackText] = useState('');
-
-  // @mention state
-  const [mentionedUserIds, setMentionedUserIds] = useState<string[]>([]);
-  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
-  const [mentionStartPos, setMentionStartPos] = useState(0);
-  const [mentionDropdownIdx, setMentionDropdownIdx] = useState(0);
-  const commentTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [reopening, setReopening] = useState(false);
@@ -283,7 +269,6 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange, onConvert }: Prop
   useEffect(() => { if (task && open) resetDraft(task); }, [open, task?.id, task?.description, assigneeKey, resetDraft]);
   useEffect(() => {
     if (!open || !task?.id) return;
-    setNewFeedbackText(''); setEditingFeedbackId(null); setEditingFeedbackText('');
     setAiSummary(null); setShowAiSummary(false);
   }, [open, task?.id]);
 
@@ -314,13 +299,6 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange, onConvert }: Prop
     task.status !== 'completed' && task.status !== 'done',
   );
 
-  // @mention candidates — must be before early return to satisfy Rules of Hooks
-  const mentionCandidates = useMemo(() => {
-    if (mentionQuery === null) return [];
-    const q = mentionQuery.toLowerCase();
-    return users.filter(u => u.name.toLowerCase().includes(q)).slice(0, 6);
-  }, [mentionQuery, users]);
-
   // Must stay above the early return below — hooks cannot be conditional.
   const handleOpenChange = useUnsavedChangesGuard({ isDirty, onOpenChange, what: 'task' });
 
@@ -346,7 +324,6 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange, onConvert }: Prop
   const statusCfg = statusConfig[displayStatus as TaskStatus] ?? statusConfig.backlog;
   // Resolve the display label from kanban columns so custom columns show their real name
   const statusLabel = kanbanColumns.find(c => c.id === displayStatus)?.label ?? statusCfg.label;
-  const priCfg = priorityConfig[displayPriority] ?? priorityConfig.Medium;
   const taskCreatedTimeline = fmtTaskCreatedTimeline(task.createdAt);
   const statusOptions = [
     ...kanbanColumns.map(c => ({ id: c.id, label: c.label })),
@@ -421,95 +398,18 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange, onConvert }: Prop
     finally { setSaving(false); }
   };
 
-  const postFeedback = async () => {
-    if (!newFeedbackText.trim()) return;
-    setPostingFeedback(true);
+  const summarize = async (reveal: boolean) => {
+    setAiSummarizing(true);
+    if (reveal) setAiSummary(null);
     try {
-      const created = await api.createTaskFeedback(task.id, newFeedbackText.trim(), mentionedUserIds);
-      queryClient.setQueryData(taskKeys.feedback(task.id), (prev: TaskFeedback[] | undefined) => [...(prev ?? []), created]);
-      setNewFeedbackText('');
-      setMentionedUserIds([]);
-      setMentionQuery(null);
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not post feedback'); }
-    finally { setPostingFeedback(false); }
-  };
-
-  const handleCommentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const val = e.target.value;
-    setNewFeedbackText(val);
-    const pos = e.target.selectionStart ?? val.length;
-    // Find last @ before cursor that hasn't been closed by a space
-    const textBefore = val.slice(0, pos);
-    const match = textBefore.match(/@([^\s@]*)$/);
-    if (match) {
-      setMentionQuery(match[1]);
-      setMentionStartPos(textBefore.length - match[0].length);
-      setMentionDropdownIdx(0);
-    } else {
-      setMentionQuery(null);
+      const res = await api.aiSummarizeTask(task.id);
+      setAiSummary(res.summary);
+      if (reveal) setShowAiSummary(true);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not summarize');
+    } finally {
+      setAiSummarizing(false);
     }
-  };
-
-  const handleCommentKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (mentionQuery !== null && mentionCandidates.length > 0) {
-      if (e.key === 'ArrowDown') { e.preventDefault(); setMentionDropdownIdx(i => (i + 1) % mentionCandidates.length); return; }
-      if (e.key === 'ArrowUp')   { e.preventDefault(); setMentionDropdownIdx(i => (i - 1 + mentionCandidates.length) % mentionCandidates.length); return; }
-      if (e.key === 'Enter' || e.key === 'Tab') {
-        e.preventDefault();
-        insertMention(mentionCandidates[mentionDropdownIdx]);
-        return;
-      }
-      if (e.key === 'Escape') { setMentionQuery(null); return; }
-    }
-    if (e.key === 'Enter' && !e.shiftKey && mentionQuery === null) {
-      e.preventDefault();
-      void postFeedback();
-    }
-  };
-
-  const insertMention = (user: typeof users[number]) => {
-    const before = newFeedbackText.slice(0, mentionStartPos);
-    const after = newFeedbackText.slice(mentionStartPos + 1 + (mentionQuery?.length ?? 0));
-    const newText = `${before}@${user.name} ${after}`;
-    setNewFeedbackText(newText);
-    setMentionedUserIds(prev => prev.includes(user.id) ? prev : [...prev, user.id]);
-    setMentionQuery(null);
-    // Restore focus + cursor after name
-    requestAnimationFrame(() => {
-      if (commentTextareaRef.current) {
-        const pos = before.length + user.name.length + 2; // +2 for "@ " + space
-        commentTextareaRef.current.focus();
-        commentTextareaRef.current.setSelectionRange(pos, pos);
-      }
-    });
-  };
-
-  const saveFeedbackEdit = async () => {
-    if (!editingFeedbackId || !editingFeedbackText.trim()) return;
-    try {
-      const updated = await api.patchTaskFeedback(task.id, editingFeedbackId, editingFeedbackText.trim());
-      queryClient.setQueryData(taskKeys.feedback(task.id), (prev: TaskFeedback[] | undefined) =>
-        (prev ?? []).map(f => f.id === updated.id ? updated : f),
-      );
-      setEditingFeedbackId(null); setEditingFeedbackText('');
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not update feedback'); }
-  };
-
-  const deleteFeedback = async (id: string) => {
-    const ok = await confirmAction({
-      title: 'Delete this comment?',
-      description: 'This cannot be undone.',
-      confirmLabel: 'Delete comment',
-      destructive: true,
-    });
-    if (!ok) return;
-    try {
-      await api.deleteTaskFeedback(task.id, id);
-      queryClient.setQueryData(taskKeys.feedback(task.id), (prev: TaskFeedback[] | undefined) =>
-        (prev ?? []).filter(f => f.id !== id),
-      );
-      if (editingFeedbackId === id) { setEditingFeedbackId(null); setEditingFeedbackText(''); }
-    } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not delete feedback'); }
   };
 
   const handleDeleteTask = async () => {
@@ -545,6 +445,27 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange, onConvert }: Prop
 
             {/* Breadcrumb */}
             <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/50 mb-2 flex-wrap pr-10">
+              {onBack && (
+                <Hint label="Back">
+                  <button
+                    type="button"
+                    onClick={onBack}
+                    aria-label="Back"
+                    className="-ml-1 shrink-0 rounded-md p-0.5 text-muted-foreground/60 transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </button>
+                </Hint>
+              )}
+              {canEdit && onConvert ? (
+                <WorkTypeSelect size="md" value="task" onChange={() => onConvert(task.id)} />
+              ) : (
+                <>
+                  <CircleDot className="h-3 w-3 shrink-0" />
+                  <span>Task</span>
+                </>
+              )}
+              <ChevronRight className="h-3 w-3 shrink-0 opacity-30" />
               <FolderOpen className="h-3 w-3 shrink-0" />
               <span className="hover:text-foreground/70 transition-colors cursor-default">{project?.name ?? '—'}</span>
               <ChevronRight className="h-3 w-3 shrink-0 opacity-30" />
@@ -572,7 +493,17 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange, onConvert }: Prop
                   </h2>
                 )}
               </div>
-              <div className="flex items-center gap-1.5 mt-1 shrink-0">
+              <div className="flex items-center gap-1.5 mt-1 shrink-0 pr-8">
+                {task.isStarted && (
+                  <span title="Started" className="w-6 h-6 rounded-full font-semibold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 inline-flex items-center justify-center">
+                    <CircleDot className="h-3 w-3" />
+                  </span>
+                )}
+                {task.approvedByManager && (
+                  <span title="Approved" className="w-6 h-6 rounded-full font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 inline-flex items-center justify-center">
+                    <CheckCircle2 className="h-3 w-3" />
+                  </span>
+                )}
                 {canReopenToBacklog && (
                   <button
                     onClick={() => void handleReopenToBacklog()}
@@ -583,50 +514,48 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange, onConvert }: Prop
                     {reopening ? 'Moving…' : 'Reopen'}
                   </button>
                 )}
-                {canEdit && onConvert && (
-                  <WorkTypeSelect
-                    size="md"
-                    value="task"
-                    onChange={() => onConvert(task.id)}
-                  />
+                {canEdit && (
+                  <>
+                    {isDirty && (
+                      <Hint label="Discard changes">
+                        <button
+                          type="button"
+                          onClick={() => resetDraft(task)}
+                          disabled={saving}
+                          aria-label="Discard changes"
+                          className={MODAL_HEADER_ACTION}
+                        >
+                          <Undo2 className="h-4 w-4" />
+                        </button>
+                      </Hint>
+                    )}
+                    <Hint label={saving ? 'Saving…' : 'Save changes'}>
+                      <button
+                        type="button"
+                        onClick={() => void saveAll()}
+                        disabled={!isDirty || saving}
+                        aria-label="Save changes"
+                        className={MODAL_HEADER_ACTION_PRIMARY}
+                      >
+                        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      </button>
+                    </Hint>
+                  </>
                 )}
                 {canDeleteTask && (
-                  <button
-                    onClick={() => setDeleteConfirmOpen(true)}
-                    className="p-2.5 rounded-xl hover:bg-red-500/10 text-muted-foreground/30 hover:text-red-600 dark:text-red-400 transition-all duration-150 group"
-                    title="Delete task"
-                  >
-                    <Trash2 className="h-4 w-4 group-hover:scale-110 transition-transform" />
-                  </button>
+                  <Hint label="Delete task">
+                    <button
+                      onClick={() => setDeleteConfirmOpen(true)}
+                      aria-label="Delete task"
+                      className="p-2.5 rounded-xl hover:bg-red-500/10 text-muted-foreground/30 hover:text-red-600 dark:text-red-400 transition-all duration-150 group"
+                    >
+                      <Trash2 className="h-4 w-4 group-hover:scale-110 transition-transform" />
+                    </button>
+                  </Hint>
                 )}
               </div>
             </div>
 
-            {/* Badges */}
-            <div className="flex flex-wrap gap-2 mt-2">
-              <span className={`text-[11px] px-3 py-1 rounded-full font-semibold border ${statusCfg.style}`}>
-                {statusLabel}
-              </span>
-              <span className={`text-[11px] px-3 py-1 rounded-full font-semibold border flex items-center gap-1.5 ${priCfg.style}`}>
-                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${priCfg.dot}`} />
-                {displayPriority}
-              </span>
-              {task.isStarted && (
-                <span title="Started" className="w-6 h-6 rounded-full font-semibold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 inline-flex items-center justify-center">
-                  <CircleDot className="h-3 w-3" />
-                </span>
-              )}
-              {task.approvedByManager && (
-                <span title="Approved" className="w-6 h-6 rounded-full font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 inline-flex items-center justify-center">
-                  <CheckCircle2 className="h-3 w-3" />
-                </span>
-              )}
-              {isOverdue && (
-                <span title="Overdue" className="w-6 h-6 rounded-full font-semibold bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/20 inline-flex items-center justify-center">
-                  <AlertTriangle className="h-3 w-3" />
-                </span>
-              )}
-            </div>
           </div>
 
           {/* ── Body: fields + content scroll together, rail runs full height ── */}
@@ -642,24 +571,27 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange, onConvert }: Prop
                 <FieldLabel icon={AlertTriangle} label="Priority" />
                 {canEdit ? (
                   <Select value={draftPriority} onValueChange={v => setDraftPriority(v as Priority)}>
-                    <SelectTrigger className="h-8 w-full text-xs">
-                      <SelectValue />
+                    <SelectTrigger className="w-full">
+                      <div className={`flex min-w-0 items-center gap-1.5 ${priorityTextClass[displayPriority]}`}>
+                        <Flag className="h-3.5 w-3.5 shrink-0" fill="currentColor" />
+                        <span className="truncate text-[13px] font-medium">{displayPriority}</span>
+                      </div>
                     </SelectTrigger>
                     <SelectContent>
                       {(['Urgent', 'High', 'Medium', 'Low'] as Priority[]).map(p => (
                         <SelectItem key={p} value={p}>
-                          <span className="flex items-center gap-2">
-                            <span className={`h-2 w-2 rounded-full ${priorityConfig[p].dot}`} />
-                            {p}
+                          <span className={`flex items-center gap-2 ${priorityTextClass[p]}`}>
+                            <Flag className="h-3.5 w-3.5 shrink-0" fill="currentColor" />
+                            <span className="text-[13px] font-medium">{p}</span>
                           </span>
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 ) : (
-                  <span className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl font-semibold border ${priCfg.style}`}>
-                    <span className={`w-2 h-2 rounded-full ${priCfg.dot}`} />
-                    {displayPriority}
+                  <span className={`inline-flex h-7 min-w-0 items-center gap-1.5 ${priorityTextClass[displayPriority]}`}>
+                    <Flag className="h-3.5 w-3.5 shrink-0" fill="currentColor" />
+                    <span className="truncate text-[13px] font-medium">{displayPriority}</span>
                   </span>
                 )}
               </section>
@@ -669,8 +601,8 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange, onConvert }: Prop
                 <FieldLabel icon={CircleDot} label="Status" />
                 {canEdit ? (
                   <Select value={draftStatus || task.status} onValueChange={setDraftStatus}>
-                    <SelectTrigger className="h-8 w-full text-xs">
-                      <SelectValue />
+                    <SelectTrigger className="w-full">
+                      <div className={`inline-flex h-5 items-center gap-1.5 rounded-md border px-1.5 text-[12px] font-semibold ${statusCfg.style}`}>{statusLabel}</div>
                     </SelectTrigger>
                     <SelectContent>
                       {statusOptions.map(s => (
@@ -679,7 +611,7 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange, onConvert }: Prop
                     </SelectContent>
                   </Select>
                 ) : (
-                  <span className={`inline-flex items-center text-xs px-3 py-1.5 rounded-xl font-semibold border ${statusCfg.style}`}>
+                  <span className={`inline-flex h-7 items-center rounded-lg border px-2 text-[13px] font-semibold ${statusCfg.style}`}>
                     {statusLabel}
                   </span>
                 )}
@@ -690,7 +622,7 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange, onConvert }: Prop
                 <FieldLabel icon={FolderOpen} label="Project" />
                 {canEdit ? (
                   <Select value={draftProjectId || task.projectId} onValueChange={handleProjectChange}>
-                    <SelectTrigger className="h-8 w-full text-xs">
+                    <SelectTrigger className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -712,7 +644,7 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange, onConvert }: Prop
                     value={draftSectionId || task.sectionId}
                     onValueChange={setDraftSectionId}
                   >
-                    <SelectTrigger className="h-8 w-full text-xs">
+                    <SelectTrigger className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -791,8 +723,8 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange, onConvert }: Prop
 
               {/* Due Date */}
               <section data-empty={!(draftDueDate || task.dueDate?.trim())}>
-                <FieldLabel icon={Calendar} label="Due Date" />
-                <div className="min-w-0">
+                <FieldLabel icon={Calendar} label="Due date" />
+                <div className="flex min-w-0 items-center gap-2">
                 {canEdit ? (
                   <DatePickerInput
                     value={draftDueDate}
@@ -808,7 +740,7 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange, onConvert }: Prop
                   <div className="text-sm text-muted-foreground">No due date</div>
                 )}
                 {isOverdue && (
-                  <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-red-400/80 bg-red-500/8 px-2 py-0.5 rounded-md border border-red-500/15">
+                  <div className="inline-flex shrink-0 items-center gap-1 rounded-md border border-red-500/15 bg-red-500/8 px-1.5 py-0.5 text-[11px] text-red-400/80">
                     <AlertTriangle className="h-3 w-3" /> Past due
                   </div>
                 )}
@@ -916,14 +848,15 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange, onConvert }: Prop
                   </div>
                 )}
 {canEdit ? (
-                  <RichTextEditor
+                  <ExpandableRichText
+                    label="description"
                     value={draftDescription}
                     onChange={setDraftDescription}
                     placeholder="Add a description…"
                     className="rounded-xl border border-border/50 bg-muted/20 px-3 py-3"
                   />
                 ) : task.description?.trim() ? (
-                  <RichTextEditor value={task.description} onChange={() => {}} editable={false} />
+                  <ExpandableRichText label="description" value={task.description} onChange={() => {}} editable={false} />
                 ) : (
                   <div className="rounded-xl border border-border/30 bg-muted/10 px-4 py-4 text-sm italic text-muted-foreground/40">
                     No description provided.
@@ -1054,243 +987,65 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange, onConvert }: Prop
               </div>
             </div>
 
-            {/* ── RIGHT rail: comments ──────────────────────────── */}
-            <div className="flex w-full min-h-0 shrink-0 flex-col overscroll-contain bg-muted/5 md:w-[340px] md:overflow-y-auto">
-              <div className="p-5 sm:p-6">
-              {/* Comments */}
-              <section>
-                <div className="flex items-center justify-between mb-3">
-                  <FieldLabel
-                    icon={MessageSquare}
-                    label={feedbackList.length > 0 ? `Comments (${feedbackList.length})` : 'Comments'}
-                  />
-                  {feedbackList.length > 1 && (
-                    <button
-                      onClick={async () => {
-                        if (aiSummary) {
-                          setShowAiSummary(true);
-                          return;
-                        }
-                        setAiSummarizing(true);
-                        setAiSummary(null);
-                        try {
-                          const res = await api.aiSummarizeTask(task.id);
-                          setAiSummary(res.summary);
-                          setShowAiSummary(true);
-                        } catch (e) {
-                          toast.error(e instanceof Error ? e.message : 'Could not summarize');
-                        } finally {
-                          setAiSummarizing(false);
-                        }
-                      }}
-                      disabled={aiSummarizing}
-                      className="flex items-center gap-1.5 text-xs text-primary font-semibold hover:text-primary/80 disabled:opacity-40 transition-colors"
-                    >
-                      <Sparkles className="h-3 w-3" />
-                      {aiSummarizing ? 'Summarizing…' : 'AI Summary'}
-                    </button>
-                  )}
-                </div>
-
-                {showAiSummary && aiSummary && (
-                  <div className="mb-4 rounded-xl border border-primary/20 bg-primary/5 p-3 text-xs text-foreground leading-relaxed whitespace-pre-wrap">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="flex items-center gap-1.5 text-primary font-semibold text-[11px] uppercase tracking-wide">
-                        <Sparkles className="h-3 w-3" /> AI Summary
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            setAiSummarizing(true);
-                            try {
-                              const res = await api.aiSummarizeTask(task.id);
-                              setAiSummary(res.summary);
-                            } catch (e) {
-                              toast.error(e instanceof Error ? e.message : 'Could not summarize');
-                            } finally {
-                              setAiSummarizing(false);
-                            }
-                          }}
-                          disabled={aiSummarizing}
-                          className="text-primary hover:text-primary/80 transition-colors text-[10px] font-semibold flex items-center gap-1"
-                        >
-                          <RotateCcw className="h-2.5 w-2.5" />
-                          Regenerate
-                        </button>
-                        <button onClick={() => setShowAiSummary(false)} className="text-muted-foreground hover:text-foreground transition-colors">
-                          <X className="h-3 w-3" />
-                        </button>
-                      </div>
+            {/* ── RIGHT rail: comments ────────────────────── */}
+            <CommentsRail
+              key={task.id}
+              comments={feedbackList}
+              loading={feedbackLoading}
+              onPost={async (message, mentionedUserIds) => {
+                const created = await api.createTaskFeedback(task.id, message, mentionedUserIds);
+                queryClient.setQueryData(taskKeys.feedback(task.id), (prev: TaskFeedback[] | undefined) => [...(prev ?? []), created]);
+              }}
+              onEdit={async (id, message) => {
+                const updated = await api.patchTaskFeedback(task.id, id, message);
+                queryClient.setQueryData(taskKeys.feedback(task.id), (prev: TaskFeedback[] | undefined) =>
+                  (prev ?? []).map(f => (f.id === updated.id ? updated : f)),
+                );
+              }}
+              onDelete={async id => {
+                await api.deleteTaskFeedback(task.id, id);
+                queryClient.setQueryData(taskKeys.feedback(task.id), (prev: TaskFeedback[] | undefined) =>
+                  (prev ?? []).filter(f => f.id !== id),
+                );
+              }}
+              headerAction={feedbackList.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => void summarize(true)}
+                  disabled={aiSummarizing}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-primary transition-colors hover:text-primary/80 disabled:opacity-40"
+                >
+                  <Sparkles className="h-3 w-3" />
+                  {aiSummarizing ? 'Summarizing…' : 'AI Summary'}
+                </button>
+              )}
+              banner={showAiSummary && aiSummary && (
+                <div className="mb-4 whitespace-pre-wrap rounded-xl border border-primary/20 bg-primary/5 p-3 text-xs leading-relaxed text-foreground">
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-primary">
+                      <Sparkles className="h-3 w-3" /> AI Summary
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void summarize(false)}
+                        disabled={aiSummarizing}
+                        className="flex items-center gap-1 text-[10px] font-semibold text-primary transition-colors hover:text-primary/80"
+                      >
+                        <RotateCcw className="h-2.5 w-2.5" />
+                        Regenerate
+                      </button>
+                      <button onClick={() => setShowAiSummary(false)} className="text-muted-foreground transition-colors hover:text-foreground">
+                        <X className="h-3 w-3" />
+                      </button>
                     </div>
-                    {aiSummary}
                   </div>
-                )}
-
-                {feedbackLoading ? (
-                  <div className="flex items-center justify-center py-10 gap-2 text-sm text-muted-foreground">
-                    <div className="w-4 h-4 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
-                    Loading comments…
-                  </div>
-                ) : (
-                  <div className="space-y-3 mb-5">
-                    {feedbackList.length === 0 && (
-                      <div className="text-center py-8 px-4 rounded-xl border border-dashed border-border/30 bg-muted/5">
-                        <MessageSquare className="h-7 w-7 text-muted-foreground/20 mx-auto mb-2" />
-                        <p className="text-sm text-muted-foreground/40 italic">No comments yet. Start the conversation!</p>
-                      </div>
-                    )}
-                    <AnimatePresence initial={false}>
-                      {feedbackList.map(fb => {
-                        const isOwn = currentUser?.id === fb.userId;
-                        const brand = matchAgentBrand(fb.authorName);
-                        return (
-                          <motion.div
-                            key={fb.id}
-                            initial={{ opacity: 0, y: 6 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, scale: 0.96 }}
-                            transition={{ duration: 0.15 }}
-                            className={`flex gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}
-                          >
-                            {brand
-                              ? <AgentBrandBadge brand={brand} size={32} />
-                              : <Avatar name={fb.authorName || '?'} avatar={users.find(u => u.id === fb.userId)?.avatar} size="sm" />}
-                            <div className={`flex-1 min-w-0 flex flex-col gap-1 ${isOwn ? 'items-end' : 'items-start'}`}>
-                              <div className={`flex items-center gap-2 ${isOwn ? 'flex-row-reverse' : ''}`}>
-                                <span className="text-xs font-semibold text-foreground">{fb.authorName}</span>
-                                {brand && (
-                                  <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full text-white" style={{ background: brand.bg }}>
-                                    AI
-                                  </span>
-                                )}
-                                <span className="text-[10px] text-muted-foreground/40 font-mono">{tsShort(fb.createdAt)}</span>
-                              </div>
-                              {editingFeedbackId === fb.id ? (
-                                <div className="w-full space-y-2">
-                                  <textarea
-                                    value={editingFeedbackText}
-                                    onChange={e => setEditingFeedbackText(e.target.value)}
-                                    rows={3}
-                                    className="w-full rounded-xl border border-border/50 bg-muted/20 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 resize-none"
-                                  />
-                                  <div className="flex gap-2">
-                                    <Button size="sm" onClick={() => void saveFeedbackEdit()} disabled={!editingFeedbackText.trim()}>Save</Button>
-                                    <Button size="sm" variant="ghost" onClick={() => { setEditingFeedbackId(null); setEditingFeedbackText(''); }}>Cancel</Button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <>
-                                  <div
-                                    className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed max-w-[88%] whitespace-pre-wrap shadow-sm ${
-                                      isOwn
-                                        ? 'bg-primary/12 text-foreground rounded-tr-md border border-primary/15'
-                                        : 'bg-muted/50 text-foreground rounded-tl-md border border-border/30'
-                                    } ${brand ? 'border-l-[3px]' : ''}`}
-                                    style={brand ? { borderLeftColor: brand.bg } : undefined}
-                                  >
-                                    {renderMessageWithMentions(fb.message, users.map(u => u.name))}
-                                  </div>
-                                  {isOwn && (
-                                    <div className="flex gap-1 mt-0.5">
-                                      <button
-                                        onClick={() => { setEditingFeedbackId(fb.id); setEditingFeedbackText(fb.message); }}
-                                        className="text-[11px] text-muted-foreground/50 hover:text-primary px-2 py-0.5 rounded-md hover:bg-primary/10 transition-colors"
-                                      >Edit</button>
-                                      <button
-                                        onClick={() => void deleteFeedback(fb.id)}
-                                        className="text-[11px] text-muted-foreground/50 hover:text-red-600 dark:text-red-400 px-2 py-0.5 rounded-md hover:bg-red-500/10 transition-colors"
-                                      >Delete</button>
-                                    </div>
-                                  )}
-                                </>
-                              )}
-                            </div>
-                          </motion.div>
-                        );
-                      })}
-                    </AnimatePresence>
-                  </div>
-                )}
-
-                {/* Comment input */}
-                <div className="flex gap-3 items-end">
-                  {currentUser && <Avatar name={currentUser.name} avatar={currentUser.avatar} size="sm" />}
-                  <div className="flex-1 relative">
-                    {/* @mention dropdown */}
-                    <AnimatePresence>
-                      {mentionQuery !== null && mentionCandidates.length > 0 && (
-                        <motion.div
-                          initial={{ opacity: 0, y: 4 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: 4 }}
-                          transition={{ duration: 0.1 }}
-                          className="absolute bottom-full mb-1.5 left-0 w-56 glass border border-border/40 rounded-xl shadow-xl z-50 overflow-hidden"
-                        >
-                          {mentionCandidates.map((u, i) => (
-                            <button
-                              key={u.id}
-                              onMouseDown={e => { e.preventDefault(); insertMention(u); }}
-                              className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors ${
-                                i === mentionDropdownIdx ? 'bg-primary/15 text-foreground' : 'hover:bg-muted/40 text-foreground/80'
-                              }`}
-                            >
-                              <Avatar name={u.name} avatar={u.avatar} size="sm" />
-                              <div className="min-w-0">
-                                <p className="font-medium truncate text-xs">{u.name}</p>
-                                <p className="text-[10px] text-muted-foreground/50 capitalize">{u.role}</p>
-                              </div>
-                            </button>
-                          ))}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                    <textarea
-                      ref={commentTextareaRef}
-                      value={newFeedbackText}
-                      onChange={handleCommentChange}
-                      onKeyDown={handleCommentKeyDown}
-                      placeholder="Add a comment… (@ to mention, Enter to send)"
-                      rows={2}
-                      className="w-full rounded-xl border border-border/40 bg-muted/20 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/20 resize-none pr-14 transition-all placeholder:text-muted-foreground/35 leading-relaxed"
-                    />
-                    <button
-                      onClick={() => void postFeedback()}
-                      disabled={postingFeedback || !newFeedbackText.trim()}
-                      className="absolute right-2.5 bottom-2.5 p-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-25 transition-all hover:scale-105 active:scale-95 shadow-sm"
-                    >
-                      <Send className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
+                  {aiSummary}
                 </div>
-              </section>
-              </div>
-            </div>
+              )}
+            />
           </div>
 
-          {/* ── Footer ──────────────────────────────────────────── */}
-          {canEdit && (
-            <div className="shrink-0 border-t border-border/25 px-7 py-4 flex items-center gap-3 bg-gradient-to-t from-muted/20 to-transparent">
-              <div className="flex items-center gap-2.5 ml-auto">
-                {isDirty && (
-                  <button
-                    onClick={() => resetDraft(task)}
-                    disabled={saving}
-                    className="text-sm px-4 py-2 rounded-xl border border-border/50 hover:bg-muted/60 hover:border-border/80 transition-all text-muted-foreground hover:text-foreground font-medium"
-                  >
-                    Discard
-                  </button>
-                )}
-                <button
-                  onClick={() => void saveAll()}
-                  disabled={!isDirty || saving}
-                  className="text-sm px-5 py-2 rounded-xl bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-35 transition-all font-semibold shadow-sm hover:shadow-md hover:scale-[1.02] active:scale-[0.98]"
-                >
-                  {saving ? 'Saving…' : 'Save changes'}
-                </button>
-              </div>
-            </div>
-          )}
         </DialogContent>
       </Dialog>
 

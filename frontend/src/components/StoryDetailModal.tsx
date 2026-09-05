@@ -9,14 +9,17 @@ import {
 import { toast } from 'sonner';
 import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import {
-  Calendar, Tag, Clock, AlertTriangle, Plus, X, Trash2,
+  Calendar, Tag, Clock, AlertTriangle, X, Trash2,
   FolderOpen, Layers, CircleDot, MessageSquare,
-  User2, CheckCircle2, Check, Paperclip, Download, Upload, BookOpen, FileText, Sparkles, Loader2, ChevronsUpDown,
+  User2, CheckCircle2, Check, Paperclip, Download, Upload, BookOpen, FileText, Sparkles, Loader2, ChevronsUpDown, Flag, Save, Undo2, ChevronLeft,
 } from 'lucide-react';
 import { useState, useEffect, useMemo, useCallback, useRef, type ElementType } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import UserAvatar from '@/components/UserAvatar';
-import RichTextEditor from '@/components/RichTextEditor';
+import { ExpandableRichText } from '@/components/ExpandableRichText';
+import { Hint } from '@/components/ui/hint';
+import { MODAL_HEADER_ACTION, MODAL_HEADER_ACTION_PRIMARY } from '@/lib/field-styles';
+import { priorityTextClass } from '@/lib/priority-styles';
 import { FieldLabel } from '@/components/ui/field';
 import { DatePickerInput } from '@/components/DatePickerInput';
 import { FIELD_GRID, HIDE_EMPTY_FIELDS } from '@/lib/field-styles';
@@ -43,12 +46,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
-const priorityConfig: Record<Priority, { style: string; dot: string; ring: string }> = {
-  Urgent: { style: 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/30', dot: 'bg-red-400', ring: 'ring-red-400/40' },
-  High:   { style: 'bg-orange-500/15 text-orange-600 dark:text-orange-400 border-orange-500/30', dot: 'bg-orange-400', ring: 'ring-orange-400/40' },
-  Medium: { style: 'bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 border-yellow-500/30', dot: 'bg-yellow-400', ring: 'ring-yellow-400/40' },
-  Low:    { style: 'bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/30', dot: 'bg-green-400', ring: 'ring-green-400/40' },
-};
 const statusConfig: Record<TaskStatus, { style: string; label: string }> = {
   backlog:     { style: 'bg-slate-500/15 text-slate-600 dark:text-slate-400 border-slate-500/30', label: 'Backlog' },
   in_progress: { style: 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border-blue-500/30', label: 'In Progress' },
@@ -77,11 +74,12 @@ interface Props {
   story: UserStory | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Steps back to whatever this was opened from. Absent at the top level. */
+  onBack?: () => void;
   tasks: Task[];
   columns: KanbanColumn[];
   doneColumnId: string;
   onTaskClick: (t: Task) => void;
-  onAddTask: () => void;
   isManager?: boolean;
   onUpdated?: (s: UserStory) => void;
   /** Turn this story into a task. */
@@ -89,8 +87,8 @@ interface Props {
 }
 
 export default function StoryDetailModal({
-  story, open, onOpenChange, tasks, columns, doneColumnId,
-  onTaskClick, onAddTask, isManager, onUpdated, onConvert,
+  story, open, onOpenChange, onBack, tasks, columns, doneColumnId,
+  onTaskClick, isManager, onUpdated, onConvert,
 }: Props) {
   const { users, projects, currentUser, syncTasks, tasks: storeTasks, updateTask, createTask, deleteTask } = useAppStore();
   const { showEmpty, toggleEmptyFields } = useShowEmptyFields();
@@ -231,7 +229,6 @@ export default function StoryDetailModal({
   const displayPriority = canEdit ? draftPriority : normalizePriority(String(story.priority));
   const statusCfg = statusConfig[displayStatus as TaskStatus] ?? statusConfig.backlog;
   const statusLabel = columns.find(c => c.id === displayStatus)?.label ?? statusCfg.label;
-  const priCfg = priorityConfig[displayPriority] ?? priorityConfig.Medium;
   const statusOptions = [
     ...columns.map(c => ({ id: c.id, label: c.label })),
     ...((displayStatus === 'completed' || story.status === 'completed') && !columns.some(c => c.id === 'completed')
@@ -356,8 +353,26 @@ export default function StoryDetailModal({
 
           <div className="shrink-0 px-5 pt-3 pb-3 sm:px-7 border-b border-border/30 bg-gradient-to-b from-muted/30 to-transparent">
             <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/50 mb-2 flex-wrap pr-10">
-              <BookOpen className="h-3 w-3 shrink-0" />
-              <span>Story</span>
+              {onBack && (
+                <Hint label="Back">
+                  <button
+                    type="button"
+                    onClick={onBack}
+                    aria-label="Back"
+                    className="-ml-1 shrink-0 rounded-md p-0.5 text-muted-foreground/60 transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </button>
+                </Hint>
+              )}
+              {canEdit && onConvert ? (
+                <WorkTypeSelect size="md" value="story" onChange={() => onConvert(story.id)} />
+              ) : (
+                <>
+                  <BookOpen className="h-3 w-3 shrink-0" />
+                  <span>Story</span>
+                </>
+              )}
               <span className="opacity-30">/</span>
               <FolderOpen className="h-3 w-3 shrink-0" />
               <span>{project?.name ?? '—'}</span>
@@ -383,54 +398,65 @@ export default function StoryDetailModal({
                   <h2 className="px-2 py-0.5 text-[18px] font-bold leading-snug tracking-tight text-foreground break-words whitespace-normal">{story.title}</h2>
                 )}
               </div>
-              <div className="flex items-center gap-1.5 mt-1 shrink-0">
-                <button
-                  type="button"
-                  onClick={onAddTask}
-                  className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-xl border border-border/50 hover:border-primary/50 hover:bg-primary/8 hover:text-primary text-muted-foreground/70 transition-all duration-150 font-medium"
-                >
-                  <Plus className="h-3.5 w-3.5" /> Add task
-                </button>
-                {canEdit && onConvert && (
-                  <WorkTypeSelect
-                    size="md"
-                    value="story"
-                    onChange={() => onConvert(story.id)}
-                  />
+              <div className="flex items-center gap-1.5 mt-1 shrink-0 pr-8">
+                {story.approvedByManager && (
+                  <span title="Approved" className="w-6 h-6 rounded-full font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 inline-flex items-center justify-center">
+                    <CheckCircle2 className="h-3 w-3" />
+                  </span>
+                )}
+                {canEdit && (
+                  <>
+                    <Hint label="Generate tasks">
+                      <button
+                        type="button"
+                        onClick={() => setGenerateChoiceOpen(true)}
+                        disabled={generating || saving}
+                        aria-label="Generate tasks"
+                        className={MODAL_HEADER_ACTION}
+                      >
+                        {generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                      </button>
+                    </Hint>
+                    {isDirty && (
+                      <Hint label="Discard changes">
+                        <button
+                          type="button"
+                          onClick={() => resetDraft(story)}
+                          disabled={saving}
+                          aria-label="Discard changes"
+                          className={MODAL_HEADER_ACTION}
+                        >
+                          <Undo2 className="h-4 w-4" />
+                        </button>
+                      </Hint>
+                    )}
+                    <Hint label={saving ? 'Saving…' : 'Save changes'}>
+                      <button
+                        type="button"
+                        onClick={() => void saveAll()}
+                        disabled={!isDirty || saving}
+                        aria-label="Save changes"
+                        className={MODAL_HEADER_ACTION_PRIMARY}
+                      >
+                        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      </button>
+                    </Hint>
+                  </>
                 )}
                 {canDelete && (
-                  <button
-                    onClick={() => setDeleteConfirmOpen(true)}
-                    className="p-2.5 rounded-xl hover:bg-red-500/10 text-muted-foreground/30 hover:text-red-600 dark:text-red-400 transition-all duration-150"
-                    title="Delete story"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  <Hint label="Delete story">
+                    <button
+                      onClick={() => setDeleteConfirmOpen(true)}
+                      aria-label="Delete story"
+                      className="p-2.5 rounded-xl hover:bg-red-500/10 text-muted-foreground/30 hover:text-red-600 dark:text-red-400 transition-all duration-150"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </Hint>
                 )}
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 mt-2">
-              <span className={`text-[11px] px-3 py-1 rounded-full font-semibold border ${statusCfg.style}`}>{statusLabel}</span>
-              <span className={`text-[11px] px-3 py-1 rounded-full font-semibold border flex items-center gap-1.5 ${priCfg.style}`}>
-                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${priCfg.dot}`} />
-                {displayPriority}
-              </span>
-              {story.approvedByManager && (
-                <span title="Approved" className="w-6 h-6 rounded-full font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 inline-flex items-center justify-center">
-                  <CheckCircle2 className="h-3 w-3" />
-                </span>
-              )}
-              {isOverdue && (
-                <span title="Overdue" className="w-6 h-6 rounded-full font-semibold bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/20 inline-flex items-center justify-center">
-                  <AlertTriangle className="h-3 w-3" />
-                </span>
-              )}
-              <span className="text-xs text-muted-foreground ml-auto">{doneN}/{tasks.length} tasks · {pct}%</span>
-            </div>
-            <div className="h-1 rounded-full bg-muted/40 overflow-hidden mt-2">
-              <div className={`h-full rounded-full transition-all ${pct === 100 ? 'bg-emerald-500' : 'bg-primary'}`} style={{ width: `${pct}%` }} />
-            </div>
           </div>
 
           {/* ── Body: fields + content scroll together, rail runs full height ── */}
@@ -444,24 +470,27 @@ export default function StoryDetailModal({
                 <FieldLabel icon={AlertTriangle} label="Priority" />
                 {canEdit ? (
                   <Select value={draftPriority} onValueChange={v => setDraftPriority(v as Priority)}>
-                    <SelectTrigger className="h-8 w-full text-xs">
-                      <SelectValue />
+                    <SelectTrigger className="w-full">
+                      <div className={`flex min-w-0 items-center gap-1.5 ${priorityTextClass[displayPriority]}`}>
+                        <Flag className="h-3.5 w-3.5 shrink-0" fill="currentColor" />
+                        <span className="truncate text-[13px] font-medium">{displayPriority}</span>
+                      </div>
                     </SelectTrigger>
                     <SelectContent>
                       {(['Urgent', 'High', 'Medium', 'Low'] as Priority[]).map(p => (
                         <SelectItem key={p} value={p}>
-                          <span className="flex items-center gap-2">
-                            <span className={`h-2 w-2 rounded-full ${priorityConfig[p].dot}`} />
-                            {p}
+                          <span className={`flex items-center gap-2 ${priorityTextClass[p]}`}>
+                            <Flag className="h-3.5 w-3.5 shrink-0" fill="currentColor" />
+                            <span className="text-[13px] font-medium">{p}</span>
                           </span>
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 ) : (
-                  <span className={`inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-xl font-semibold border ${priCfg.style}`}>
-                    <span className={`w-2 h-2 rounded-full ${priCfg.dot}`} />
-                    {displayPriority}
+                  <span className={`inline-flex h-7 min-w-0 items-center gap-1.5 ${priorityTextClass[displayPriority]}`}>
+                    <Flag className="h-3.5 w-3.5 shrink-0" fill="currentColor" />
+                    <span className="truncate text-[13px] font-medium">{displayPriority}</span>
                   </span>
                 )}
               </section>
@@ -470,8 +499,8 @@ export default function StoryDetailModal({
                 <FieldLabel icon={CircleDot} label="Status" />
                 {canEdit ? (
                   <Select value={draftStatus || story.status} onValueChange={setDraftStatus}>
-                    <SelectTrigger className="h-8 w-full text-xs">
-                      <SelectValue />
+                    <SelectTrigger className="w-full">
+                      <div className={`inline-flex h-5 items-center gap-1.5 rounded-md border px-1.5 text-[12px] font-semibold ${statusCfg.style}`}>{statusLabel}</div>
                     </SelectTrigger>
                     <SelectContent>
                       {statusOptions.map(s => (
@@ -480,7 +509,7 @@ export default function StoryDetailModal({
                     </SelectContent>
                   </Select>
                 ) : (
-                  <span className={`inline-flex items-center text-xs px-3 py-1.5 rounded-xl font-semibold border ${statusCfg.style}`}>{statusLabel}</span>
+                  <span className={`inline-flex h-7 items-center rounded-lg border px-2 text-[13px] font-semibold ${statusCfg.style}`}>{statusLabel}</span>
                 )}
               </section>
 
@@ -497,7 +526,7 @@ export default function StoryDetailModal({
                       setDraftAssigneeIds(prev => prev.filter(id => dest?.members.includes(id)));
                     }}
                   >
-                    <SelectTrigger className="h-8 w-full text-xs">
+                    <SelectTrigger className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -515,7 +544,7 @@ export default function StoryDetailModal({
                 <FieldLabel icon={Layers} label="Section" />
                 {canEdit && project ? (
                   <Select value={draftSectionId || NONE} onValueChange={v => setDraftSectionId(v === NONE ? '' : v)}>
-                    <SelectTrigger className="h-8 w-full text-xs">
+                    <SelectTrigger className="w-full">
                       <SelectValue placeholder="None" />
                     </SelectTrigger>
                     <SelectContent>
@@ -589,8 +618,8 @@ export default function StoryDetailModal({
               </section>
 
               <section data-empty={!(draftDueDate || story.dueDate?.trim())}>
-                <FieldLabel icon={Calendar} label="Due Date" />
-                <div className="min-w-0">
+                <FieldLabel icon={Calendar} label="Due date" />
+                <div className="flex min-w-0 items-center gap-2">
                 {canEdit ? (
                   <DatePickerInput
                     value={draftDueDate}
@@ -606,7 +635,7 @@ export default function StoryDetailModal({
                   <div className="text-sm text-muted-foreground">No due date</div>
                 )}
                 {isOverdue && (
-                  <div className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-red-400/80 bg-red-500/8 px-2 py-0.5 rounded-md border border-red-500/15">
+                  <div className="inline-flex shrink-0 items-center gap-1 rounded-md border border-red-500/15 bg-red-500/8 px-1.5 py-0.5 text-[11px] text-red-400/80">
                     <AlertTriangle className="h-3 w-3" /> Past due
                   </div>
                 )}
@@ -647,6 +676,21 @@ export default function StoryDetailModal({
                   {story.createdAt ? fmtDate(dateOnly(story.createdAt) || story.createdAt) : '—'}
                 </div>
               </section>
+
+              <section>
+                <FieldLabel icon={CheckCircle2} label="Progress" />
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="h-1 flex-1 overflow-hidden rounded-full bg-muted/40">
+                    <span
+                      className={`block h-full rounded-full transition-all ${pct === 100 ? 'bg-emerald-500' : 'bg-primary'}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </span>
+                  <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
+                    {doneN}/{tasks.length} · {pct}%
+                  </span>
+                </div>
+              </section>
             </div>
             <button
               type="button"
@@ -662,14 +706,15 @@ export default function StoryDetailModal({
               <section>
                 <FieldLabel icon={MessageSquare} label="Description" />
 {canEdit ? (
-                  <RichTextEditor
+                  <ExpandableRichText
+                    label="description"
                     value={draftDescription}
                     onChange={setDraftDescription}
                     placeholder="Add a description…"
                     className="rounded-xl border border-border/50 bg-muted/20 px-3 py-3"
                   />
                 ) : story.description?.trim() ? (
-                  <RichTextEditor value={story.description} onChange={() => {}} editable={false} />
+                  <ExpandableRichText label="description" value={story.description} onChange={() => {}} editable={false} />
                 ) : (
                   <div className="rounded-xl border border-border/30 bg-muted/10 px-4 py-4 text-sm italic text-muted-foreground/40">
                     No description provided.
@@ -680,14 +725,15 @@ export default function StoryDetailModal({
               <section>
                 <FieldLabel icon={FileText} label="Acceptance criteria" />
 {canEdit ? (
-                  <RichTextEditor
+                  <ExpandableRichText
+                    label="acceptance criteria"
                     value={draftAcceptance}
                     onChange={setDraftAcceptance}
                     placeholder="What must be true for this story to be done…"
                     className="rounded-xl border border-border/50 bg-muted/20 px-3 py-3"
                   />
                 ) : story.acceptanceCriteria?.trim() ? (
-                  <RichTextEditor value={story.acceptanceCriteria} onChange={() => {}} editable={false} />
+                  <ExpandableRichText label="acceptance criteria" value={story.acceptanceCriteria} onChange={() => {}} editable={false} />
                 ) : (
                   <div className="rounded-xl border border-border/30 bg-muted/10 px-4 py-4 text-sm italic text-muted-foreground/40">
                     None added.
@@ -799,6 +845,7 @@ export default function StoryDetailModal({
 
             {/* ── RIGHT rail: comments ────────────────────── */}
             <CommentsRail
+              key={story.id}
               comments={feedbackList}
               loading={feedbackLoading}
               onPost={async (message, mentionedUserIds) => {
@@ -820,39 +867,6 @@ export default function StoryDetailModal({
             />
           </div>
 
-          {canEdit && (
-            <div className="shrink-0 border-t border-border/25 px-7 py-4 flex items-center gap-3 bg-gradient-to-t from-muted/20 to-transparent">
-              <button
-                type="button"
-                onClick={() => setGenerateChoiceOpen(true)}
-                disabled={generating || saving}
-                className="text-sm px-4 py-2 rounded-xl border border-border/50 hover:bg-muted/60 transition-all text-muted-foreground hover:text-foreground font-medium inline-flex items-center gap-1.5"
-              >
-                {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                Generate tasks
-              </button>
-              <div className="flex items-center gap-2.5 ml-auto">
-                {isDirty && (
-                  <button
-                    type="button"
-                    onClick={() => resetDraft(story)}
-                    disabled={saving}
-                    className="text-sm px-4 py-2 rounded-xl border border-border/50 hover:bg-muted/60 hover:border-border/80 transition-all text-muted-foreground hover:text-foreground font-medium"
-                  >
-                    Discard
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => void saveAll()}
-                  disabled={!isDirty || saving}
-                  className="text-sm px-5 py-2 rounded-xl bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-35 transition-all font-semibold shadow-sm"
-                >
-                  {saving ? 'Saving…' : 'Save changes'}
-                </button>
-              </div>
-            </div>
-          )}
         </DialogContent>
       </Dialog>
 

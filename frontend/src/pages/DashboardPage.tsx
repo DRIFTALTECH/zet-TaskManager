@@ -1,5 +1,5 @@
 import { useAppStore } from '@/stores/appStore';
-import { CARD_SHADOW } from '@/lib/card-shadow';
+import { WORK_SURFACE } from '@/lib/card-shadow';
 import { DropHostContext, DROP_HOST_CLASS, useIsDropHost } from '@/lib/drop-target';
 import { projectPickerLabel } from '@/lib/project-utils';
 import { Task, Priority, KanbanColumn } from '@/types';
@@ -69,9 +69,10 @@ import {
 import { UNASSIGNED_FILTER_ID, isTopLevelTask, isTaskConfirmed, isStoryConfirmed, storyAssigneeIds, normalizePriority, rollupStoryHours, isDoneBoardStatus } from '@/lib/task-utils';
 import UserAvatar from '@/components/UserAvatar';
 import { Hint } from '@/components/ui/hint';
-import { Loader2 } from 'lucide-react';
+import { FolderKanban, Loader2 } from 'lucide-react';
 import { useBusyIds } from '@/hooks/useBusyIds';
 import { AssigneeCell, DueDateCell, PriorityCell, type DashUser } from '@/components/dash/DashCells';
+import { ICON_TRIGGER } from '@/components/dash/DashToolbar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
   Select,
@@ -87,6 +88,17 @@ import { invalidateUserStories, removeUserStory, storyKeys, STORY_STALE_TIME, up
 import type { UserStory } from '@/types';
 
 const PROTECTED_IDS = new Set(['backlog', 'in_progress', 'in_review', 'done']);
+
+/**
+ * The board's lanes follow whatever it is grouped by, the same way the list's
+ * sections do — status is only the default reading of the work, not the only
+ * one. Status lanes are the stored kanban columns and keep everything that
+ * makes them stored: reordering, colour, rename, the Done marker. The rest are
+ * views over a field, so they carry none of that furniture and a drop on them
+ * writes that one field.
+ */
+const LANE_PRIORITIES: Priority[] = ['Urgent', 'High', 'Medium', 'Low'];
+const ALL_LANE_ID = '__all__';
 const DONE_COL_KEY = 'tm_done_col';
 const VIEW_KEY = 'tm_dash_view';
 const GROUP_KEY = 'tm_dash_group';
@@ -180,7 +192,7 @@ function StoryBoardCard({
       className="touch-none select-none"
     >
       <div
-        className={`relative rounded-xl border border-border/70 bg-card p-3 flex flex-col transition-shadow ${CARD_SHADOW} ${
+        className={`relative ${WORK_SURFACE} p-3 flex flex-col ${
           isDropHost ? DROP_HOST_CLASS : ''
         } ${busy ? 'pointer-events-none' : ''}`}
       >
@@ -335,7 +347,7 @@ function KanbanColumnPanel({
   onTaskClick, onStoryClick, onStoryTaskClick,
   expandedStoryIds, onToggleStoryExpand, onNewTask, onNewStory, onAddStoryTask, isDropTarget, isManager,
   isDoneColumn, onSetDoneColumn, onRenameColumn, onDeleteColumn, onSetColor, showProjectPill,
-  users, columns, doneColumnId,
+  users, columns, doneColumnId, laneOfStory, canEditLane,
 }: {
   column: KanbanColumn;
   /** Task cards in this column. `storyTitle` is set for one pulled out of a story. */
@@ -374,18 +386,23 @@ function KanbanColumnPanel({
   users: { id: string; name: string; avatar: string }[];
   columns: KanbanColumn[];
   doneColumnId: string;
+  /** Which lane a story belongs to, under whatever the board is grouped by. */
+  laneOfStory: (s: UserStory) => string;
+  /** Stored columns can be reordered, recoloured, renamed and marked Done. A
+      lane derived from a field is none of those things — there is nothing to
+      store — so it drops that furniture rather than offering edits that would
+      go nowhere. */
+  canEditLane: boolean;
 }) {
   const { setNodeRef, transform, transition, attributes, listeners, isDragging } = useSortable({
-    id: column.id, data: { type: 'column' as const },
+    id: column.id, data: { type: 'column' as const }, disabled: !canEditLane,
   });
   const isProtected = PROTECTED_IDS.has(column.id);
   const colorTokens = columnColorTokens(column.color);
 
   /** Sub-stories of `id` whose own status keeps them in this column. */
   const childStoriesInColumn = (id: string) =>
-    (childStoriesById[id] ?? []).filter(
-      c => statusColId(c.status, columns, doneColumnId) === column.id,
-    );
+    (childStoriesById[id] ?? []).filter(c => laneOfStory(c) === column.id);
 
   /**
    * Every draggable id this column actually renders, once each.
@@ -457,10 +474,12 @@ function KanbanColumnPanel({
     >
       <div className="flex items-center justify-between mb-4 px-1">
         <div className="flex items-center gap-2">
-          <button {...attributes} {...listeners} onClick={e => e.stopPropagation()}
-            className="cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground/70 transition-colors touch-none p-0.5 rounded">
-            <GripVertical className="h-4 w-4" />
-          </button>
+          {canEditLane && (
+            <button {...attributes} {...listeners} onClick={e => e.stopPropagation()}
+              className="cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground/70 transition-colors touch-none p-0.5 rounded">
+              <GripVertical className="h-4 w-4" />
+            </button>
+          )}
           <h3 className={`rounded px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${colorTokens.pill}`}>
             {column.label}
           </h3>
@@ -481,6 +500,7 @@ function KanbanColumnPanel({
               </button>
             }
           />
+          {canEditLane && (
           <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="p-1 rounded-lg hover:bg-muted/60 text-muted-foreground/50 hover:text-muted-foreground transition-colors">
@@ -530,10 +550,11 @@ function KanbanColumnPanel({
             )}
           </DropdownMenuContent>
         </DropdownMenu>
+          )}
         </div>
       </div>
 
-      <div className={`space-y-2 flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain rounded-xl px-1.5 pt-2 pb-2 ${colorTokens.surface}`}>
+      <div className={`space-y-2 flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain rounded-xl px-1.5 pt-2 pb-14 ${colorTokens.surface}`}>
         <SortableContext
           items={sortableIds()}
           strategy={verticalListSortingStrategy}
@@ -633,16 +654,67 @@ const DashboardPage = () => {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [selectedStory, setSelectedStory] = useState<UserStory | null>(null);
 
+  /**
+   * How the open detail modal was reached.
+   *
+   * Opening a task from a story replaces the story rather than stacking on it,
+   * and a subtask replaces the task the same way — so the only way back out was
+   * closing the modal and finding the parent again on the board. This records
+   * the path taken so each modal can offer one step back to whatever contained
+   * it. Ids, not objects, so a step back lands on the current version of the
+   * item rather than the copy held when it was left.
+   */
+  type DetailRef = { type: 'task' | 'story'; id: string };
+  const [detailTrail, setDetailTrail] = useState<DetailRef[]>([]);
+  // Read by window-event handlers, which would otherwise close over the
+  // selection as it was when the listener was registered.
+  const openDetailRef = useRef<DetailRef | null>(null);
+  useEffect(() => {
+    openDetailRef.current = selectedStory
+      ? { type: 'story', id: selectedStory.id }
+      : selectedTask
+        ? { type: 'task', id: selectedTask.id }
+        : null;
+  }, [selectedStory, selectedTask]);
+
+  /** Opens a task, remembering what it was opened from. */
+  const openStoryFresh = useCallback((st: UserStory) => {
+    setDetailTrail([]);
+    setSelectedTask(null);
+    setSelectedStory(st);
+  }, []);
+
+  const openTaskFresh = useCallback((t: Task) => {
+    setDetailTrail([]);
+    setSelectedStory(null);
+    setSelectedTask(t);
+  }, []);
+
+  const openTaskFromDetail = useCallback((t: Task) => {
+    const from = openDetailRef.current;
+    if (from && !(from.type === 'task' && from.id === t.id)) {
+      setDetailTrail(prev => [...prev, from]);
+    }
+    setSelectedStory(null);
+    setSelectedTask(t);
+  }, []);
+
+  const closeDetail = useCallback(() => {
+    setSelectedTask(null);
+    setSelectedStory(null);
+    setDetailTrail([]);
+  }, []);
+
   useEffect(() => {
     function handle(e: Event) {
       const taskId = (e as CustomEvent<{ taskId: string }>).detail?.taskId;
       if (!taskId) return;
       const found = tasks.find(t => t.id === taskId);
-      if (found) setSelectedTask(found);
+      if (found) openTaskFromDetail(found);
     }
     window.addEventListener('zet:open-task', handle);
     return () => window.removeEventListener('zet:open-task', handle);
-  }, [tasks]);
+  }, [tasks, openTaskFromDetail]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeType, setActiveType] = useState<ActiveDrag | null>(null);
   const [overColumnId, setOverColumnId] = useState<string | null>(null);
@@ -788,17 +860,35 @@ const DashboardPage = () => {
       if (!storyId) return;
       const found = dashStories.find(s => s.id === storyId);
       if (found) {
-        setSelectedStory(found);
+        openStoryFresh(found);
         return;
       }
       void api.getUserStory(storyId).then(s => {
-        setSelectedStory(s);
+        openStoryFresh(s);
         upsertUserStory(s);
       }).catch(() => {});
     }
     window.addEventListener('zet:open-story', handle);
     return () => window.removeEventListener('zet:open-story', handle);
-  }, [dashStories]);
+  }, [dashStories, openStoryFresh]);
+
+  /** One step back to whatever the open item was opened from. */
+  const goBackDetail = () => {
+    const last = detailTrail[detailTrail.length - 1];
+    if (!last) return;
+    setDetailTrail(prev => prev.slice(0, -1));
+    if (last.type === 'story') {
+      const s = dashStories.find(x => x.id === last.id);
+      if (!s) return;
+      setSelectedTask(null);
+      setSelectedStory(s);
+      return;
+    }
+    const t = tasks.find(x => x.id === last.id);
+    if (!t) return;
+    setSelectedStory(null);
+    setSelectedTask(t);
+  };
 
   const projectTasks = scopedTasks;
 
@@ -1002,11 +1092,48 @@ const DashboardPage = () => {
     [boardColumns, doneColumnId],
   );
 
+  /** Lanes the board draws, and which lane a piece of work belongs in. */
+  const boardLanes = useMemo<KanbanColumn[]>(() => {
+    if (dashGroupBy === 'priority') return LANE_PRIORITIES.map(pr => ({ id: pr, label: pr }));
+    if (dashGroupBy === 'assignee') {
+      return [
+        ...dashFilterableMembers.map(u => ({ id: u.id, label: u.name })),
+        { id: UNASSIGNED_FILTER_ID, label: 'Unassigned' },
+      ];
+    }
+    if (dashGroupBy === 'none') return [{ id: ALL_LANE_ID, label: 'All work' }];
+    return boardColumns;
+  }, [dashGroupBy, boardColumns, dashFilterableMembers]);
+
+  /** True while the lanes are the stored columns and can be edited as such. */
+  const statusLanes = dashGroupBy === 'status';
+
+  /**
+   * A card sits under its first assignee rather than under each of them. The
+   * list can repeat a row across sections harmlessly; the board cannot, because
+   * a draggable id may exist in one place only — repeating it makes dnd-kit
+   * resolve drags against the wrong card.
+   */
+  const laneOf = useCallback(
+    (item: { status: string; priority?: string; assigneeIds?: string[] }) => {
+      if (dashGroupBy === 'priority') return normalizePriority(item.priority);
+      if (dashGroupBy === 'assignee') return item.assigneeIds?.[0] ?? UNASSIGNED_FILTER_ID;
+      if (dashGroupBy === 'none') return ALL_LANE_ID;
+      return colOf(item.status);
+    },
+    [dashGroupBy, colOf],
+  );
+
+  const laneOfStory = useCallback(
+    (st: UserStory) => laneOf({ status: st.status, priority: st.priority, assigneeIds: storyAssigneeIds(st) }),
+    [laneOf],
+  );
+
   const storyColumnById = useMemo(() => {
     const m: Record<string, string> = {};
-    for (const st of filteredStories) m[st.id] = colOf(st.status);
+    for (const st of filteredStories) m[st.id] = laneOfStory(st);
     return m;
-  }, [filteredStories, colOf]);
+  }, [filteredStories, laneOfStory]);
 
   /** A story card lists every task it owns, and a task card every subtask. */
   const nestedStoryTasks = storyTasksById;
@@ -1030,7 +1157,7 @@ const DashboardPage = () => {
   );
 
   const taskCardsForColumn = (colId: string) =>
-    boardTaskCards.filter(c => colOf(c.task.status) === colId);
+    boardTaskCards.filter(c => laneOf(c.task) === colId);
   /** Sub-stories grouped under their parent, scoped to what is in view. */
   const childStoriesById = useMemo(() => {
     const visible = new Set(filteredStories.map(s => s.id));
@@ -1049,9 +1176,9 @@ const DashboardPage = () => {
    */
   const storiesForColumn = (colId: string) => {
     const visible = new Set(filteredStories.map(s => s.id));
-    const columnOf = new Map(filteredStories.map(s => [s.id, colOf(s.status)]));
+    const columnOf = new Map(filteredStories.map(s => [s.id, laneOfStory(s)]));
     return filteredStories.filter(st => {
-      if (colOf(st.status) !== colId) return false;
+      if (laneOfStory(st) !== colId) return false;
       const parentId = st.parentStoryId ?? '';
       if (!parentId || parentId === st.id || !visible.has(parentId)) return true;
       return columnOf.get(parentId) !== colId;
@@ -1287,16 +1414,16 @@ const DashboardPage = () => {
   }, [descendantDropIds]);
 
   const resolveOverCol = (overId: string): string | null => {
-    if (boardColumns.some(c => c.id === overId)) return overId;
+    if (boardLanes.some(c => c.id === overId)) return overId;
     const overStoryId = parseStoryDragId(overId);
     if (overStoryId) {
       const s = dashStories.find(x => x.id === overStoryId);
-      return s ? statusColId(s.status, boardColumns, doneColumnId) : null;
+      return s ? laneOfStory(s) : null;
     }
     const task = tasks.find(t => t.id === overId);
     // Normalise like the story branch: a raw status can be "completed" or a
     // column that no longer exists, neither of which is a droppable column.
-    return task ? statusColId(task.status, boardColumns, doneColumnId) : null;
+    return task ? laneOf(task) : null;
   };
 
   const handleDragStart = (event: DragStartEvent) => {
@@ -1344,6 +1471,8 @@ const DashboardPage = () => {
     }
 
     if (dragType === 'column') {
+      // Only the stored columns have an order to change.
+      if (!statusLanes) return;
       const oldIdx = boardColumns.findIndex(c => c.id === activeIdStr);
       const newIdx = boardColumns.findIndex(c => c.id === overIdStr);
       if (oldIdx !== -1 && newIdx !== -1 && oldIdx !== newIdx) {
@@ -1355,6 +1484,28 @@ const DashboardPage = () => {
 
     const targetCol = resolveOverCol(overIdStr);
     if (!targetCol) return;
+
+    // A lane that is not a stored column is a view over one field, so a drop on
+    // it writes that field and stops there. Nothing below applies: there is no
+    // Done to cascade out of, no approval to reverse, and nesting is a question
+    // about structure rather than about who owns a card or how urgent it is —
+    // both of those still live in the status board and in the list.
+    if (!statusLanes) {
+      if (dashGroupBy === 'none') return;
+      const patch: DashRowPatch =
+        dashGroupBy === 'priority'
+          ? { priority: targetCol as Priority }
+          : { assigneeIds: targetCol === UNASSIGNED_FILTER_ID ? [] : [targetCol] };
+      if (dragType === 'story') {
+        const sid = parseStoryDragId(activeIdStr) ?? activeIdStr;
+        const story = dashStories.find(x => x.id === sid);
+        if (story && laneOfStory(story) !== targetCol) editStoryCell(story, patch);
+        return;
+      }
+      const task = tasks.find(t => t.id === activeIdStr);
+      if (task && laneOf(task) !== targetCol) editTaskCell(task, patch);
+      return;
+    }
 
     if (dragType === 'story') {
       const sid = parseStoryDragId(activeIdStr) ?? (active.data.current?.storyId as string | undefined);
@@ -1634,6 +1785,14 @@ const DashboardPage = () => {
   }
 
 
+  /** What the project control is scoped to, for its tooltip and its label. */
+  const selectedProjectLabel = isAllProjects
+    ? 'All projects'
+    : (() => {
+        const p = userProjects.find(pr => pr.id === selectedProjectId);
+        return p ? projectPickerLabel(p) : 'Select a project';
+      })();
+
   const setView = (v: DashView) => {
     setDashView(v);
     localStorage.setItem(VIEW_KEY, v);
@@ -1667,6 +1826,7 @@ const DashboardPage = () => {
     });
   };
   const handleRowClick = (row: DashRow) => {
+    setDetailTrail([]);
     if (row.story) setSelectedStory(row.story);
     else if (row.task) setSelectedTask(row.task);
   };
@@ -1990,109 +2150,26 @@ const DashboardPage = () => {
   };
 
   return (
-    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={pageEnter} className="relative p-3 sm:p-4 h-full flex flex-col overflow-hidden">
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={pageEnter} className="relative px-2 pb-3 pt-2 sm:px-3 sm:pb-4 sm:pt-3 h-full flex flex-col overflow-hidden">
       {/* One line across the top while anything is saving. A move on a slow
           connection is otherwise indistinguishable from a click that missed. */}
       {busy && (
-        <span className="pointer-events-none absolute inset-x-0 top-0 z-50 h-0.5 overflow-hidden bg-primary/20">
+        <span className="pointer-events-none absolute inset-x-0 top-0 z-[60] h-0.5 overflow-hidden bg-primary/20">
           <span className="block h-full w-1/3 animate-dash-progress bg-primary" />
         </span>
       )}
-      <div className="mb-3 shrink-0 flex flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0">
-          {/* The project picker used to live in the top bar. It belongs to the
-              board it scopes, so it moved here when that bar was removed. */}
-          <Select
-            value={userProjects.length === 0 ? 'none' : (selectedProjectId || 'all')}
-            onValueChange={v => { if (v !== 'none') selectProject(v); }}
-            disabled={userProjects.length === 0}
-          >
-            <SelectTrigger
-              aria-label="Project"
-              className="h-7 w-full sm:w-[min(60vw,18rem)] min-w-0 flex-1 sm:flex-none rounded-lg border-border/70 bg-card/70 px-2.5 text-[13px] sm:text-sm font-bold shadow-none focus:ring-2 focus:ring-ring/40 focus:ring-offset-0"
-            >
-              <SelectValue placeholder={userProjects.length === 0 ? 'No projects' : 'Project'} />
-            </SelectTrigger>
-            <SelectContent className="max-h-72 min-w-[14rem] rounded-xl border-border/70 p-1 shadow-lg">
-              {userProjects.length === 0 ? (
-                <SelectItem value="none" className="rounded-lg py-2">No projects</SelectItem>
-              ) : (
-                <>
-                  <SelectItem value="all" className="rounded-lg py-2 font-medium">All projects</SelectItem>
-                  {userProjects.map(p => (
-                    <SelectItem key={p.id} value={p.id} className="rounded-lg py-2">
-                      {projectPickerLabel(p)}
-                    </SelectItem>
-                  ))}
-                </>
-              )}
-            </SelectContent>
-          </Select>
-          <div className="inline-flex h-7 shrink-0 rounded-lg border border-border/70 bg-card/70 p-0.5">
-            <button
-              type="button"
-              onClick={() => setView('list')}
-              className={`inline-flex items-center gap-1.5 rounded-md px-2.5 text-xs font-medium ${dashView === 'list' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-            >
-              <List className="h-3.5 w-3.5" /> List
-            </button>
-            <button
-              type="button"
-              onClick={() => setView('board')}
-              className={`inline-flex items-center gap-1.5 rounded-md px-2.5 text-xs font-medium ${dashView === 'board' ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-            >
-              <Columns className="h-3.5 w-3.5" /> Board
-            </button>
-          </div>
-        </div>
-        <DashToolbar
-          groupBy={dashGroupBy}
-          onGroupBy={setGroupBy}
-          sortBy={dashSortBy}
-          onSortBy={setDashSortBy}
-          showGrouping={dashView === 'list'}
-          search={dashSearch}
-          onSearch={setDashSearch}
-          sprintOptions={dashSprintOptions}
-          sprintFilter={dashSprintFilter}
-          onToggleSprint={toggleDashSprint}
-          onClearSprints={() => setDashSprintFilter(new Set())}
-          members={dashFilterableMembers}
-          assigneeFilter={dashAssigneeFilter}
-          onToggleAssignee={toggleDashAssignee}
-          onClearAssignees={() => setDashAssigneeFilter(new Set())}
-          priorityFilter={dashPriorityFilter}
-          onTogglePriority={toggleDashPriority}
-          onClearPriorities={() => setDashPriorityFilter(new Set())}
-          dateFrom={dashDateFrom}
-          dateTo={dashDateTo}
-          onDateRange={(f, t) => { setDashDateFrom(f); setDashDateTo(t); }}
-          openFilter={openFilter}
-          onOpenFilter={setOpenFilter}
-          onClearAll={clearDashFilters}
-          trailing={
-            dashView === 'list' ? (
-              <AddWorkMenu
-                onTask={() => openCreateForStory(null)}
-                onStory={() => openCreateStory()}
-                trigger={
-                  <Button type="button" size="sm" className="h-8 gap-1 text-xs">
-                    <Plus className="h-3.5 w-3.5" /> Add
-                  </Button>
-                }
-              />
-            ) : null
-          }
-        />
-      </div>
-
       {dashView === 'list' ? (
-        <div className="flex-1 min-h-0 overflow-auto">
+        <div className="flex-1 min-h-0 overflow-auto pb-16">
           <div className="min-w-[46rem]">
             <DashTable
               groups={dashGroups}
               columns={boardColumns}
               doneColumnId={doneColumnId}
+              // The list's status groups are the board's columns, so they can be
+              // recoloured and reordered from either view — the same change,
+              // reached from wherever you happen to be reading the work.
+              onSetColumnColor={(colId, color) => { void handleSetColumnColor(colId, color); }}
+              onReorderColumns={cols => { void reorderColumns(cols).catch(() => toast.error('Could not reorder columns')); }}
               membersForProject={membersForProject}
               projectNames={projectNames}
               showProjectNames={isAllProjects}
@@ -2123,9 +2200,9 @@ const DashboardPage = () => {
         onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}>
         <DropHostContext.Provider value={overCardId}>
-        <SortableContext items={boardColumns.map(c => c.id)} strategy={horizontalListSortingStrategy}>
-          <KanbanBoardPan className="flex gap-4 lg:gap-3 flex-1 min-h-0 pb-4">
-            {boardColumns.map(col => (
+        <SortableContext items={boardLanes.map(c => c.id)} strategy={horizontalListSortingStrategy}>
+          <KanbanBoardPan className="flex gap-4 lg:gap-3 flex-1 min-h-0 pb-2">
+            {boardLanes.map(col => (
               <KanbanColumnPanel
                 key={col.id} column={col}
                 taskCards={taskCardsForColumn(col.id)}
@@ -2141,17 +2218,18 @@ const DashboardPage = () => {
                 onEditStory={editStoryCell}
                 onEditTask={editTaskCell}
                 membersForProject={membersForProject}
-                onTaskClick={setSelectedTask}
-                onStoryClick={setSelectedStory}
-                onStoryTaskClick={setSelectedTask}
+                onTaskClick={openTaskFresh}
+                onStoryClick={openStoryFresh}
+                onStoryTaskClick={openTaskFresh}
                 expandedStoryIds={expandedStoryIds}
                 onToggleStoryExpand={toggleStoryExpanded}
-                onNewTask={() => openCreateForStory(null, col.id)}
-                onNewStory={() => openCreateStory(col.id)}
-                onAddStoryTask={s => openCreateForStory(s, col.id)}
+                // Only a status lane names a status to start the new item in.
+                onNewTask={() => openCreateForStory(null, statusLanes ? col.id : undefined)}
+                onNewStory={() => openCreateStory(statusLanes ? col.id : undefined)}
+                onAddStoryTask={s => openCreateForStory(s, statusLanes ? col.id : undefined)}
                 isDropTarget={overColumnId === col.id}
                 isManager={!!isManager}
-                isDoneColumn={col.id === doneColumnId}
+                isDoneColumn={statusLanes && col.id === doneColumnId}
                 onSetDoneColumn={() => handleSetDoneColumn(col.id)}
                 onRenameColumn={() => openRename(col)}
                 onDeleteColumn={() => { void handleDeleteColumn(col.id); }}
@@ -2160,6 +2238,8 @@ const DashboardPage = () => {
                 users={users}
                 columns={boardColumns}
                 doneColumnId={doneColumnId}
+                laneOfStory={laneOfStory}
+                canEditLane={statusLanes}
               />
             ))}
           </KanbanBoardPan>
@@ -2199,6 +2279,105 @@ const DashboardPage = () => {
         </DropHostContext.Provider>
       </DndContext>
       )}
+      {/* No margin under it: the bar is flush with the work, and the chips
+          below carry the only spacing that is needed and only when there are
+          chips to carry it. */}
+      <div className="shrink-0 flex flex-col gap-1.5">
+        <DashToolbar
+          leading={
+            <Popover>
+              {/* The project name is the one thing here a reader may not know
+                  by heart, so it stays in the tooltip and the label even though
+                  the row shows only the folder. */}
+              <Hint label={userProjects.length === 0 ? 'No projects' : selectedProjectLabel}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={`Project: ${selectedProjectLabel}`}
+                    disabled={userProjects.length === 0}
+                    className={ICON_TRIGGER}
+                  >
+                    <FolderKanban className="h-4 w-4" />
+                    {isAllProjects ? null : (
+                      <span aria-hidden className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full border border-card bg-primary" />
+                    )}
+                  </button>
+                </PopoverTrigger>
+              </Hint>
+              <PopoverContent align="start" className="max-h-72 w-56 overflow-y-auto rounded-xl border-border/70 p-1 shadow-lg">
+                <p className="px-2 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                  Project
+                </p>
+                <button
+                  type="button"
+                  onClick={() => selectProject('all')}
+                  className={`flex w-full items-center rounded-lg px-2 py-1.5 text-left text-xs hover:bg-muted ${isAllProjects ? 'font-semibold' : ''}`}
+                >
+                  All projects
+                </button>
+                {userProjects.map(p => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => selectProject(p.id)}
+                    className={`flex w-full items-center rounded-lg px-2 py-1.5 text-left text-xs hover:bg-muted ${p.id === selectedProjectId ? 'font-semibold' : ''}`}
+                  >
+                    <span className="truncate">{projectPickerLabel(p)}</span>
+                  </button>
+                ))}
+              </PopoverContent>
+            </Popover>
+          }
+          viewSwitch={
+            (() => {
+              // One control, not two: there are exactly two views, so a pair of
+              // buttons spent a second slot saying which one you are already
+              // looking at — which the board itself already says.
+              const next = dashView === 'list' ? 'board' : 'list';
+              const Icon = dashView === 'list' ? List : Columns;
+              const label = `Switch to ${next} view`;
+              return (
+                <Hint label={label}>
+                  <button
+                    type="button"
+                    aria-label={label}
+                    onClick={() => setView(next)}
+                    className={ICON_TRIGGER}
+                  >
+                    {/* Shows the view you are in; the label says where it goes. */}
+                    <Icon className="h-4 w-4" />
+                  </button>
+                </Hint>
+              );
+            })()
+          }
+          groupBy={dashGroupBy}
+          onGroupBy={setGroupBy}
+          sortBy={dashSortBy}
+          onSortBy={setDashSortBy}
+          showGrouping
+          search={dashSearch}
+          onSearch={setDashSearch}
+          sprintOptions={dashSprintOptions}
+          sprintFilter={dashSprintFilter}
+          onToggleSprint={toggleDashSprint}
+          onClearSprints={() => setDashSprintFilter(new Set())}
+          members={dashFilterableMembers}
+          assigneeFilter={dashAssigneeFilter}
+          onToggleAssignee={toggleDashAssignee}
+          onClearAssignees={() => setDashAssigneeFilter(new Set())}
+          priorityFilter={dashPriorityFilter}
+          onTogglePriority={toggleDashPriority}
+          onClearPriorities={() => setDashPriorityFilter(new Set())}
+          dateFrom={dashDateFrom}
+          dateTo={dashDateTo}
+          onDateRange={(f, t) => { setDashDateFrom(f); setDashDateTo(t); }}
+          openFilter={openFilter}
+          onOpenFilter={setOpenFilter}
+          onClearAll={clearDashFilters}
+        />
+      </div>
+
 
       {/* Add Column Modal */}
       <Dialog open={addColOpen} onOpenChange={setAddColOpen}>
@@ -2242,7 +2421,8 @@ const DashboardPage = () => {
       <TaskDetailModal
         task={selectedTask}
         open={!!selectedTask}
-        onOpenChange={o => !o && setSelectedTask(null)}
+        onOpenChange={o => !o && closeDetail()}
+        onBack={detailTrail.length > 0 ? goBackDetail : undefined}
         onConvert={id => {
           const row = { entityId: id, type: 'task', projectId: selectedTask?.projectId ?? '' } as DashRow;
           void handleConvertRow(row);
@@ -2251,7 +2431,8 @@ const DashboardPage = () => {
       <StoryDetailModal
         story={selectedStory ? (dashStories.find(s => s.id === selectedStory.id) ?? selectedStory) : null}
         open={!!selectedStory}
-        onOpenChange={o => { if (!o) setSelectedStory(null); }}
+        onOpenChange={o => { if (!o) closeDetail(); }}
+        onBack={detailTrail.length > 0 ? goBackDetail : undefined}
         tasks={selectedStory ? tasks.filter(t => t.userStoryId === selectedStory.id && isTopLevelTask(t)) : []}
         columns={boardColumns}
         doneColumnId={doneColumnId}
@@ -2261,13 +2442,7 @@ const DashboardPage = () => {
           const row = { entityId: id, type: 'story', projectId: selectedStory?.projectId ?? '' } as DashRow;
           void handleConvertRow(row);
         }}
-        onTaskClick={t => { setSelectedStory(null); setSelectedTask(t); }}
-        onAddTask={() => {
-          if (!selectedStory) return;
-          const s = selectedStory;
-          setSelectedStory(null);
-          openCreateForStory(s, 'backlog');
-        }}
+        onTaskClick={openTaskFromDetail}
       />
       <CreateTaskModal
         open={createOpen}

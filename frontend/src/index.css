@@ -177,3 +177,65 @@
     display: none;
   }
 }
+
+/* The collapsed search ball: a sphere that drifts while the bar is idle.
+   A flat dark disc reads as decoration. Shading it — a light source up and to
+   the left, the underside falling into shadow, a contact shadow beneath — makes
+   it an object, and an object that moves is obviously something you can touch.
+
+   It only travels, left and right. Nothing rotates: on hover this becomes a
+   search field, and a control that spins itself level while it grows looks
+   broken — and with the motion purely horizontal, a turn would be claiming a
+   roll the movement never makes. */
+@keyframes tb-drift {
+  from {
+    transform: translateX(-10px);
+  }
+  to {
+    transform: translateX(10px);
+  }
+}
+
+
+@layer utilities {
+  .tb-ball {
+    animation: tb-drift 5s ease-in-out infinite alternate;
+
+    /* Lift the base off `--foreground` first. That token is pure black in the
+       light theme, and black has nowhere darker to go — every shadow below
+       paints onto it and vanishes, which is why the ball read as a flat disc
+       with a dot on it. Mixed 22% toward `--background`, the surface sits mid
+       tone in either theme and both the highlight and the terminator have
+       somewhere to travel. Browsers without color-mix keep the flat fill. */
+    background-color: color-mix(in srgb, hsl(var(--foreground)) 78%, hsl(var(--background)));
+
+    /* Painted top layer first: specular pinpoint, its bloom, bounce light off
+       the surface below, then the falloff crossing the face into shadow. */
+    background-image:
+      radial-gradient(circle at 34% 25%, hsl(0 0% 100% / 0.95), hsl(0 0% 100% / 0) 9%),
+      radial-gradient(circle at 34% 25%, hsl(0 0% 100% / 0.35), hsl(0 0% 100% / 0) 24%),
+      radial-gradient(circle at 70% 82%, hsl(0 0% 100% / 0.22), hsl(0 0% 100% / 0) 30%),
+      radial-gradient(
+        circle at 32% 27%,
+        hsl(0 0% 100% / 0.18),
+        hsl(0 0% 0% / 0) 38%,
+        hsl(0 0% 0% / 0.55) 72%,
+        hsl(0 0% 0% / 0.92) 100%
+      );
+
+    /* Occlusion tucked under the lower edge so the silhouette turns away
+       instead of ending, and a soft cast shadow beneath so it reads as resting
+       above the board rather than printed on it. */
+    box-shadow:
+      inset 0 -6px 10px -4px hsl(0 0% 0% / 0.75),
+      0 8px 14px -5px hsl(0 0% 0% / 0.55);
+  }
+
+  /* Ambient motion nobody asked for is exactly what this setting turns off.
+     The sphere stays; only the drifting stops. */
+  @media (prefers-reduced-motion: reduce) {
+    .tb-ball {
+      animation: none;
+    }
+  }
+}

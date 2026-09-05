@@ -65,9 +65,9 @@ export function SprintSelect({
             if (e.key === 'Enter') { e.preventDefault(); commitNew(); }
             if (e.key === 'Escape') { setAdding(false); setDraft(''); }
           }}
-          className="w-full rounded-xl border border-border/80 bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
+          className="w-full rounded-md border border-border/80 bg-background px-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
         />
-        <Button type="button" size="sm" className="shrink-0" onClick={commitNew} disabled={!draft.trim()}>
+        <Button type="button" size="sm" className="h-7 shrink-0 px-2 text-xs" onClick={commitNew} disabled={!draft.trim()}>
           Add
         </Button>
       </div>
@@ -77,7 +77,7 @@ export function SprintSelect({
   return (
     <div className="flex items-center gap-1.5">
       <Select value={value.trim() || NONE} onValueChange={v => onChange(v === NONE ? '' : v)}>
-        <SelectTrigger id={id} className={cn('w-full rounded-xl')}>
+        <SelectTrigger id={id} className={cn('w-full')}>
           <SelectValue placeholder="No sprint" />
         </SelectTrigger>
         <SelectContent>
@@ -91,7 +91,7 @@ export function SprintSelect({
         type="button"
         variant="outline"
         size="icon"
-        className="shrink-0 rounded-xl"
+        className="h-7 w-7 shrink-0"
         aria-label="Add sprint"
         onClick={() => setAdding(true)}
       >

@@ -11,7 +11,13 @@ export const CARD_SHADOW =
   'shadow-[0_1px_4px_rgba(0,0,0,0.10)] hover:shadow-[0_2px_8px_rgba(0,0,0,0.14)] ' +
   'dark:shadow-[0_1px_3px_rgba(0,0,0,0.55)] dark:hover:shadow-[0_4px_12px_rgba(0,0,0,0.65)]';
 
-/** The flatter elevation used by list rows. */
-export const ROW_SHADOW =
-  'shadow-[0_1px_2px_rgba(0,0,0,0.06)] hover:shadow-[0_1px_5px_rgba(0,0,0,0.10)] ' +
-  'dark:shadow-[0_1px_2px_rgba(0,0,0,0.45)] dark:hover:shadow-[0_2px_6px_rgba(0,0,0,0.55)]';
+/**
+ * One piece of work as a surface — a card on the board, a row in the list.
+ *
+ * This is the board card, and the list draws from the same string so the two
+ * cannot drift. They are the same object seen two ways: a task read down a
+ * column and a task read across a row should not look like different kinds of
+ * thing, or moving between views feels like moving between apps.
+ */
+export const WORK_SURFACE =
+  `rounded-xl border border-border/70 bg-card transition-shadow ${CARD_SHADOW}`;

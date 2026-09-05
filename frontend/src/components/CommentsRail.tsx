@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MessageSquare, Send } from 'lucide-react';
 import { toast } from 'sonner';
@@ -23,6 +23,10 @@ interface Props {
   onPost: (message: string, mentionedUserIds: string[]) => Promise<void>;
   onEdit: (id: string, message: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  /** A control on the heading row, e.g. "AI Summary". */
+  headerAction?: ReactNode;
+  /** A panel above the thread, e.g. the summary the action produced. */
+  banner?: ReactNode;
 }
 
 function tsShort(iso: string) {
@@ -61,8 +65,15 @@ function renderMessageWithMentions(message: string, userNames: string[]) {
   );
 }
 
-/** Right-hand comment rail — same markup the task modal uses, minus the AI summary. */
-export function CommentsRail({ comments, loading, onPost, onEdit, onDelete }: Props) {
+/**
+ * The right-hand comment rail, for every detail modal.
+ *
+ * This began as a copy of the task modal's thread with the AI summary left out,
+ * and the two then drifted: the copy grew a pinned composer and a heading the
+ * original never got. `headerAction` and `banner` are what the summary needed,
+ * so there is one rail again rather than one per entity.
+ */
+export function CommentsRail({ comments, loading, onPost, onEdit, onDelete, headerAction, banner }: Props) {
   const { users, currentUser } = useAppStore();
   const [newText, setNewText] = useState('');
   const [posting, setPosting] = useState(false);
@@ -180,9 +191,11 @@ export function CommentsRail({ comments, loading, onPost, onEdit, onDelete }: Pr
             {comments.length}
           </span>
         )}
+        {headerAction && <span className="ml-auto shrink-0">{headerAction}</span>}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-3 sm:px-6">
+        {banner}
 
           {loading ? (
             <div className="flex items-center justify-center py-10 gap-2 text-sm text-muted-foreground">
