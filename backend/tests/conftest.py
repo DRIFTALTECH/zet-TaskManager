@@ -146,6 +146,7 @@ def make_user_story(api_client, headers, project_id: str, section_id: str, title
 
 # Tables cleared before each test (kanban_columns seed is kept).
 _CLEAR_TABLES = (
+    "ai_prompts",
     "teams_transcript_imports",
     "scrums",
     "personal_access_tokens",
@@ -188,4 +189,9 @@ def _isolated_db():
         db.write("PRAGMA foreign_keys = ON")
     finally:
         db.close()
+    # Prompt overrides are held in the module as well as the table, so wiping
+    # only the rows would leave one test's wording steering the next one.
+    from ai import prompts
+
+    prompts.set_overrides({})
     yield

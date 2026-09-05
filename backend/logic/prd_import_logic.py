@@ -14,6 +14,7 @@ from database.database import Db
 from database.init_db import new_id
 from database.models import TempTask
 from logic import project_logic
+from logic.prd_chunks import dedupe_by_title, split_for_outline
 from ai.schemas import PrdExtractedStory, PrdOutlineStory
 from ai import chains
 from logic.prd_extract_logic import _to_preview
@@ -217,20 +218,35 @@ def analyze_stream(
         )
     _users, projects = _refs(db, user_id)
 
-    yield _progress(18, "outline", "Finding user stories")
+    # One answer covering a whole BRD does not fit inside the model's output
+    # cap, so the document is read a piece at a time and the answers joined. A
+    # document that already fits comes back as a single piece and costs exactly
+    # one call, as before.
+    pieces = split_for_outline(source[:80000])
     outlined: list[PrdOutlineStory] = []
     outline_err: Exception | None = None
-    try:
-        outlined = list(chains.outline_prd(source[:80000], projects).stories or [])
-    except Exception as exc:
-        log.exception("PRD outline failed")
-        outline_err = exc
-        outlined = []
+    for idx, piece in enumerate(pieces, start=1):
+        label = (
+            "Finding user stories"
+            if len(pieces) == 1
+            else f"Finding user stories ({idx} of {len(pieces)})"
+        )
+        yield _progress(18 + int(8 * (idx - 1) / len(pieces)), "outline", label)
+        try:
+            outlined.extend(chains.outline_prd(piece, projects).stories or [])
+        except Exception as exc:
+            # One piece failing costs that piece, not the whole import — the
+            # stories found in the others are still worth staging.
+            log.exception("PRD outline failed on piece %d of %d", idx, len(pieces))
+            outline_err = exc
+    # Split points are chosen on structure, so a requirement restated either
+    # side of one can be outlined twice.
+    outlined = dedupe_by_title(outlined)
 
     if not outlined:
         yield _progress(28, "outline", "Retrying story outline")
         try:
-            raw = chains.extract_prd(source[:80000], projects)
+            raw = chains.extract_prd(pieces[0] if pieces else source[:80000], projects)
             outline_err = None
             for es in raw.stories or []:
                 outlined.append(
@@ -260,10 +276,20 @@ def analyze_stream(
 
     if not outlined:
         if outline_err:
-            raise HTTPException(
-                status.HTTP_502_BAD_GATEWAY,
-                f"AI story generation failed: {outline_err}",
+            # Both attempts came back with nothing usable. On a long document
+            # that means the model was still writing when it hit the output cap
+            # and not one story finished; a schema mismatch lands here too,
+            # since Pydantic's ValidationError is a ValueError. The way out of
+            # either is the same, so say it in terms of the document rather than
+            # quoting an exception at someone who never asked about JSON.
+            detail = (
+                "No usable stories came back from that document — it is most "
+                "likely too long to analyse in one pass. Try importing it a "
+                "section at a time."
+                if isinstance(outline_err, ValueError)
+                else "Could not analyse that document just now — please try again."
             )
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail)
         temp_crud.delete_for_user(db, user_id)
         db.commit()
         yield {

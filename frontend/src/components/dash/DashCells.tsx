@@ -57,7 +57,15 @@ export function CellPopover({
     <Popover open={open} onOpenChange={setOpen} modal>
       <Hint label={open ? '' : hint}>
         <PopoverTrigger asChild>
-          <button type="button" className={TRIGGER} onClick={e => e.stopPropagation()}>
+          {/* Named from the same hint the tooltip shows: unset, most of these
+              are a bare glyph, which leaves a screen reader announcing only
+              "button" and a test no way to reach the right one. */}
+          <button
+            type="button"
+            aria-label={hint}
+            className={TRIGGER}
+            onClick={e => e.stopPropagation()}
+          >
             {trigger}
           </button>
         </PopoverTrigger>

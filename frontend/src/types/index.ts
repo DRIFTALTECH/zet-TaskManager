@@ -561,3 +561,16 @@ export interface TasksImportReport {
   membershipsAdded: number;
   skipped: TasksImportSkip[];
 }
+
+
+/** One editable block of instructions sent to the model. */
+export interface AiPrompt {
+  key: string;
+  body: string;
+  defaultBody: string;
+  /** Names this prompt may use, as the server reports them. */
+  placeholders: string[];
+  isCustom: boolean;
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+}

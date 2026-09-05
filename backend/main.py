@@ -52,6 +52,28 @@ from routes import register_routes
 
 init_db()
 
+
+def _load_stored_prompts() -> None:
+    """Apply any prompt a superadmin has edited, once, at boot.
+
+    Wrapped because the defaults are compiled in: a database that cannot be read
+    here should cost the edits, not the whole app.
+    """
+    try:
+        from database.database import SessionLocal
+        from logic import prompt_logic
+
+        db = SessionLocal()
+        try:
+            prompt_logic.load_into_memory(db)
+        finally:
+            db.close()
+    except Exception as exc:  # noqa: BLE001 - startup must not depend on this
+        logging.getLogger("zet.prompts").warning("Stored prompts not loaded: %s", exc)
+
+
+_load_stored_prompts()
+
 # Embedded MCP server — same process and port, mounted at /mcp.
 mcp_asgi, mcp_lifespan = build_mcp_asgi()
 

@@ -176,6 +176,28 @@ def _migrate_clients() -> None:
         pass  # ponytail: column already exists
 
 
+def _migrate_ai_prompts() -> None:
+    """Overrides for the instructions sent to the model.
+
+    Only edited prompts get a row: an empty table means every prompt is the
+    default compiled into `ai/prompts.py`, which is what an untouched install
+    should be. Deleting a row is how a prompt is reset.
+    """
+    db = get_database()
+    _create_table_if_missing(
+        db,
+        "ai_prompts",
+        """
+        CREATE TABLE IF NOT EXISTS ai_prompts (
+            key VARCHAR PRIMARY KEY,
+            body TEXT NOT NULL,
+            updated_at VARCHAR NOT NULL,
+            updated_by VARCHAR
+        )
+        """,
+    )
+
+
 def _migrate_skills() -> None:
     db = get_database()
     _create_table_if_missing(
@@ -700,6 +722,7 @@ def init_db() -> None:
     _step(_migrate_task_estimated_hours)
     _step(_migrate_timesheet_entry_task_link)
     _step(_migrate_clients)
+    _step(_migrate_ai_prompts)
     _step(_migrate_skills)
     _step(_migrate_user_stories)
     _step(_migrate_user_story_section_optional)

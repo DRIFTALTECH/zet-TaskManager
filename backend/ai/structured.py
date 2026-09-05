@@ -47,8 +47,65 @@ def extract_json_value(text: str) -> Any:
         try:
             return json.loads(blob)
         except json.JSONDecodeError:
-            continue
+            pass
+        # Last resort: the answer may simply have been cut off at the output cap.
+        mended = _repair_truncated(blob)
+        if mended:
+            try:
+                return json.loads(mended)
+            except json.JSONDecodeError:
+                continue
     raise ValueError("Model did not return valid JSON")
+
+
+def _repair_truncated(blob: str) -> str | None:
+    """Close a JSON value the model stopped writing part-way through.
+
+    The output cap is a hard stop: on a long document the model is cut off
+    mid-token, and what comes back is valid JSON with the end missing. Every
+    story it had already finished is sitting there intact, and refusing to parse
+    threw all of them away along with the half-written one.
+
+    So rewind to the last container that actually closed — the last completed
+    story — drop everything after it, and close what is still open. The result
+    is the whole answer minus the one entry that never finished.
+
+    Returns None when nothing completed, which is a real failure rather than a
+    truncation worth rescuing.
+    """
+    stack: list[str] = []
+    in_string = False
+    escaped = False
+    cut: int | None = None
+    cut_stack: list[str] = []
+
+    for i, ch in enumerate(blob):
+        if escaped:
+            escaped = False
+            continue
+        if ch == "\\" and in_string:
+            escaped = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch in "{[":
+            stack.append(ch)
+        elif ch in "}]":
+            if not stack:
+                break
+            stack.pop()
+            # A container just closed. Everything up to here is whole, and the
+            # brackets still open are what we would have to close to end here.
+            if stack:
+                cut, cut_stack = i + 1, list(stack)
+
+    if cut is None:
+        return None
+    closers = "".join("}" if b == "{" else "]" for b in reversed(cut_stack))
+    return blob[:cut] + closers
 
 
 def _wrap_list_if_needed(data: Any, schema: Type[BaseModel]) -> Any:

@@ -959,3 +959,22 @@ class WorkItemPatch(BaseModel):
     acceptanceCriteria: str | None = None
     storyPoints: str | None = None
     startDate: str | None = None
+
+
+class PromptOut(BaseModel):
+    """One editable instruction block, with the wording it shipped with."""
+
+    key: str
+    body: str
+    defaultBody: str
+    #: Names this prompt may use. Sent rather than inferred: they come from the
+    #: whole template, and a caller reading only the system text would miss the
+    #: ones declared in the human turn and reject wording the server accepts.
+    placeholders: list[str]
+    isCustom: bool
+    updatedAt: str | None = None
+    updatedBy: str | None = None
+
+
+class PromptUpdate(BaseModel):
+    body: str

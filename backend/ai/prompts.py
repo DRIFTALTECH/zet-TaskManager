@@ -471,3 +471,127 @@ MOM_PARSE_PROMPT = ChatPromptTemplate.from_messages([
     ("system", MOM_PARSE_SYSTEM),
     ("human", "Raw meeting notes:\n\n{notes}"),
 ])
+
+
+# ── Editable at runtime ──────────────────────────────────────────────────────
+#
+# Everything above is the default wording, compiled in. A superadmin can replace
+# any of it from Settings, and the replacement lives in the `ai_prompts` table;
+# nothing here changes on disk. An install nobody has edited has an empty table
+# and behaves exactly as this file reads.
+#
+# The names below are removed from the module and served by `__getattr__`, so
+# the thirteen call sites keep saying `prompts.EXTRACT_PRD_PROMPT` and get the
+# current wording without knowing any of this exists.
+
+import logging  # noqa: E402
+
+from langchain_core.prompts import SystemMessagePromptTemplate  # noqa: E402
+
+log = logging.getLogger("zet.prompts")
+
+#: Templates whose system message is editable. The rest of each template — the
+#: human turn, any placeholder — is structure, not wording, so it stays put.
+EDITABLE_TEMPLATES = (
+    "GENERATE_DESCRIPTION_PROMPT",
+    "SUMMARIZE_TASK_PROMPT",
+    "PARSE_TASK_PROMPT",
+    "EXTRACT_PRD_PROMPT",
+    "OUTLINE_PRD_PROMPT",
+    "EXPAND_STORY_TASKS_PROMPT",
+    "TIMESHEET_PARSE_PROMPT",
+    "DAY_SUMMARY_PROMPT",
+    "MEETING_EXTRACT_PROMPT",
+    "MOM_PARSE_PROMPT",
+)
+
+#: Used as a plain string rather than through a template.
+EDITABLE_STRINGS = ("AGENT_SYSTEM",)
+
+_BASE_TEMPLATES = {name: globals()[name] for name in EDITABLE_TEMPLATES}
+
+
+def _system_text(template) -> str:
+    return template.messages[0].prompt.template
+
+
+#: key -> the wording shipped with the app, for "reset" and for showing a diff.
+DEFAULTS: dict[str, str] = {
+    **{name: _system_text(tpl) for name, tpl in _BASE_TEMPLATES.items()},
+    **{name: globals()[name] for name in EDITABLE_STRINGS},
+}
+
+#: key -> the placeholder names the runtime will actually supply.
+PLACEHOLDERS: dict[str, set[str]] = {
+    **{name: set(tpl.input_variables) for name, tpl in _BASE_TEMPLATES.items()},
+    **{name: set() for name in EDITABLE_STRINGS},
+}
+
+_overrides: dict[str, str] = {}
+
+
+def placeholders_in(body: str) -> set[str]:
+    """The names `body` would ask the caller to fill in.
+
+    Parsed the way the runtime parses it, so `{{literal}}` counts as text and
+    anything else in braces counts as a variable — which is the whole trap: a
+    JSON example pasted into a prompt reads as a placeholder, and the call then
+    fails at the point of use rather than at the point of editing.
+    """
+    return set(SystemMessagePromptTemplate.from_template(body).input_variables)
+
+
+def unknown_placeholders(key: str, body: str) -> set[str]:
+    """Names in `body` that nothing will ever supply. Empty means safe to use."""
+    return placeholders_in(body) - PLACEHOLDERS.get(key, set())
+
+
+def set_overrides(overrides: dict[str, str]) -> None:
+    """Replace the live set of edits. Keys not present fall back to the default."""
+    _overrides.clear()
+    _overrides.update({k: v for k, v in overrides.items() if k in DEFAULTS and v.strip()})
+
+
+def current(key: str) -> str:
+    """The wording in force for `key` — the edit if there is one, else the default."""
+    return _overrides.get(key) or DEFAULTS[key]
+
+
+def is_overridden(key: str) -> bool:
+    return key in _overrides
+
+
+def _with_current_system(name: str):
+    base = _BASE_TEMPLATES[name]
+    body = current(name)
+    # Untouched: hand back the very object built above, so the common path costs
+    # nothing and cannot differ from it by accident.
+    if body == DEFAULTS[name]:
+        return base
+    try:
+        if unknown_placeholders(name, body):
+            raise ValueError(f"unknown placeholders {sorted(unknown_placeholders(name, body))}")
+        return ChatPromptTemplate.from_messages(
+            [SystemMessagePromptTemplate.from_template(body), *base.messages[1:]]
+        )
+    except Exception as exc:
+        # A saved prompt that cannot be built would otherwise fail every call
+        # that uses it, with a message about template variables that says
+        # nothing about which prompt or who changed it. The default still works,
+        # so use it and say why once per call rather than breaking the feature.
+        log.warning("Stored prompt %s is unusable (%s); falling back to the default", name, exc)
+        return base
+
+
+# Removed from the module so attribute access falls through to `__getattr__`.
+for _name in (*EDITABLE_TEMPLATES, *EDITABLE_STRINGS):
+    del globals()[_name]
+del _name
+
+
+def __getattr__(name: str):
+    if name in _BASE_TEMPLATES:
+        return _with_current_system(name)
+    if name in EDITABLE_STRINGS:
+        return current(name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

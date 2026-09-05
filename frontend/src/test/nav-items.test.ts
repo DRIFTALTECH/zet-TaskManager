@@ -60,6 +60,17 @@ describe('visibleNavItems', () => {
     ]);
     expect(visibleNavItems('superadmin', 'management').map(i => i.path)).toEqual([
       '/overview', '/manage', '/users', '/reports', '/users/forecast', '/superadmin',
+      '/superadmin/prompts',
     ]);
+  });
+});
+
+
+describe('the AI prompts page', () => {
+  it('is offered to a superadmin only', () => {
+    expect(visibleNavItems('superadmin').map(i => i.path)).toContain('/superadmin/prompts');
+    for (const role of ['manager', 'employee'] as const) {
+      expect(visibleNavItems(role).map(i => i.path)).not.toContain('/superadmin/prompts');
+    }
   });
 });

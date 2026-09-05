@@ -97,6 +97,7 @@ interface AppState {
       assignedBy: string;
       createdBy: string;
       userStoryId?: string | null;
+      parentTaskId?: string | null;
       estimatedHours?: number | null;
     },
   ) => Promise<Task>;
@@ -498,6 +499,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       status: taskData.status,
       tags: taskData.tags,
       userStoryId: taskData.userStoryId,
+      // Forwarded so a subtask can be created as one, rather than made by
+      // creating a loose task and dragging it onto its parent afterwards.
+      parentTaskId: taskData.parentTaskId,
       estimatedHours: taskData.estimatedHours ?? null,
     });
     set({ tasks: [...get().tasks, t] });

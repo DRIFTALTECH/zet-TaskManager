@@ -5,6 +5,7 @@ project members when the model (or fallback) can pick a real member.
 """
 from __future__ import annotations
 
+import logging
 import uuid
 
 from fastapi import HTTPException, status
@@ -12,8 +13,11 @@ from fastapi import HTTPException, status
 from ai import chains
 from ai.schemas import PrdExtractedStory, PrdExtractResponse, ProjectRef, SectionRef, UserRef
 from logic.schemas import ExtractedStoryPreview, ExtractStoriesPreviewOut
+from logic.prd_chunks import dedupe_by_title, split_for_outline
 from logic.task_extraction_logic import _refs, resolve_source
 from logic.user_story_logic import _normalize_story_title
+
+log = logging.getLogger("zet.prd")
 
 
 def match_project_section(
@@ -178,10 +182,18 @@ def extract_prd(
     _users, projects = _refs(db, user_id)
     stories: list[ExtractedStoryPreview] = []
     outlined = []
-    try:
-        outlined = list(chains.outline_prd(source[:80000], projects).stories or [])
-    except Exception:
-        outlined = []
+    # Read long documents a piece at a time: one answer covering the whole thing
+    # runs past the model's output cap and loses its tail. Anything that already
+    # fits comes back as a single piece and costs one call, as before.
+    for idx, piece in enumerate(split_for_outline(source[:80000]), start=1):
+        try:
+            outlined.extend(chains.outline_prd(piece, projects).stories or [])
+        except Exception as exc:
+            # One piece failing costs that piece, not the whole document. Logged
+            # rather than swallowed: this hid a 90-second wait that read as the
+            # button doing nothing before the second attempt even began.
+            log.warning("PRD outline failed on piece %d: %s", idx, exc)
+    outlined = dedupe_by_title(outlined)
     if outlined:
         for i, shell in enumerate(outlined):
             raw_story = PrdExtractedStory(
@@ -202,10 +214,24 @@ def extract_prd(
 
     try:
         raw = chains.extract_prd(source[:80000], projects)
-    except Exception as exc:
+    except ValueError as exc:
+        # The model answered and the answer held no usable story — either it was
+        # still writing when it hit the output cap, or what it wrote did not fit
+        # the shape we asked for. Pydantic's ValidationError is a ValueError, so
+        # both land here, and the way out of both is the same: a smaller bite.
+        # Whatever the cause, name it in terms of the document rather than
+        # quoting our JSON parser at someone who never asked about JSON.
+        log.warning("PRD extract returned unusable content: %s", exc)
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY,
-            f"AI story extraction failed: {exc}",
+            "No usable stories came back from that document — it is most likely "
+            "too long to analyse in one pass. Try importing it a section at a time.",
+        ) from exc
+    except Exception as exc:
+        log.warning("PRD extract failed: %s", exc)
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            "Could not analyse that document just now — please try again.",
         ) from exc
     if not isinstance(raw, PrdExtractResponse):
         raw = PrdExtractResponse.model_validate(raw)

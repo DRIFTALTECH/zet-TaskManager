@@ -124,7 +124,7 @@ interface BoardTaskCard {
 }
 
 function StoryBoardCard({
-  story, tasks, totalTasks, childStories = [], renderChildStory, onEdit, onEditTask, subtasksOf, expandedTaskIds, onToggleTaskExpand, members = [], busy = false, busyIds, expanded, onToggleExpand, onClick, onTaskClick, onAddTask, users,
+  story, tasks, totalTasks, childStories = [], renderChildStory, onEdit, onEditTask, subtasksOf, expandedTaskIds, onToggleTaskExpand, members = [], busy = false, busyIds, expanded, onToggleExpand, onClick, onTaskClick, onAddTask, onAddSubtask, users,
   showProjectPill, isManager, doneColumnId,
   dragRef, dragStyle, dragAttributes, dragListeners, isDragging,
 }: {
@@ -143,6 +143,7 @@ function StoryBoardCard({
   onEditTask?: (task: Task, patch: DashRowPatch) => void;
   /** Subtasks of a task drawn inside this card, and which of them are open. */
   subtasksOf?: (taskId: string) => Task[];
+  onAddSubtask?: (parent: Task, title: string) => Promise<void>;
   expandedTaskIds?: Set<string>;
   onToggleTaskExpand?: (taskId: string) => void;
   /** People assignable to this story's project. */
@@ -291,6 +292,7 @@ function StoryBoardCard({
               expanded={!!expandedTaskIds?.has(t.id)}
               onToggleExpand={() => onToggleTaskExpand?.(t.id)}
               onSubtaskClick={onTaskClick}
+              onAddSubtask={onAddSubtask ? title => onAddSubtask(t, title) : undefined}
               renderSubtask={st => (
                 <SortableTaskCard
                   key={st.id}
@@ -328,7 +330,7 @@ function SortableStoryCard(props: Omit<Parameters<typeof StoryBoardCard>[0], 'dr
 
 function KanbanColumnPanel({
   column, taskCards, stories, storyTasksById, storyTaskTotals, childStoriesById,
-  subtasksByTask, expandedTaskIds, onToggleTaskExpand, busyIds,
+  subtasksByTask, expandedTaskIds, onToggleTaskExpand, busyIds, onAddSubtask,
   onEditStory, onEditTask, membersForProject,
   onTaskClick, onStoryClick, onStoryTaskClick,
   expandedStoryIds, onToggleStoryExpand, onNewTask, onNewStory, onAddStoryTask, isDropTarget, isManager,
@@ -349,6 +351,7 @@ function KanbanColumnPanel({
   busyIds?: Set<string>;
   /** Subtasks per task, and which cards are open. */
   subtasksByTask: Record<string, Task[]>;
+  onAddSubtask: (parent: Task, title: string) => Promise<void>;
   expandedTaskIds: Set<string>;
   onToggleTaskExpand: (taskId: string) => void;
   /** One-click cell edits, the same ones the list rows offer. */
@@ -429,6 +432,7 @@ function KanbanColumnPanel({
         busyIds={busyIds}
         onEditTask={onEditTask}
         subtasksOf={id => subtasksByTask[id] ?? []}
+        onAddSubtask={onAddSubtask}
         expandedTaskIds={expandedTaskIds}
         onToggleTaskExpand={onToggleTaskExpand}
         members={membersForProject(story.projectId)}
@@ -549,6 +553,7 @@ function KanbanColumnPanel({
               expanded={expandedTaskIds.has(task.id)}
               onToggleExpand={() => onToggleTaskExpand(task.id)}
               onSubtaskClick={onTaskClick}
+              onAddSubtask={title => onAddSubtask(task, title)}
               renderSubtask={st => (
                 <SortableTaskCard
                   key={st.id}
@@ -1064,6 +1069,42 @@ const DashboardPage = () => {
     setRenameColName(col.label);
     setRenameColOpen(true);
   };
+
+  /**
+   * Add a subtask straight onto a task card.
+   *
+   * A subtask inherits the things that place it — project, section, story and
+   * column — from its parent, so the only thing worth typing is the title. It
+   * starts unassigned: whoever picks it up assigns it, and the card offers Start
+   * to the creator regardless.
+   */
+  const addSubtaskTo = useCallback(
+    async (parent: Task, title: string) => {
+      if (!currentUser) return;
+      try {
+        await createTask({
+          title,
+          description: '',
+          projectId: parent.projectId,
+          sectionId: parent.sectionId,
+          assigneeIds: [],
+          assignedBy: currentUser.id,
+          createdBy: currentUser.id,
+          dueDate: '',
+          priority: parent.priority,
+          status: parent.status,
+          tags: [],
+          parentTaskId: parent.id,
+          userStoryId: parent.userStoryId || undefined,
+        });
+        // Open, so the new row is visible under the card that made it.
+        setExpandedTaskIds(prev => new Set(prev).add(parent.id));
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : 'Could not add that subtask');
+      }
+    },
+    [createTask, currentUser],
+  );
 
   /**
    * A drop landed on a card. Ask what the reader meant by it.
@@ -2093,6 +2134,7 @@ const DashboardPage = () => {
                 storyTaskTotals={storyTaskTotals}
                 childStoriesById={childStoriesById}
                 subtasksByTask={subtasksByTask}
+                onAddSubtask={addSubtaskTo}
                 busyIds={busyIds}
                 expandedTaskIds={expandedTaskIds}
                 onToggleTaskExpand={toggleTaskExpanded}

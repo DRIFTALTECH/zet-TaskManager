@@ -28,6 +28,7 @@ const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const AIPage = lazy(() => import("./pages/AIPage"));
 const MeetingNotesPage = lazy(() => import("./pages/MeetingNotesPage"));
 const SuperAdminPage = lazy(() => import("./pages/SuperAdminPage"));
+const PromptsPage = lazy(() => import("./pages/PromptsPage"));
 const OverviewPage = lazy(() => import("./pages/OverviewPage"));
 const ClientDetailPage = lazy(() => import("./pages/ClientDetailPage"));
 const DashboardPanArea = lazy(() =>
@@ -257,6 +258,8 @@ const App = () => (
           <Route path="/overview" element={<ProtectedRoute managerOnly><DashboardPanArea><OverviewPage /></DashboardPanArea></ProtectedRoute>} />
           <Route path="/overview/users" element={<Navigate to="/overview?tab=user" replace />} />
           <Route path="/superadmin" element={<ProtectedRoute><SuperAdminPage /></ProtectedRoute>} />
+          {/* The page gates itself on role too, so a typed URL cannot reach it. */}
+          <Route path="/superadmin/prompts" element={<ProtectedRoute><PromptsPage /></ProtectedRoute>} />
           <Route path="/admin" element={<Navigate to="/superadmin" replace />} />
           <Route path="/admin/login" element={<Navigate to="/login" replace />} />
           <Route path="*" element={<Navigate to="/" />} />

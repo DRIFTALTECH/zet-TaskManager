@@ -36,6 +36,7 @@ export const navItems: NavItem[] = [
   { path: '/reports', label: 'Reports', icon: BarChart3, group: 'management' },
   { path: '/users/forecast', label: 'What will happen next', icon: TrendingUp, group: 'management', managerOnly: true },
   { path: '/superadmin', label: 'Superadmin', icon: ShieldCheck, group: 'management', superadminOnly: true },
+  { path: '/superadmin/prompts', label: 'AI Prompts', icon: Sparkles, group: 'management', superadminOnly: true },
 ];
 
 /**

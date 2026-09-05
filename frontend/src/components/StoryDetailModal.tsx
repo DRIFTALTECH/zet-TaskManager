@@ -29,7 +29,7 @@ import { GenerateTasksPreviewDialog } from '@/components/GenerateTasksPreviewDia
 import { PrdWorkbench } from '@/components/prd/PrdWorkbench';
 import { CommentsRail } from '@/components/CommentsRail';
 import { WorkTypeSelect } from '@/components/dash/WorkTypeSelect';
-import { WorkItemRow } from '@/components/WorkItemRow';
+import { WorkItemTable } from '@/components/WorkItemTable';
 import { formatHM } from '@/components/HoursMinutesInput';
 import { AssigneeCell } from '@/components/dash/DashCells';
 import { invalidateUserStories, queryClient, removeUserStory, storyKeys, upsertUserStory } from '@/lib/queryClient';
@@ -92,7 +92,7 @@ export default function StoryDetailModal({
   story, open, onOpenChange, tasks, columns, doneColumnId,
   onTaskClick, onAddTask, isManager, onUpdated, onConvert,
 }: Props) {
-  const { users, projects, currentUser, syncTasks, tasks: storeTasks } = useAppStore();
+  const { users, projects, currentUser, syncTasks, tasks: storeTasks, updateTask, createTask, deleteTask } = useAppStore();
   const { showEmpty, toggleEmptyFields } = useShowEmptyFields();
   const storyId = story?.id ?? '';
   const { data: feedbackList = [], isLoading: feedbackLoading } = useQuery({
@@ -194,6 +194,35 @@ export default function StoryDetailModal({
   const projectMembers = project
     ? users.filter(u => project.members.includes(u.id)).sort((a, b) => a.name.localeCompare(b.name))
     : [];
+  /**
+   * A task added here inherits what places it — project, section, story and the
+   * story's column — so only the title is worth typing, exactly as a subtask
+   * added from a task card is.
+   */
+  const canAddTask = !!currentUser && !!project;
+  const addTaskToStory = async (title: string) => {
+    if (!currentUser || !project) return;
+    try {
+      await createTask({
+        title,
+        description: '',
+        projectId: project.id,
+        sectionId: story.sectionId ?? section?.id ?? '',
+        assigneeIds: [],
+        assignedBy: currentUser.id,
+        createdBy: currentUser.id,
+        dueDate: '',
+        priority: normalizePriority(String(story.priority)),
+        status: story.status,
+        tags: [],
+        userStoryId: story.id,
+      });
+      await syncTasks();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not add that task');
+    }
+  };
+
   const displayStatus = canEdit ? draftStatus : story.status;
   const isDoneDue = displayStatus === 'completed' || displayStatus === 'done' || displayStatus === doneColumnId;
   const dueBucket = getDueBucket(canEdit ? draftDueDate : (story.dueDate ?? ''));
@@ -666,25 +695,32 @@ export default function StoryDetailModal({
                 )}
               </section>
 
-              <section>
-                <div className="flex items-center justify-between mb-3">
-                  <FieldLabel icon={Layers} label={`Tasks (${doneN}/${tasks.length})`} />
-                </div>
-                {tasks.length === 0 ? (
-                  <p className="text-xs text-muted-foreground/35 italic">No tasks yet</p>
-                ) : (
-                  <div className="space-y-1.5">
-                    {tasks.map(t => (
-                      <WorkItemRow
-                        key={t.id}
-                        task={t}
-                        doneColumnId={doneColumnId}
-                        onClick={() => onTaskClick(t)}
-                      />
-                    ))}
-                  </div>
-                )}
-              </section>
+              {/* The same table a task shows for its subtasks: one depth down,
+                  same kind of thing, so it reads and behaves the same. */}
+              <WorkItemTable
+                title="Tasks"
+                addLabel="Add task"
+                items={tasks}
+                members={projectMembers}
+                currentUserId={currentUser?.id}
+                onOpen={onTaskClick}
+                onEdit={async (t, patch) => {
+                  try {
+                    await updateTask(t.id, patch);
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : 'Could not update task');
+                  }
+                }}
+                onDelete={async t => {
+                  try {
+                    await deleteTask(t.id);
+                    await syncTasks();
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : 'Could not delete that task');
+                  }
+                }}
+                onAdd={canAddTask ? addTaskToStory : undefined}
+              />
 
               <section>
                 <div className="flex items-center justify-between mb-3">

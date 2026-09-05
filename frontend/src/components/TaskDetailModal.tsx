@@ -28,7 +28,6 @@ import { FieldLabel } from '@/components/ui/field';
 import { DatePickerInput } from '@/components/DatePickerInput';
 import { FIELD_GRID, HIDE_EMPTY_FIELDS } from '@/lib/field-styles';
 import { useShowEmptyFields } from '@/hooks/useShowEmptyFields';
-import { WorkItemRow } from '@/components/WorkItemRow';
 import { WorkTypeSelect } from '@/components/dash/WorkTypeSelect';
 import { HoursMinutesInput, formatHM, secondsToDecimalHours } from '@/components/HoursMinutesInput';
 import { AssigneeCell } from '@/components/dash/DashCells';
@@ -38,6 +37,8 @@ import { dueBucketDateTextClass, getDueBucket } from '@/lib/due-date-utils';
 import { api } from '@/lib/api';
 import { promptActualHours } from '@/components/ActualHoursDialog';
 import { queryClient, taskKeys } from '@/lib/queryClient';
+import { InlineSubtaskComposer } from '@/components/InlineSubtaskComposer';
+import { WorkItemTable } from '@/components/WorkItemTable';
 import { formatLocalDateTime } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -149,7 +150,7 @@ function Avatar({ name, avatar, size = 'md' }: { name: string; avatar?: string; 
 const TaskDetailModal = ({ task: listTask, open, onOpenChange, onConvert }: Props) => {
   const {
     users, projects, kanbanColumns, updateTask, currentUser, deleteTask, reopenTaskToBacklog,
-    activeTimers, startTimer, stopTimer, tasks: allTasks, moveTask,
+    activeTimers, startTimer, stopTimer, tasks: allTasks, moveTask, createTask,
   } = useAppStore();
   const { showEmpty, toggleEmptyFields } = useShowEmptyFields();
   const { data: fullTask } = useQuery({
@@ -164,6 +165,38 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange, onConvert }: Prop
     () => (task ? childTasksOf(allTasks, task.id) : []),
     [task, allTasks],
   );
+  /**
+   * A subtask made from the open task inherits what places it — project,
+   * section, story, column — so only the title is worth typing. It starts
+   * unassigned; whoever picks it up assigns it.
+   *
+   * The one-level rule lives on the server, so a task that is itself a subtask
+   * offers nothing to add to.
+   */
+  const canAddSubtask = !!task && !task.parentTaskId && !!currentUser;
+  const addSubtask = async (title: string) => {
+    if (!task || !currentUser) return;
+    try {
+      await createTask({
+        title,
+        description: '',
+        projectId: task.projectId,
+        sectionId: task.sectionId,
+        assigneeIds: [],
+        assignedBy: currentUser.id,
+        createdBy: currentUser.id,
+        dueDate: '',
+        priority: task.priority,
+        status: task.status,
+        tags: [],
+        parentTaskId: task.id,
+        userStoryId: task.userStoryId || undefined,
+      });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not add that subtask');
+    }
+  };
+
   const [draftTitle, setDraftTitle] = useState('');
   const [draftDescription, setDraftDescription] = useState('');
   const [draftPriority, setDraftPriority] = useState<Priority>('Medium');
@@ -898,39 +931,31 @@ const TaskDetailModal = ({ task: listTask, open, onOpenChange, onConvert }: Prop
                 )}
               </section>
 
-              {nestedChildren.length > 0 && (
-                <section>
-                  <div className="flex items-center justify-between mb-3">
-                    <FieldLabel
-                      icon={Layers}
-                      label={`Subtasks (${nestedChildren.filter(isTaskDone).length}/${nestedChildren.length})`}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    {nestedChildren.map(st => (
-                      <WorkItemRow
-                        key={st.id}
-                        task={st}
-                        onClick={() => window.dispatchEvent(new CustomEvent('zet:open-task', { detail: { taskId: st.id } }))}
-                        onToggleDone={async wasDone => {
-                          try {
-                            if (wasDone) {
-                              if (st.status === 'completed') await reopenTaskToBacklog(st.id);
-                              else await moveTask(st.id, 'backlog');
-                            } else {
-                              const hours = await promptActualHours(st, 'done');
-                              if (hours === null) return;
-                              await moveTask(st.id, 'done', hours);
-                            }
-                          } catch (e) {
-                            toast.error(e instanceof Error ? e.message : 'Could not update subtask');
-                          }
-                        }}
-                      />
-                    ))}
-                  </div>
-                </section>
-              )}
+              <WorkItemTable
+                title="Subtasks"
+                addLabel="Add subtask"
+                items={nestedChildren}
+                members={projectMembers}
+                currentUserId={currentUser?.id}
+                onOpen={st => window.dispatchEvent(
+                  new CustomEvent('zet:open-task', { detail: { taskId: st.id } }),
+                )}
+                onEdit={async (st, patch) => {
+                  try {
+                    await updateTask(st.id, patch);
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : 'Could not update subtask');
+                  }
+                }}
+                onDelete={async st => {
+                  try {
+                    await deleteTask(st.id);
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : 'Could not delete that subtask');
+                  }
+                }}
+                onAdd={canAddSubtask ? addSubtask : undefined}
+              />
 
               {/* ── Attachments ── */}
               <section>

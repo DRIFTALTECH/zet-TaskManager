@@ -16,6 +16,7 @@ Chat, agent, and structured-output calls use DeepSeek only. Override via:
 """
 
 import json
+import logging
 import os
 from typing import TypeVar, Type
 
@@ -26,6 +27,8 @@ from pydantic import BaseModel
 
 from ai.response_parser import extract_final_answer, message_to_text
 from ai.structured import parse_structured as parse_structured
+
+log = logging.getLogger("zet.ai")
 
 # ── Models ────────────────────────────────────────────────────────────────────
 # Official API id: deepseek-v4-flash (serves the latest V4 Flash snapshot).
@@ -116,6 +119,14 @@ def _with_json_instruction(prompt: ChatPromptTemplate, schema: Type[BaseModel]) 
     return ChatPromptTemplate.from_messages([*prompt.messages, ("human", extra)])
 
 
+# Asked for on a second attempt, when the first answer came back unusable.
+_JSON_ONLY_RETRY = (
+    "Your previous answer could not be read as JSON. Reply with the JSON object "
+    "alone — no explanation before or after it, no markdown fences. Keep it "
+    "short enough to finish: prefer fewer entries over an answer that gets cut off."
+)
+
+
 def complete_structured(
     prompt: ChatPromptTemplate,
     variables: dict,
@@ -123,10 +134,24 @@ def complete_structured(
     *,
     timeout: float | None = None,
 ) -> T:
-    """Plain completion + parse_structured. Does not send response_format."""
+    """Plain completion + parse_structured. Does not send response_format.
+
+    Retries once when the answer parses as nothing usable. The client's own
+    retries never cover this: a model that replies with prose, or stops before
+    finishing a single entry, has still returned HTTP 200 — nothing failed at
+    the transport layer, so nothing is retried. That left the one failure that
+    actually happens as the one failure nobody retried.
+    """
     llm = _require(_deepseek(_DEFAULT_MODEL, 0.1, timeout=timeout))
-    text = parse_message_content((_with_json_instruction(prompt, schema) | llm).invoke(variables))
-    return parse_structured(text, schema)
+    chain = _with_json_instruction(prompt, schema) | llm
+    try:
+        return parse_structured(parse_message_content(chain.invoke(variables)), schema)
+    except ValueError:
+        log.warning("structured parse failed for %s; asking again for JSON only", schema.__name__)
+    retry_prompt = ChatPromptTemplate.from_messages(
+        [*_with_json_instruction(prompt, schema).messages, ("human", _JSON_ONLY_RETRY)]
+    )
+    return parse_structured(parse_message_content((retry_prompt | llm).invoke(variables)), schema)
 
 
 def complete_structured_strict(

@@ -600,6 +600,21 @@ export const api = {
     return request(`/tasks/${taskId}/feedback`);
   },
 
+  // ── AI prompts (superadmin) ──────────────────────────────────────────────
+  async listPrompts(): Promise<import('@/types').AiPrompt[]> {
+    return request('/ai/prompts');
+  },
+  async updatePrompt(key: string, body: string): Promise<import('@/types').AiPrompt> {
+    return request(`/ai/prompts/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ body }),
+    });
+  },
+  /** Drop the edit so the wording shipped with the app takes over again. */
+  async resetPrompt(key: string): Promise<import('@/types').AiPrompt> {
+    return request(`/ai/prompts/${encodeURIComponent(key)}`, { method: 'DELETE' });
+  },
+
   async createTaskFeedback(taskId: string, message: string, mentionedUserIds: string[] = []): Promise<TaskFeedback> {
     return request(`/tasks/${taskId}/feedback`, { method: 'POST', body: JSON.stringify({ message, mentionedUserIds }) });
   },

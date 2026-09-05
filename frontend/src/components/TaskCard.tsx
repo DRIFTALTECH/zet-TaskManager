@@ -12,6 +12,7 @@ import UserAvatar from '@/components/UserAvatar';
 import { useAppStore } from '@/stores/appStore';
 import { CARD_SHADOW } from '@/lib/card-shadow';
 import { DROP_HOST_CLASS, useIsDropHost } from '@/lib/drop-target';
+import { InlineSubtaskComposer } from '@/components/InlineSubtaskComposer';
 import { useElapsedTime } from '@/hooks/useElapsedTime';
 import { projectNameColor } from '@/lib/project-utils';
 import { isTaskAssignedTo, taskAssigneeIds, normalizePriority } from '@/lib/task-utils';
@@ -107,6 +108,12 @@ export type TaskCardProps = {
   expanded?: boolean;
   onToggleExpand?: () => void;
   onSubtaskClick?: (task: Task) => void;
+  /**
+   * Add a subtask from the card itself. Until this existed the only way to make
+   * one was to create a loose task and drag it onto another card, so the
+   * relationship had to be built by accident before it could be intended.
+   */
+  onAddSubtask?: (title: string) => Promise<void>;
   /** Draws one subtask card; the board passes its own so they stay draggable. */
   renderSubtask?: (task: Task) => ReactNode;
   /** A request for this task is in flight. */
@@ -133,6 +140,7 @@ export function TaskCard({
   expanded = false,
   onToggleExpand,
   onSubtaskClick,
+  onAddSubtask,
   renderSubtask,
   busy = false,
 }: TaskCardProps) {
@@ -325,7 +333,7 @@ export function TaskCard({
               ) : null}
             </div>
           </div>
-          {subtasks.length > 0 && (
+          {subtasks.length > 0 ? (
             <button
               type="button"
               className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
@@ -334,6 +342,11 @@ export function TaskCard({
               <ChevronRight className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-90' : ''}`} />
               {subtasks.length} {subtasks.length === 1 ? 'subtask' : 'subtasks'}
             </button>
+          ) : null}
+          {onAddSubtask && (subtasks.length === 0 || expanded) && (
+            <div className="mt-1" onClick={e => e.stopPropagation()}>
+              <InlineSubtaskComposer onAdd={onAddSubtask} />
+            </div>
           )}
         </div>
       </div>

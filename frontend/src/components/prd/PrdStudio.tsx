@@ -134,6 +134,28 @@ export function PrdStudio({
     }
   };
 
+  /**
+   * Save every ticked story in one request.
+   *
+   * The ticks were already there and already meant "I want these" — but the
+   * only way to act on them was to open each story and save it on its own, so a
+   * BRD that produced fifteen took fifteen round trips through a dialog. The
+   * commit endpoint has always taken a list; nothing was asking it for one.
+   */
+  const saveSelected = async () => {
+    if (storyIds.length === 0) return;
+    try {
+      await onCommit(storyIds);
+      // What was saved has left the draft, so ticks pointing at it would be
+      // ticks on rows that no longer exist.
+      setStoryOn({});
+      setActiveId(null);
+      setStoryOpen(false);
+    } catch {
+      // onCommit reports its own failure; the ticks stay so it can be retried.
+    }
+  };
+
   const generateTasks = async (storyId: string) => {
     setGenerating(true);
     try {
@@ -210,16 +232,38 @@ export function PrdStudio({
           <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-sky-600 dark:text-sky-400">
             <BookOpen className="h-3.5 w-3.5" /> Stories
           </p>
-          <button
-            type="button"
-            className="text-[11px] font-semibold text-muted-foreground hover:text-foreground"
-            onClick={() => {
-              const all = stories.length > 0 && stories.every(s => storyOn[s.id]);
-              setStoryOn(Object.fromEntries(stories.map(s => [s.id, !all])));
-            }}
-          >
-            {stories.every(s => storyOn[s.id]) ? 'Untick all' : 'Tick all'}
-          </button>
+          <div className="flex items-center gap-2">
+            {storyIds.length > 0 && (
+              <span className="text-[11px] font-medium text-muted-foreground tabular-nums">
+                {storyIds.length} selected
+              </span>
+            )}
+            <button
+              type="button"
+              className="text-[11px] font-semibold text-muted-foreground hover:text-foreground"
+              onClick={() => {
+                const all = stories.length > 0 && stories.every(s => storyOn[s.id]);
+                setStoryOn(Object.fromEntries(stories.map(s => [s.id, !all])));
+              }}
+            >
+              {stories.length > 0 && stories.every(s => storyOn[s.id]) ? 'Untick all' : 'Tick all'}
+            </button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={busy || storyIds.length === 0}
+              onClick={() => void saveSelected()}
+            >
+              {saving ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Check className="h-3.5 w-3.5" />
+              )}
+              {storyIds.length > 0
+                ? `Save ${storyIds.length} ${storyIds.length === 1 ? 'story' : 'stories'}`
+                : 'Save selected'}
+            </Button>
+          </div>
         </div>
         {stories.length === 0 ? (
           <p className="py-10 text-center text-sm text-muted-foreground">
