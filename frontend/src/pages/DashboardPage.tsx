@@ -475,10 +475,13 @@ function KanbanColumnPanel({
       <div className="flex items-center justify-between mb-4 px-1">
         <div className="flex items-center gap-2">
           {canEditLane && (
-            <button {...attributes} {...listeners} onClick={e => e.stopPropagation()}
-              className="cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground/70 transition-colors touch-none p-0.5 rounded">
-              <GripVertical className="h-4 w-4" />
-            </button>
+            <Hint label="Drag to reorder this column">
+              <button {...attributes} {...listeners} onClick={e => e.stopPropagation()}
+                aria-label={`Drag to reorder ${column.label}`}
+                className="cursor-grab active:cursor-grabbing text-muted-foreground/40 hover:text-muted-foreground/70 transition-colors touch-none p-0.5 rounded">
+                <GripVertical className="h-4 w-4" />
+              </button>
+            </Hint>
           )}
           <h3 className={`rounded px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${colorTokens.pill}`}>
             {column.label}
@@ -502,11 +505,17 @@ function KanbanColumnPanel({
           />
           {canEditLane && (
           <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="p-1 rounded-lg hover:bg-muted/60 text-muted-foreground/50 hover:text-muted-foreground transition-colors">
-              <MoreHorizontal className="h-4 w-4" />
-            </button>
-          </DropdownMenuTrigger>
+          <Hint label="Column options">
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label={`Options for ${column.label}`}
+                className="p-1 rounded-lg hover:bg-muted/60 text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </button>
+            </DropdownMenuTrigger>
+          </Hint>
           <DropdownMenuContent align="end" className="w-44">
             <DropdownMenuItem onClick={onSetDoneColumn} className="gap-2">
               <Flag className="h-3.5 w-3.5" />

@@ -41,7 +41,7 @@ export function DashBulkBar({
   const noun = rows.length === 1 ? 'item' : 'items';
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-40 flex justify-center px-4">
+    <div className="pointer-events-none fixed inset-x-0 bottom-24 z-40 flex justify-center px-4">
       <div className="pointer-events-auto flex flex-wrap items-center gap-1 rounded-xl border border-border/60 bg-card/95 p-1.5 shadow-xl backdrop-blur">
         <span className="flex items-center gap-2 rounded-lg bg-muted/60 px-2.5 py-1.5 text-xs font-semibold">
           {rows.length} {noun} selected

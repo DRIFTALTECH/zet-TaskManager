@@ -308,8 +308,18 @@ export function DashToolbar(props: DashToolbarProps) {
    * would hide the controls holding the board in the state you are reading.
    */
   const [open, setOpen] = useState(false);
+  /**
+   * The ball drifts to catch the eye, and stops for good once it has worked.
+   *
+   * Ambient motion is only useful while the control still needs introducing.
+   * After that it is a moving target on the one thing that opens the whole
+   * toolbar — measurably harder to hit on a trackpad, and worse for anyone
+   * whose pointer is not steady.
+   */
+  const [everOpened, setEverOpened] = useState(false);
   const anythingSet = hasFilters || !!search.trim();
   const shown = open || anythingSet;
+  useEffect(() => { if (shown) setEverOpened(true); }, [shown]);
 
   /** Slides in from the side it sits on, and takes no width while closed. */
   const wing = (side: 'left' | 'right') =>
@@ -364,7 +374,9 @@ export function DashToolbar(props: DashToolbarProps) {
             </div>
           )}
           <div
-            className="pointer-events-auto flex max-w-full flex-nowrap items-center justify-center gap-1.5"
+            className={`pointer-events-auto flex max-w-full flex-nowrap items-center justify-center gap-1.5 ${
+              shown ? '' : 'px-3'
+            }`}
             onMouseEnter={() => setOpen(true)}
             onMouseLeave={() => setOpen(false)}
             onFocusCapture={() => setOpen(true)}
@@ -381,7 +393,7 @@ export function DashToolbar(props: DashToolbarProps) {
           className={`tb-field flex ${TOOLBAR_H} min-w-0 shrink-0 items-center overflow-hidden rounded-full bg-foreground text-background shadow-md transition-all duration-300 ease-out focus-within:shadow-lg ${
             shown
               ? 'w-[min(70vw,22rem)] gap-2 px-4'
-              : 'tb-ball w-9 justify-center gap-0 px-0'
+              : `tb-ball ${everOpened ? '' : 'tb-ball-drift'} w-9 justify-center gap-0 px-0`
           }`}
           role={shown ? undefined : 'button'}
           aria-label={shown ? undefined : 'Search and filter'}

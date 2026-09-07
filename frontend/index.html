@@ -44,25 +44,113 @@
       @media (prefers-color-scheme: dark) {
         #zet-splash { background: #0a0a0a; color: #8a8a8a; }
       }
-      #zet-splash .ring {
-        width: 26px;
-        height: 26px;
-        border: 2px solid currentColor;
-        border-top-color: transparent;
-        border-radius: 50%;
-        animation: zet-spin 0.7s linear infinite;
+      /* Same cast and geometry as MascotWait.tsx — the sign-in panel's 450x400
+         stage, scaled as one piece so the proportions cannot drift apart. */
+      #zet-cast { position: relative; width: 351px; height: 312px; }
+      #zet-stage { position: absolute; left: 0; top: 0; width: 450px; height: 400px;
+                   transform: scale(0.78); transform-origin: top left; }
+      #zet-stage > div { position: absolute; bottom: 0; transform-origin: bottom center; }
+      #zet-cast .eyes { position: absolute; display: flex; }
+      #zet-cast .eye {
+        border-radius: 50%; background: #fff; flex-shrink: 0;
+        display: flex; align-items: center; justify-content: center;
+        animation: zet-blink 5.4s ease-in-out infinite;
       }
-      @keyframes zet-spin { to { transform: rotate(360deg); } }
+      #zet-cast .eye i { border-radius: 50%; background: #2D2D2D; display: block; }
+      #zet-cast .dot {
+        border-radius: 50%; background: #2D2D2D; flex-shrink: 0;
+        animation: zet-blink 5.4s ease-in-out infinite;
+      }
+      #zet-cast .pupil { transition: transform 900ms cubic-bezier(0.22, 1, 0.36, 1); }
+      @keyframes zet-blink {
+        0%, 93%, 100% { transform: scaleY(1); }
+        96%           { transform: scaleY(0.1); }
+      }
+      @keyframes zet-sway-a { 0%,100% { transform: skewX(-2.5deg); } 50% { transform: skewX(2deg); } }
+      @keyframes zet-sway-b { 0%,100% { transform: skewX(1.8deg); }  50% { transform: skewX(-2.2deg); } }
+      @keyframes zet-sway-c { 0%,100% { transform: skewX(-1.2deg); } 50% { transform: skewX(1.2deg); } }
       @media (prefers-reduced-motion: reduce) {
-        #zet-splash .ring { animation-duration: 2s; }
+        #zet-cast .eye, #zet-cast .dot, #zet-stage > div { animation: none; }
+        #zet-cast .pupil { transition: none; }
+      }
+      #zet-brand { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+      #zet-brand .zet-name { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: -0.02em; color: #1a1a1a; }
+      #zet-brand .zet-name span { font-weight: 400; color: #b4b4b4; }
+      #zet-brand .zet-tag { margin: 0; font-size: 16px; }
+      #zet-splash-msg { margin: 0; font-size: 12px; opacity: 0.65; }
+      @media (prefers-color-scheme: dark) {
+        #zet-brand .zet-name { color: #ededed; }
+        #zet-brand .zet-name span { color: #6a6a6a; }
       }
     </style>
     <div id="root">
       <div id="zet-splash">
-        <div class="ring"></div>
+        <div id="zet-brand">
+          <h1 class="zet-name">ZET <span>—</span> Zero Effort Tasks</h1>
+          <p class="zet-tag">Your work, organized.</p>
+        </div>
+        <div id="zet-cast" role="img" aria-label="Loading">
+          <div id="zet-stage">
+            <div style="left:70px;width:180px;height:400px;background:#6C3FF5;border-radius:10px 10px 0 0;z-index:1;animation:zet-sway-a 6.5s ease-in-out infinite">
+              <div class="eyes" style="left:45px;top:40px;gap:32px">
+                <span class="eye" style="width:18px;height:18px"><i class="pupil" style="width:7px;height:7px" data-reach="5"></i></span>
+                <span class="eye" style="width:18px;height:18px"><i class="pupil" style="width:7px;height:7px" data-reach="5"></i></span>
+              </div>
+            </div>
+            <div style="left:240px;width:120px;height:310px;background:#2D2D2D;border-radius:8px 8px 0 0;z-index:2;animation:zet-sway-b 7.4s ease-in-out infinite">
+              <div class="eyes" style="left:26px;top:32px;gap:24px">
+                <span class="eye" style="width:16px;height:16px"><i class="pupil" style="width:6px;height:6px" data-reach="4"></i></span>
+                <span class="eye" style="width:16px;height:16px"><i class="pupil" style="width:6px;height:6px" data-reach="4"></i></span>
+              </div>
+            </div>
+            <div style="left:0;width:240px;height:200px;background:#FF9B6B;border-radius:120px 120px 0 0;z-index:3;animation:zet-sway-c 8.2s ease-in-out infinite">
+              <div class="eyes" style="left:82px;top:90px;gap:32px">
+                <span class="dot pupil" style="width:12px;height:12px" data-reach="5"></span>
+                <span class="dot pupil" style="width:12px;height:12px" data-reach="5"></span>
+              </div>
+            </div>
+            <div style="left:310px;width:140px;height:230px;background:#E8D754;border-radius:70px 70px 0 0;z-index:4;animation:zet-sway-a 7.9s ease-in-out infinite">
+              <div class="eyes" style="left:52px;top:40px;gap:24px">
+                <span class="dot pupil" style="width:12px;height:12px" data-reach="5"></span>
+                <span class="dot pupil" style="width:12px;height:12px" data-reach="5"></span>
+              </div>
+              <span style="position:absolute;left:40px;top:88px;width:80px;height:4px;border-radius:2px;background:#2D2D2D"></span>
+            </div>
+          </div>
+        </div>
         <p id="zet-splash-msg">Loading ZET…</p>
       </div>
     </div>
+    <script>
+      // The four glance around together, but never on a beat: mostly quick
+      // darts a few hundred milliseconds apart, occasionally a long slow drift.
+      // A fixed interval read as a metronome, which eyes never do.
+      (function () {
+        var pupils = document.querySelectorAll("#zet-cast .pupil");
+        if (!pupils.length) return;
+        function glance() {
+          var quick = Math.random() < 0.55;
+          var ms = quick ? 120 + Math.random() * 140 : 650 + Math.random() * 800;
+          var a = Math.random() * Math.PI * 2;
+          var reach = 0.4 + Math.random() * 0.6;
+          var lx = Math.cos(a) * reach;
+          var ly = Math.abs(Math.sin(a)) * reach * 0.8;
+          for (var i = 0; i < pupils.length; i++) {
+            var r = parseFloat(pupils[i].getAttribute("data-reach")) || 4;
+            pupils[i].style.transitionDuration = ms + "ms";
+            pupils[i].style.transform =
+              "translate(" + lx * r + "px," + ly * r + "px)";
+          }
+          setTimeout(glance, quick ? 220 + Math.random() * 520 : 1700 + Math.random() * 2800);
+        }
+        // Each body sways on its own drawn timing, so no two loads match.
+        var bodies = document.querySelectorAll("#zet-stage > div");
+        for (var b = 0; b < bodies.length; b++) {
+          bodies[b].style.animationDuration = (4.5 + Math.random() * 5).toFixed(2) + "s";
+        }
+        glance();
+      })();
+    </script>
     <script>
       // Returning from the Microsoft redirect? Say so, so the wait reads as
       // progress rather than a failed login. MSAL puts code/state in the hash.
