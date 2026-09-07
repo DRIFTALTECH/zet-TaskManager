@@ -38,14 +38,14 @@ import { useLiveSync } from "./hooks/useTaskSync";
 import Companion from "./components/agents/Companion";
 import { ActualHoursDialogHost } from "./components/ActualHoursDialog";
 import { ConfirmDialogHost } from "./components/ConfirmDialog";
+import { MascotWait } from "./components/auth/MascotWait";
 import { queryClient } from "./lib/queryClient";
 
 /** Full-screen progress used for every wait before the app is usable. */
 function FullScreenStatus({ message }: { message: string }) {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center gap-3.5 bg-background text-muted-foreground">
-      <div className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent" />
-      <p className="text-sm">{message}</p>
+    <div className="min-h-screen flex flex-col items-center justify-center bg-background">
+      <MascotWait label={message} />
     </div>
   );
 }
