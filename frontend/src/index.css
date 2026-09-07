@@ -198,8 +198,13 @@
 
 
 @layer utilities {
-  .tb-ball {
+  /* The drift is a separate class from the sphere so the motion can stop
+     without the ball turning back into a flat disc. */
+  .tb-ball-drift {
     animation: tb-drift 5s ease-in-out infinite alternate;
+  }
+
+  .tb-ball {
 
     /* Lift the base off `--foreground` first. That token is pure black in the
        light theme, and black has nowhere darker to go — every shadow below
@@ -234,7 +239,7 @@
   /* Ambient motion nobody asked for is exactly what this setting turns off.
      The sphere stays; only the drifting stops. */
   @media (prefers-reduced-motion: reduce) {
-    .tb-ball {
+    .tb-ball-drift {
       animation: none;
     }
   }
